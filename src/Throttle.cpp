@@ -3,16 +3,54 @@
 #include "Function.h"
 #include "Arduino.h"
 #include "MQTT.h"
+#include "Preferences.h"
+#include "PubSubClient.h"
+#include "WebSerial.h"
+
+extern PubSubClient client;
 
 // Constructor
-Throttle::Throttle(int roadNumber)
+// Throttle::Throttle(int roadNumber)
+Throttle::Throttle(void)
 {
+    _notch = 0;
+    _currentSpeed = 0;
+    _mph = 0;
+    _lastNotch = 0;
+
+    Preferences myPrefs;
+    myPrefs.begin("functions");
+    functionPM = myPrefs.getInt("pm", 28);
+    functionBell = myPrefs.getInt("bell", 1);
+    functionHorn = myPrefs.getInt("horn", 2);
+    functionHeadlightBright = myPrefs.getInt("headlightBright", 0);
+    functionHeadlightDim = myPrefs.getInt("headlightDim", 6);
+    functionRearlightBright = myPrefs.getInt("rearlightBright", 7);
+    functionRearlightDim = myPrefs.getInt("rearlightDim", 10);
+    functionNotchingEnable = myPrefs.getInt("notchingEnable", 25);
+    functionNotchUp = myPrefs.getInt("notchUp", 26);
+    functionNotchDown = myPrefs.getInt("notchDown", 27);
+    functionIndependentBrake = myPrefs.getInt("independentBrake", 5);
+    functionTrainBrake = myPrefs.getInt("trainBrake", 4);
+    functionEmergencyBrake = myPrefs.getInt("emergencyBrake", 5);
+    functionCompressor = myPrefs.getInt("compressor", 20);
+    myPrefs.end();
+
+    myPrefs.begin("loco");
+    _roadNumber = myPrefs.getInt("roadnum", 16);
+    // // myPrefs.getBool("shortLong", 0);
+    _horsepower = myPrefs.getInt("horsepower", 1500);
+    _locoWeight = myPrefs.getLong("locoweight", 250000);
+    _tractiveEffort = myPrefs.getFloat("tractiveeffort", 70000.);
+    myPrefs.end();
+
     _direction = true; // forward
     _throttleLever = 0;
-    _roadNumber = roadNumber;
     _trainlinePSI = 42;
     _trainlineSetPSI = 75;
     _neutral = true;
+    _locoMass = _locoWeight / 32;
+    _carCount = 0;
 
     // send back trainline pressure TBD this will be removed
     // String speedFeedback = "IOB/" + String(_roadNumber) + "/feedback/trainline";
@@ -20,6 +58,31 @@ Throttle::Throttle(int roadNumber)
     // client.publish(speedFeedback.c_str(), glarb.c_str());
 }
 
+void Throttle::init()
+{
+   
+    // setFunction(functionNotchingEnable, 1);
+    setFunction(functionNotchUp, 0);
+    setFunction(functionNotchDown, 0);
+
+}
+
+void Throttle::setRoadNumber(int roadNumber)
+{
+    _roadNumber = roadNumber;
+}
+
+int Throttle::getRoadNumber(void)
+{
+    return _roadNumber;
+}
+
+void Throttle::pmOnOff(bool onOff)
+{
+    _running = onOff;
+    setFunction(functionPM, onOff);
+    setFunction(functionNotchingEnable, onOff); // TBD had to put here instead of init, don't get it
+}
 
 void Throttle::headlight(int offDimBright)
 {
@@ -40,44 +103,40 @@ void Throttle::headlight(int offDimBright)
     }
 }
 
+void Throttle::rearlight(int offDimBright)
+{
+    if (offDimBright == 0)
+    {
+        setFunction(functionRearlightDim, false);
+        setFunction(functionRearlightBright, false);
+    }
+    else if (offDimBright == 1)
+    {
+        setFunction(functionRearlightDim, true);
+        setFunction(functionRearlightBright, false);
+    }
+    else if (offDimBright == 2)
+    {
+        setFunction(functionRearlightDim, false);
+        setFunction(functionRearlightBright, true);
+    }
+}
+
+
+void Throttle::panicStop()
+{
+}
+
 void Throttle::bell(bool onOff)
 {
-    if (onOff)
-    {
-        setFunction(functionBell, true);
-    }
-    else
-    {
-        setFunction(functionBell, false);
-    }
+    setFunction(functionBell, onOff);
 }
 
 void Throttle::horn(bool onOff)
 {
-    if (onOff)
-    {
-        setFunction(functionHorn, true);
-    }
-    else
-    {
-        setFunction(functionHorn, false);
-    }
+    setFunction(functionHorn, onOff);
 }
 
-void Throttle::startPM(void)
-{
-    _running = true;
-}
-
-void Throttle::stopPM(void)
-{
-    _running = false;
-}
-
-void Throttle::setRoadNumber(int roadNumber)
-{
-    _roadNumber = roadNumber;
-}
 
 void Throttle::setThrottleLever(int throttleLever)
 {
@@ -88,6 +147,8 @@ void Throttle::setThrottleLever(int throttleLever)
 void Throttle::setDirection(int direction)
 {
     _neutral = false;
+    _direction = true;
+
     if (direction == 0)
         _direction = false;
     else if (direction == 2)
@@ -95,12 +156,20 @@ void Throttle::setDirection(int direction)
     else
         _neutral = true;
 
+    // TBD don't know if have to actually send speed command here, likely not 
+
     // Throttle::compute(); // TBD really? maybe ignore until throttle moved?
 }
 
 void Throttle::setMass(uint16_t mass)
 {
     _trainlinePSI = 0;
+    _tonnage = _carCount * 50;
+}
+
+void Throttle::setTonnage(uint16_t tonnage)
+{
+    _tonnage = tonnage;
 }
 
 void Throttle::setIBrake(uint16_t val)
@@ -171,91 +240,7 @@ void Throttle::manualNotch(bool up)
         setFunction(_notchDownFunction, false);
 }
 
-// void Throttle::compute(void)
-// {
-//     char dummyChars[31];
-//     int speedDifferential;
-//     uint16_t intCurrentSpeed;
-//     static uint16_t lastTarget;
-//     static uint16_t lastIntCurrentSpeed;
-//     static int spoolUp;
-//     float speedoSpeed;
-//     static int intSpeedoSpeed;
 
-//     speedDifferential = _targetSpeed - _currentSpeed; // negative if reducing
-//     if (speedDifferential == 0)
-//         return;
-
-//     // Serial.print("target ");
-//     // Serial.println((_targetSpeed));
-//     // Serial.print("current ");
-//     // Serial.println(_currentSpeed);
-//     // Serial.print("differential ");
-//     // Serial.println(speedDifferential);
-
-//     if ((_targetSpeed != lastTarget) && (_currentSpeed > 10))
-//         spoolUp = 2; // spoolUp eases the transition to next higher notch
-
-//     // if ((speedDifferential > 0) && (_targetSpeed - 1 <= _currentSpeed))
-//     if ((speedDifferential > 0) && (_targetSpeed - 2 <= _currentSpeed)) // assume target speed if close to it
-//         _currentSpeed = _targetSpeed;
-//     // else if ((speedDifferential < 0) && (_targetSpeed + 1 >= _currentSpeed))
-//     else if ((speedDifferential < 0) && (_targetSpeed + 4 >= _currentSpeed)) // stop abruptly if close to zero TBD ? slowing to intermediate
-//         _currentSpeed = _targetSpeed;
-//     else if (speedDifferential > 0) // increasing speed
-//         if (spoolUp == 2)
-//         {
-//             spoolUp--;
-//             _currentSpeed = _currentSpeed + speedDifferential / (16.0 - _horsepower / 1500. + _tonnage / 100.); // TBD test to see if granularity of 8 is noticable, else 16
-//         }
-//         else if (spoolUp == 1)
-//         {
-//             spoolUp--;
-//             _currentSpeed = _currentSpeed + speedDifferential / (12.0 - _horsepower / 1500. + _tonnage / 100.); // TBD test to see if granularity of 8 is noticable, else 16
-//         }
-//         else
-//         {
-//             Serial.print("speedDifferential/8 ");
-//             Serial.println(speedDifferential / 8.);
-//             _currentSpeed = _currentSpeed + speedDifferential / (8.0 - _horsepower / 1500. + _tonnage / 100.); // TBD test to see if granularity of 8 is noticable, else 16
-//         }
-//     else // decreasing speed
-//     {
-//         if (_currentSpeed < 8)
-//             _currentSpeed = _currentSpeed + speedDifferential / (8.0 + _tonnage / 100.); // TBD test to see if granularity of 8 is noticable, else 16
-//         // _currentSpeed = _currentSpeed + speedDifferential;
-//         else
-//             _currentSpeed = _currentSpeed + speedDifferential / (16.0 + _tonnage / 100.); // TBD test to see if granularity of 8 is noticable, else 16
-//     }
-
-//     // intCurrentSpeed = _currentSpeed + 0.5; // rounding to an integer
-//     intCurrentSpeed = _currentSpeed; // rounding to an integer
-
-//     if (intCurrentSpeed != lastIntCurrentSpeed)
-//     {
-//         speedoSpeed = _currentSpeed * _speedFactor;
-//         intSpeedoSpeed = speedoSpeed;
-//         lastIntCurrentSpeed = intCurrentSpeed;
-//     }
-
-//     // send back speedometer data to operator
-//     String speedFeedback = "IOB/" + String(_roadNumber) + "/feedback/speed";
-//     String glarb = String(intSpeedoSpeed);
-//     client.publish(speedFeedback.c_str(), glarb.c_str());
-
-//     // build the command string
-//     String dummyString = "t 1 ";
-//     dummyString.concat(String(_roadNumber) + " ");
-//     dummyString.concat(String(intCurrentSpeed) + " ");
-//     if (_direction)
-//         dummyString.concat("1");
-//     else
-//         dummyString.concat("0");
-
-//     strcpy(dummyChars, dummyString.c_str());
-
-//     SerialCommand::parse(dummyChars);
-// }
 
 void Throttle::computeVelocity(void)
 {
@@ -361,25 +346,36 @@ void Throttle::setAirGauge(void)
 
     if ((_trainlineSetPSI > _trainlinePSI) && (_running))
     {
+        if (!_compressorRunning)
+        {
+            _compressorRunning = true;
+            setFunction(functionCompressor, 1);
+            // TBD maybe countdown here
+        }
         _trainlinePSI += (.3 * (_notch + 1));
-        if (_trainlinePSI > _trainlineSetPSI)
-            _trainlinePSI = _trainlineSetPSI;
     }
+
+    if ((_trainlineSetPSI <= _trainlinePSI) && _running && _compressorRunning)
+    {
+        _compressorRunning = false;
+        setFunction(functionCompressor, 0);
+    }
+
+    if (_trainlinePSI > _trainlineSetPSI)
+        _trainlinePSI = _trainlineSetPSI;
     else if (_trainlineSetPSI == 0)
         _trainlinePSI = 0;
     else if (_trainlineSetPSI < _trainlinePSI)
-    {
         _trainlinePSI -= 3;
-        if (_trainlinePSI < _trainlineSetPSI)
-            _trainlinePSI = _trainlineSetPSI;
-    }
 
-    intCurrentPsi = _trainlinePSI;
+    if (_trainlineSetPSI < _trainlinePSI)
+        _trainlinePSI = _trainlineSetPSI;
+
+    intCurrentPsi = int(_trainlinePSI);
 
     if (intCurrentPsi != lastIntCurrentPsi)
     {
         lastIntCurrentPsi = intCurrentPsi;
-        // send back trainline data to operator
         String speedFeedback = "IOB/" + String(_roadNumber) + "/feedback/trainline";
         String glarb = String(intCurrentPsi);
         client.publish(speedFeedback.c_str(), glarb.c_str());

@@ -1,9 +1,16 @@
-#include "MQTT.h"
-#include "Throttle.h"
+#include "Arduino.h"
 #include "SerialCommand.h"
 #include "RBot.h"
 #include "Function.h"
-#include "Arduino.h"
+#include "MQTT.h"
+#include "PubSubClient.h"
+#include "Throttle.h"
+
+extern PubSubClient client;
+extern Throttle throttle;
+
+
+
 
 /*****************************************************************************/
 // defines the connection parameters, the callback, the subscriptions and then connects
@@ -52,9 +59,11 @@ void connectMQTT(String nodeName)
 /*****************************************************************************/
 void setupSubscriptions()
 {
-  // subscribe to 'IOB/command/roadnum/...'
+  // subscribe to 'IOB/roadnum/command/#'
 
   char subscription[100];
+  
+  int roadNum = throttle.getRoadNumber();
 
   // String prefix = "IOB/command/";
   String prefix = "IOB/";
@@ -96,14 +105,16 @@ void callback(char *topic, byte *message, unsigned int length)
   messChars[length] = '\0';
   int msgVal = atoi(messChars);
 
+  // if (partString == "startstop")
+  // {
+  //   startStop(msgVal); // TBD this is clumsy as hell
+  //   if (msgVal)
+  //     throttle.startPM();
+  //   else
+  //     throttle.stopPM();
+  // }
   if (partString == "startstop")
-  {
-    startStop(msgVal); // TBD this is clumsy as hell
-    if (msgVal)
-      throttle.startPM();
-    else
-      throttle.stopPM();
-  }
+    throttle.pmOnOff(msgVal);
   else if (partString == "bell")
     throttle.bell(msgVal);
   else if (partString == "horn")

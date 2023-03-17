@@ -1,9 +1,10 @@
-#include "RBot.h"
-#include "Function.h"
-#include "SerialCommand.h"
-#include "Throttle.h"
 #include "Arduino.h"
+#include "RBot.h"
+#include "SerialCommand.h"
+#include "Function.h"
+#include "Throttle.h"
 
+extern Throttle throttle;
 
 void setFunction(int function, bool onOff)
 {
@@ -11,6 +12,8 @@ void setFunction(int function, bool onOff)
     uint8_t byte1;
     uint8_t byte2;
     char dummyChars[31];
+
+    int roadNum = throttle.getRoadNumber(); //TBD this is lame, do it once somehow, or include in parameter list
 
     if ((function > 29) || (function < 0))
         return;

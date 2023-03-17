@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+<link rel="stylesheet" href="stylesheet.css">
+<title>IOB Network Parameters</title>
+  <script>
+    function submitMessage() {
+      alert("Saved value to ESP SPIFFS");
+      setTimeout(function(){ document.location.reload(false); }, 500);   
+    }
+  </script>
+</head>
+<body >
+
+<div class="sidebar">
+<a href="index.html">Home</a>
+<a class="active" href="network.html">Network</a>
+<a href="locoParms.html">Locomotive</a>
+<a href="functions.html">Functions</a>
+<a href="update/index.html">Update</a>
+</div>
+
+<div class="content">
+<h2>Assign Network Parameters</h2>
+
+<p>Assign all network parameters associated with this locomotive. </p>
+ 
+<form action="/get">
+<table><tr>
+  <th>Item</th>
+  <th>Current Value</th>
+  <th>New Value</th>
+  </tr>
+
+<tr>
+  <td>SSID </td>
+  <td>%inputSSID%</td>
+  <td><input type="text" name="ssid"></td>
+  <td><input type="submit" value="Submit"></td>
+</tr>
+
+<tr>
+  <td>Password </td>
+  <td>%inputpassword%</td>
+  <td><input type="password" name="netpass"></td>
+  <td><input type="submit" value="Submit"></td>
+</tr>
+
+<tr>
+  <td>MQTT Server IP</td>
+  <td>%inputmqttserver%</td>
+  <td><input type="text" name="mqttserver"></td>
+  <td><input type="submit" value="Submit"></td>
+</tr>
+
+<!--
+<form>
+<form action="/get" target="hidden-form">
+  SSID (current value %inputSSID%): <input type="text" name="inputSSID">
+  <input type="submit" value="Submit" onclick="submitMessage()">
+</form>
+-->
+
+</div>
+
+</body>
+</html>

@@ -207,10 +207,12 @@ GPIO Pins:
 #include "AsyncTCP.h"
 #include "ESPConnect.h"
 #include "AsyncElegantOTA.h"
-#include "Preferences.h"
+// #include "Preferences.h"
 #include "PubSubClient.h"
 #include "WiFi.h"
 #include "MQTT.h"
+#include "FS.h"
+#include "SPIFFS.h"
 #include "RBot.h"
 #include "PacketRegister.h"
 #include "CurrentMonitor.h"
@@ -221,9 +223,11 @@ GPIO Pins:
 #include "Throttle.h"
 #include "MultiTimer.h"
 
+// #include "WebSerial.h"
+
 using namespace std;
 
-Preferences myPrefs;
+// Preferences myPrefs;
 void showConfiguration();
 
 AsyncWebServer server(80);
@@ -235,31 +239,11 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 String mqttServer = "192.168.0.109"; // TBD fix this
 String mqttNode = "IOBdevice";
-int roadNum = 16; // TBD fix this
 
-Throttle throttle(roadNum);
+Throttle throttle;
 
 // timer
 MultiTimer timer1sec(1000);
-
-// function button assignment TBD set programatically
-uint16_t functionBell = 1;
-uint16_t functionHorn = 2;
-uint16_t functionHeadlightBright = 0;
-uint16_t functionHeadlightDim = 6;
-uint16_t functionPM = 28;
-uint16_t functionNotchingEnable = 25;
-uint16_t functionNotchUp = 26;
-uint16_t functionNotchDown = 27;
-uint16_t functionIndependentBrake = 5;
-uint16_t functionTrainBrake = 4;
-uint16_t functionEmergencyBrake;
-
-// SET UP COMMUNICATIONS INTERFACE - FOR STANDARD SERIAL, NOTHING NEEDS TO BE DONE
-#if COMM_TYPE == 1
-byte mac[] = MAC_ADDRESS;                // Create MAC address (to be used for DHCP when initializing server)
-EthernetServer INTERFACE(ETHERNET_PORT); // Create and instance of an EnternetServer
-#endif
 
 // NEXT DECLARE GLOBAL OBJECTS TO PROCESS AND STORE DCC PACKETS AND MONITOR TRACK CURRENTS.
 // NOTE REGISTER LISTS MUST BE DECLARED WITH "VOLATILE" QUALIFIER TO ENSURE THEY ARE PROPERLY UPDATED BY INTERRUPT ROUTINES
@@ -375,23 +359,96 @@ void IRAM_ATTR onTimer1()
   portEXIT_CRITICAL_ISR(&timerMux);
 }
 
+// Message callback for WebSerial
+// void recvMsg(uint8_t *data, size_t len)
+// {
+//   Preferences myPrefs;
+//   uint16_t myInt;
+
+//   // WebSerial.println("Received Data...");
+//   String d = "";
+//   for (int i = 0; i < len; i++)
+//   {
+//     d += char(data[i]);
+//   }
+//   if (d == "status")
+//   {
+//     myPrefs.begin("functions");
+//     WebSerial.print("1) PM function ");
+//     WebSerial.println(String(myPrefs.getInt("pm", 0)));
+//     WebSerial.print("2) Horn function ");
+//     WebSerial.println(String(myPrefs.getInt("horn", 0)));
+//     WebSerial.println("\nType a number to change a value");
+//     myPrefs.end();
+//   }
+//   else if (d == "help")
+//   {
+//     WebSerial.println("Type 'status' to view/change configuration");
+//     WebSerial.println("Close the window if done");
+//   }
+//   else
+//     WebSerial.println("Type 'help' for instructions");
+// }
+
+void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
+{
+  Serial.printf("Listing directory: %s\r\n", dirname);
+
+  File root = fs.open(dirname);
+  if (!root)
+  {
+    Serial.println("− failed to open directory");
+    return;
+  }
+  if (!root.isDirectory())
+  {
+    Serial.println(" − not a directory");
+    return;
+  }
+
+  File file = root.openNextFile();
+  while (file)
+  {
+    if (file.isDirectory())
+    {
+      Serial.print("  DIR : ");
+      Serial.println(file.name());
+      if (levels)
+      {
+        listDir(fs, file.name(), levels - 1);
+      }
+    }
+    else
+    {
+      Serial.print("  FILE: ");
+      Serial.print(file.name());
+      Serial.print("\tSIZE: ");
+      Serial.println(file.size());
+    }
+    file = root.openNextFile();
+  }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // INITIAL SETUP
 ///////////////////////////////////////////////////////////////////////////////
 void setup()
 {
-  static u32_t timer;
+  // static u32_t timer;
 
-  Serial.begin(115200);
+  Serial.begin(115200);  
+  SPIFFS.begin(true); // format on fail
 
-  Serial.println();
+  // List contents of SPIFFS
+  listDir(SPIFFS, "/", 0);
 
+  int roadNum = throttle.getRoadNumber();
+  String SSID = "Loco_" + String(roadNum);
   // AutoConnect AP
   // Configure SSID and password for Captive Portal
-  ESPConnect.autoConnect("Loco_16");  // TBD use the actual roadnum
+  ESPConnect.autoConnect(SSID.c_str()); // TBD use the actual roadnum
 
-  // Begin connecting to previous WiFi
-  // or start autoConnect AP if unable to connect
+  // Begin connecting to previous WiFi or start autoConnect AP if unable to connect
   if (ESPConnect.begin(&server))
   {
     Serial.println("Connected to WiFi");
@@ -402,28 +459,30 @@ void setup()
     Serial.println("Failed to connect to WiFi");
   }
 
-  //   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-  //     request->send(200, "text/plain", "ESP32 is ready");
-  //   });
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/index.html", "text/html", false); });
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/functions.html", "text/html", false); });
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/locoParms.html", "text/html", false); });
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/network.html", "text/html", false); });
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/stylesheet.css", "text/css", false); });
 
+  // following from codeproject
+  server.serveStatic("/", SPIFFS, "/");
+  
   AsyncElegantOTA.begin(&server); // Start ElegantOTA
   server.begin();
 
   // MQTT
+  mqttNode = "IOBloco" + String(roadNum);
   mqttSetup(mqttServer, mqttNode);
 
   // EEStore::init(); // initialize and load Turnout and Sensor definitions stored in EEPROM
 
-  Serial.println("Mobile IOB"); // Print Status to Serial Line regardless of COMM_TYPE setting so user can open Serial Monitor and check configurtion
-
-#if COMM_TYPE == 1
-#ifdef IP_ADDRESS
-  Ethernet.begin(mac, IP_ADDRESS); // Start networking using STATIC IP Address
-#else
-  Ethernet.begin(mac); // Start networking using DHCP to get an IP Address
-#endif
-  INTERFACE.begin();
-#endif
+  Serial.println(SSID); // Print Status to Serial Line regardless of COMM_TYPE setting so user can open Serial Monitor and check configurtion
 
   SerialCommand::init(&mainRegs, &progRegs, &mainMonitor); // create structure to read and parse commands from serial line
 
@@ -445,6 +504,8 @@ void setup()
   mainRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
   progRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
 
+  throttle.init();
+  // WebSerial.println("Type help for instructions");
 } // setup
 
 ///////////////////////////////////////////////////////////////////////////////

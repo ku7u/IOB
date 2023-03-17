@@ -1,11 +1,14 @@
 #ifndef FUNCTION_H
 #define FUNCTION_H
 
-#include "Arduino.h"
+// #include "Arduino.h"
+// #include "Throttle.h"
 
-extern int roadNum;
-extern uint16_t functionBell;
-extern uint16_t functionHorn;
+// extern int roadNum;
+// extern Throttle throttle;
+
+// extern uint16_t functionBell;
+// extern uint16_t functionHorn;
 extern uint16_t functionHeadlightDim;
 extern uint16_t functionHeadlightBright;
 extern uint16_t functionRearlightDim;

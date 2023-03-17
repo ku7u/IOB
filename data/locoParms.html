@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+<link rel="stylesheet" href="stylesheet.css">
+<title>IOB Locomotive Parameters</title>
+</head>
+<body >
+
+<div class="sidebar">
+<a href="index.html">Home</a>
+<a href="network.html">Network</a>
+<a class="active" href="locoParms.html">Locomotive</a>
+<a href="functions.html">Functions</a>
+<a href="update/index.html">Update</a>
+</div>
+
+<div class="content">
+<h2>Assign Locomotive Parameters</h2>
+
+
+<p>Assign all parameters associated with this locomotive. 
+If unknown, retain the default.</p>
+ 
+
+
+<form>
+<table>
+<tr>
+<th>Action</th>
+<th>Function</th>
+</tr>
+<tr>
+<td><label for="tooter">Horn</label></td>
+<td><input type="number" id="tooter" name="tooterfunction" value="2" min="0" max="28"><br></td>
+</tr>
+<tr>
+<td><label for="pm">Prime mover</label></td>
+<td><input type="number" id="pm" name="pmfunction" value="8" min="0" max="28"><br></td>
+</tr>
+<tr>
+<td><label for="function">Compressor</label></td>
+<td><input type="number" id="function" name="somefunction" value="12" min="0" max="28"></td>
+</tr>
+</table>
+<br><br>
+<input type="submit">
+</form>
+</div>
+
+</body>
+</html>
