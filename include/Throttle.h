@@ -11,6 +11,8 @@ public:
     Throttle(void);
 
     void init(void);
+    void getFunctionPrefs(void);
+    void getLocoPrefs(void);
     void setRoadNumber(int roadNumber);
     void pmOnOff(bool onOff);
     void bell(bool onOff);
@@ -58,18 +60,21 @@ private:
     uint16_t _lastNotch;
     bool _neutral = true;
     float _currentSpeed;
+    float    _lastCurrentSpeed;
+    uint16_t _lastIntCurrentSpeed;
     uint16_t _targetSpeed;
     float _mph;
     float _speedFactor = 0.5;      // multiply by commanded speed to get real mph
     float _speedoCalFactor = .250; // calibrate speedometer
     float _divisor;
-    uint16_t _horsepower = 1500;      // HP
-    uint16_t _horsepowerAtIdle = 15;
+    uint16_t _horsepower;      // HP
+    uint16_t _horsepowerAtIdle;
     uint16_t _carCount;
     uint16_t _tonnage = 0;            // tons
     long _locoWeight;
     long _locoMass; // slugs
     float _tractiveEffort;
+    float _lastTractiveForce;
     uint16_t _independentBrake;       // percent
     uint16_t _iBrakeVal = 0;
     uint16_t _trainBrake;             // percent
@@ -88,7 +93,9 @@ private:
     uint32_t _lastCommandTime;
     float _trainlinePSI;
     uint16_t _trainlineSetPSI;
+    uint16_t _lastIntCurrentPsi;
     bool _compressorRunning;
+    uint16_t _compressorCountdown;
 
     const float ROLLING_RESISTANCE_COEFICIENT = .0015;
     const float VARIABLE_LOCO_DRAG_COEFICIENT = .0003;

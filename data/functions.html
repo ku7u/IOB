@@ -1,75 +1,79 @@
 <!DOCTYPE html>
 <html lang="en-US">
+
 <head>
-<link rel="stylesheet" href="stylesheet.css">
-<title>IOB Function Assignments</title>
+    <link rel="stylesheet" href="stylesheet.css">
+    <title>IOB Function Assignments</title>
+    <meta charset="UTF-8">
+    <meta name="author" content="George Hofmann">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body >
 
-<div class="sidebar">
-<a href="index.html">Home</a>
-<a href="network.html">Network</a>
-<a href="locoParms.html">Locomotive</a>
-<a class="active" href="functions.html">Functions</a>
-<a href="update/index.html">Update</a>
-</div>
+<body>
 
-<div class="content">
-<h2>Function Assignments</h2>
+    <div class="sidebar">
+        <a href="index.html">Home</a>
+        <a href="network.html">Network</a>
+        <a href="locoparms.html">Locomotive</a>
+        <a class="active" href="functions.html">Functions</a>
+        <a href="update/index.html">Update</a>
+    </div>
 
-<!-- this is just a comment -->
-<p>Assign the function numbers associated with the actions listed. 
-If there is no function available for an action, leave it blank.</p>
- 
+    <div class="content">
+        <h2>Function Assignments</h2>
 
+        <p>Assign the function numbers associated with the actions listed.
+            If there is no function available for an action, leave it blank.</p>
 
-<form>
-<table>
-<tr>
-<th style="text-align:left;">Action</th>
-<th>Function</th>
-</tr>
-<tr>
-<td><label for="headlight">Headlight</label></td>
-<td><input type="number" id="headlight" name="somefunction" value="0" min="0" max="28"></td>
-</tr>
-<tr>
-<td><label for="rearlight">Rearlight</label></td>
-<td><input type="number" id="rearlight" name="somefunction" value="" min="0" max="28"></td>
-</tr>
-<tr>
-<td><label for="bell">Bell</label></td>
-<td><input type="number" id="bell" name="somefunction" value="1" min="0" max="28"></td>
-</tr>
-<tr>
-<td><label for="tooter">Horn</label></td>
-<td><input type="number" id="tooter" name="tooterfunction" value="2" min="0" max="28"><br></td>
-</tr>
-<tr>
-<td><label for="pm">Prime Mover</label></td>
-<td><input type="number" id="pm" name="pmfunction" value="8" min="0" max="28"><br></td>
-</tr>
-<tr>
-<td><label for="compressor">Compressor</label></td>
-<td><input type="number" id="compressor" name="somefunction" value="12" min="0" max="28"></td>
-</tr>
-<tr>
-<td><label for="manNotch">Manual Notching</label></td>
-<td><input type="number" id="manNotch" name="somefunction" value="28" min="0" max="28"></td>
-</tr>
-<tr>
-<td><label for="notchUp">Notch Up</label></td>
-<td><input type="number" id="notchUp" name="somefunction" value="25" min="0" max="28"></td>
-</tr>
-<tr>
-<td><label for="notchDown">Notch Down</label></td>
-<td><input type="number" id="notchDown" name="somefunction" value="28" min="0" max="28"></td>
-</tr>
-</table>
-<br><br>
-<input type="submit">
-</form>
-</div>
+            <form action="/get">
+            <input type="hidden" name="FunctionsParm" value="0">
+            <table>
+                <tr>
+                    <th style="text-align:left;">Action</th>
+                    <th>Function</th>
+                </tr>
+                <tr>
+                    <td><label for="headlight">Headlight</label></td>
+                    <td><input type="number" id="headlight" name="headlight" value="%HEADLIGHT%" min="0" max="28"></td>
+                </tr>
+                <tr>
+                    <td><label for="rearlight">Rearlight</label></td>
+                    <td><input type="number" id="rearlight" name="rearlight" value="%REARLIGHT%" min="0" max="28"></td>
+                </tr>
+                <tr>
+                    <td><label for="bell">Bell</label></td>
+                    <td><input type="number" id="bell" name="bell" value="%BELL%" min="0" max="28"></td>
+                </tr>
+                <tr>
+                    <td><label for="tooter">Horn</label></td>
+                    <td><input type="number" id="tooter" name="horn" value="%HORN%" min="0" max="28"><br></td>
+                </tr>
+                <tr>
+                    <td><label for="pm">Prime Mover</label></td>
+                    <td><input type="number" id="pm" name="pm" value="%PM%" min="0" max="28"><br></td>
+                </tr>
+                <tr>
+                    <td><label for="compressor">Compressor</label></td>
+                    <td><input type="number" id="compressor" name="compressor" value="%COMPRESSOR%" min="0" max="28"></td>
+                </tr>
+                <tr>
+                    <td><label for="manNotch">Manual Notching</label></td>
+                    <td><input type="number" id="manNotch" name="notchingenable" value="%NOTCHINGENABLE%" min="0" max="28"></td>
+                </tr>
+                <tr>
+                    <td><label for="notchUp">Notch Up</label></td>
+                    <td><input type="number" id="notchUp" name="notchup" value="%NOTCHUP%" min="0" max="28"></td>
+                </tr>
+                <tr>
+                    <td><label for="notchDown">Notch Down</label></td>
+                    <td><input type="number" id="notchDown" name="notchdown" value="%NOTCHDOWN%" min="0" max="28"></td>
+                </tr>
+            </table>
+            <br><br>
+            <input type="submit">   <input type="reset">
+        </form>
+    </div>
 
 </body>
+
 </html>

@@ -1,3 +1,5 @@
+//#define speeddebug
+
 #include "Throttle.h"
 #include "SerialCommand.h"
 #include "Function.h"
@@ -15,9 +17,55 @@ Throttle::Throttle(void)
 {
     _notch = 0;
     _currentSpeed = 0;
+    _lastCurrentSpeed = 0;
     _mph = 0;
     _lastNotch = 0;
+    _horsepowerAtIdle = 15;
 
+    _direction = true; // forward
+    _throttleLever = 0;
+    _locoMass = _locoWeight / 32;
+    _carCount = 0;
+    _tonnage = 0;
+    _trainlinePSI = 42;
+    _trainlineSetPSI = 75;
+    _neutral = true;
+    _iBrakeVal = 0;
+    _trainBrake = 0;
+    // _manualNotchingMode = false;
+    _lastIntCurrentSpeed = 0;
+    _lastTractiveForce = 0;
+    _lastIntCurrentPsi = 0;
+    _running = false;
+    _compressorRunning = false;
+    _compressorCountdown = 0;
+
+    getLocoPrefs();
+    getFunctionPrefs();
+
+}
+
+void Throttle::init()
+{
+    // setFunction(functionNotchingEnable, 1);
+    setFunction(functionNotchUp, 0);
+    setFunction(functionNotchDown, 0);
+}
+
+void Throttle::getLocoPrefs(void)
+{
+    Preferences myPrefs;
+    myPrefs.begin("loco");
+    _roadNumber = myPrefs.getInt("roadnum", 16);
+    // // myPrefs.getBool("shortLong", 0);
+    _horsepower = myPrefs.getInt("horsepower", 1500);
+    _locoWeight = myPrefs.getLong("locoweight", 250000);
+    _tractiveEffort = myPrefs.getFloat("tractiveeffort", 70000.);
+    myPrefs.end();
+}
+
+void Throttle::getFunctionPrefs(void)
+{
     Preferences myPrefs;
     myPrefs.begin("functions");
     functionPM = myPrefs.getInt("pm", 28);
@@ -35,36 +83,6 @@ Throttle::Throttle(void)
     functionEmergencyBrake = myPrefs.getInt("emergencyBrake", 5);
     functionCompressor = myPrefs.getInt("compressor", 20);
     myPrefs.end();
-
-    myPrefs.begin("loco");
-    _roadNumber = myPrefs.getInt("roadnum", 16);
-    // // myPrefs.getBool("shortLong", 0);
-    _horsepower = myPrefs.getInt("horsepower", 1500);
-    _locoWeight = myPrefs.getLong("locoweight", 250000);
-    _tractiveEffort = myPrefs.getFloat("tractiveeffort", 70000.);
-    myPrefs.end();
-
-    _direction = true; // forward
-    _throttleLever = 0;
-    _trainlinePSI = 42;
-    _trainlineSetPSI = 75;
-    _neutral = true;
-    _locoMass = _locoWeight / 32;
-    _carCount = 0;
-
-    // send back trainline pressure TBD this will be removed
-    // String speedFeedback = "IOB/" + String(_roadNumber) + "/feedback/trainline";
-    // String glarb = String(85);
-    // client.publish(speedFeedback.c_str(), glarb.c_str());
-}
-
-void Throttle::init()
-{
-   
-    // setFunction(functionNotchingEnable, 1);
-    setFunction(functionNotchUp, 0);
-    setFunction(functionNotchDown, 0);
-
 }
 
 void Throttle::setRoadNumber(int roadNumber)
@@ -82,6 +100,7 @@ void Throttle::pmOnOff(bool onOff)
     _running = onOff;
     setFunction(functionPM, onOff);
     setFunction(functionNotchingEnable, onOff); // TBD had to put here instead of init, don't get it
+    // TBD ETL has set notchup, down functions to off here 
 }
 
 void Throttle::headlight(int offDimBright)
@@ -156,9 +175,6 @@ void Throttle::setDirection(int direction)
     else
         _neutral = true;
 
-    // TBD don't know if have to actually send speed command here, likely not 
-
-    // Throttle::compute(); // TBD really? maybe ignore until throttle moved?
 }
 
 void Throttle::setMass(uint16_t mass)
@@ -175,6 +191,9 @@ void Throttle::setTonnage(uint16_t tonnage)
 void Throttle::setIBrake(uint16_t val)
 {
     _independentBrake = val;
+#ifdef speeddebug
+Serial.print("ibrake "); Serial.println(_independentBrake);
+#endif
 
     if (val > 0)
         setFunction(functionIndependentBrake, true);
@@ -198,7 +217,7 @@ void Throttle::setTBrake(uint16_t val)
 // use manual notching to control PM sound, throttle for movement
 // this routine just sets the raw setSpeed derived from the notch selected
 // not affected by hp, tonnage or grade at this point
-// for notch 1, advance throttle slightly with no notching
+// for notch 1, advance throttle slightly with no notching [TBD what?]
 void Throttle::manualNotch(bool up)
 {
     static int currentNotch = 0;
@@ -291,6 +310,8 @@ void Throttle::computeVelocity(void)
 
 #ifdef speeddebug
     Serial.print("independentBrakeForce ");
+    Serial.print(_independentBrake);
+    Serial.print("   ");
     Serial.println(independentBrakeForce);
 #endif
 

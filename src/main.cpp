@@ -196,8 +196,6 @@ GPIO Pins:
   Motor driver - DRV8801
 **********************************************************************/
 
-// BEGIN BY INCLUDING THE HEADER FILES FOR EACH MODULE
-
 #include <Arduino.h>
 #include <iostream>
 // there is a problem in ESPAsyncWebServer and the dorks don't fix it
@@ -207,7 +205,7 @@ GPIO Pins:
 #include "AsyncTCP.h"
 #include "ESPConnect.h"
 #include "AsyncElegantOTA.h"
-// #include "Preferences.h"
+#include "Preferences.h"
 #include "PubSubClient.h"
 #include "WiFi.h"
 #include "MQTT.h"
@@ -227,7 +225,7 @@ GPIO Pins:
 
 using namespace std;
 
-// Preferences myPrefs;
+Preferences myPrefs;
 void showConfiguration();
 
 AsyncWebServer server(80);
@@ -239,8 +237,13 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 String mqttServer = "192.168.0.109"; // TBD fix this
 String mqttNode = "IOBdevice";
+String topicCommandLeftEnd;
+String topicFeedbackLeftEnd;
 
 Throttle throttle;
+
+// functions
+String headlightFunction;
 
 // timer
 MultiTimer timer1sec(1000);
@@ -390,43 +393,70 @@ void IRAM_ATTR onTimer1()
 //     WebSerial.println("Type 'help' for instructions");
 // }
 
-void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
+/*****************************************************************************/
+// this function converts placeholders in the html into active data values
+String processorNetwork(const String &var)
 {
-  Serial.printf("Listing directory: %s\r\n", dirname);
+  // Serial.println(var);
+  if (var == "MQTTSERVERIPADR")
+    return mqttServer;
+  else if (var == "TOPICCOMMANDLEFTEND")
+    return topicCommandLeftEnd;
+  else if (var == "TOPICFEEDBACKLEFTEND")
+    return topicFeedbackLeftEnd;
 
-  File root = fs.open(dirname);
-  if (!root)
-  {
-    Serial.println("− failed to open directory");
-    return;
-  }
-  if (!root.isDirectory())
-  {
-    Serial.println(" − not a directory");
-    return;
-  }
+  return String(); // in case nothing matched
+}
 
-  File file = root.openNextFile();
-  while (file)
-  {
-    if (file.isDirectory())
-    {
-      Serial.print("  DIR : ");
-      Serial.println(file.name());
-      if (levels)
-      {
-        listDir(fs, file.name(), levels - 1);
-      }
-    }
-    else
-    {
-      Serial.print("  FILE: ");
-      Serial.print(file.name());
-      Serial.print("\tSIZE: ");
-      Serial.println(file.size());
-    }
-    file = root.openNextFile();
-  }
+/*****************************************************************************/
+// this function converts placeholders in the html into active data values
+String processorLocoparms(const String &var)
+{
+  String returnVal;
+  returnVal = "";
+
+  myPrefs.begin("loco", true);
+  if (var == "ADDRESS")
+    returnVal = String(myPrefs.getInt("roadnum", 3));
+  else if (var == "HORSEPOWER")
+    returnVal = String(myPrefs.getInt("horsepower", 1500));
+  else if (var == "WEIGHT")
+    returnVal = String(myPrefs.getLong("locoweight", 200000));
+  myPrefs.end();
+
+  return (returnVal);
+}
+
+/*****************************************************************************/
+// this function converts placeholders in the html into active data values
+String processorFunctions(const String &var)
+{
+  // Serial.println(var);
+  String returnVal;
+  returnVal = "";
+
+  myPrefs.begin("functions", true);
+  if (var == "HEADLIGHT")
+    returnVal = String(myPrefs.getInt("headlightBright", 0));
+  if (var == "REARLIGHT")
+    returnVal = String(myPrefs.getInt("rearlightBright", 0));
+  else if (var == "BELL")
+    returnVal = String(myPrefs.getInt("bell", 1));
+  else if (var == "HORN")
+    returnVal = String(myPrefs.getInt("horn", 2));
+  else if (var == "PM")
+    returnVal = String(myPrefs.getInt("pm", 2));
+  else if (var == "COMPRESSOR")
+    returnVal = String(myPrefs.getInt("compressor", 2));
+  else if (var == "NOTCHINGENABLE")
+    returnVal = String(myPrefs.getInt("notchingEnable", 25));
+  else if (var == "NOTCHUP")
+    returnVal = String(myPrefs.getInt("notchUp", 25));
+  else if (var == "NOTCHDOWN")
+    returnVal = String(myPrefs.getInt("notchDown", 25));
+  myPrefs.end();
+
+  return (returnVal);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -436,11 +466,18 @@ void setup()
 {
   // static u32_t timer;
 
-  Serial.begin(115200);  
+  Serial.begin(115200);
   SPIFFS.begin(true); // format on fail
 
+  // get the stored configuration values, defaults are the second parameter in the list
+  myPrefs.begin("general", true);
+  mqttServer = myPrefs.getString("mqttserver", "192.168.99.99");
+  topicCommandLeftEnd = myPrefs.getString("commandtopic", "IOB/command/666/");
+  topicFeedbackLeftEnd = myPrefs.getString("feedbacktopic", "IOB/feedback/667/");
+  myPrefs.end();
+
   // List contents of SPIFFS
-  listDir(SPIFFS, "/", 0);
+  // listDir(SPIFFS, "/", 0);
 
   int roadNum = throttle.getRoadNumber();
   String SSID = "Loco_" + String(roadNum);
@@ -453,6 +490,10 @@ void setup()
   {
     Serial.println("Connected to WiFi");
     Serial.println("IPAddress: " + WiFi.localIP().toString());
+    String mySSID = WiFi.SSID();
+    Serial.println("SSID: " + mySSID);
+    int8_t myRSSI = WiFi.RSSI();
+    Serial.println("Signal strength: " + String(myRSSI));
   }
   else
   {
@@ -461,18 +502,80 @@ void setup()
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/index.html", "text/html", false); });
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(SPIFFS, "/functions.html", "text/html", false); });
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(SPIFFS, "/locoParms.html", "text/html", false); });
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(SPIFFS, "/network.html", "text/html", false); });
+  server.on("/functions.html", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions); });
+  server.on("/locoparms.html", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/locoparms.html", "text/html", false, processorLocoparms); });
+  server.on("/network.html", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork); });
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/stylesheet.css", "text/css", false); });
 
+  server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+    String inputMessage;
+    String inputParam;
+    // the hidden param specifies which html file is being accessed
+    // if we know that then we know which parameters to expect
+    if (request->hasParam("NetworkParm"))
+    {
+      myPrefs.begin("general", false);
+      mqttServer = request->getParam("mqttserver")->value();
+      myPrefs.putString("mqttserver", mqttServer);
+      topicCommandLeftEnd = request->getParam("commandtopic")->value();
+      myPrefs.putString("commandtopic", topicCommandLeftEnd);
+      topicFeedbackLeftEnd = request->getParam("feedbacktopic")->value();
+      myPrefs.putString("feedbacktopic", topicFeedbackLeftEnd);
+      myPrefs.end();
+
+      request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork);
+    }
+
+   else if (request->hasParam("locoparmsParm"))
+    {
+      myPrefs.begin("loco", false);
+      inputMessage = request->getParam("address")->value();
+      myPrefs.putInt("roadnum", inputMessage.toInt());
+      inputMessage = request->getParam("horsepower")->value();
+      myPrefs.putInt("horsepower", inputMessage.toInt());
+      inputMessage = request->getParam("weight")->value();
+      myPrefs.putLong("locoweight", inputMessage.toInt());
+      myPrefs.end();
+
+      throttle.getLocoPrefs();
+      request->send(SPIFFS, "/locoparms.html", "text/html", false, processorLocoparms);
+    }
+
+    else if (request->hasParam("FunctionsParm"))
+    {
+      myPrefs.begin("functions", false);
+      inputMessage = request->getParam("headlight")->value();
+      myPrefs.putInt("headlightBright", inputMessage.toInt());
+      inputMessage = request->getParam("rearlight")->value();
+      myPrefs.putInt("rearlightBright", inputMessage.toInt());
+      inputMessage = request->getParam("bell")->value();
+      myPrefs.putInt("bell", inputMessage.toInt());
+      inputMessage = request->getParam("horn")->value();
+      myPrefs.putInt("horn", inputMessage.toInt());
+      inputMessage = request->getParam("pm")->value();
+      myPrefs.putInt("pm", inputMessage.toInt());
+      inputMessage = request->getParam("compressor")->value();
+      myPrefs.putInt("compressor", inputMessage.toInt());
+      inputMessage = request->getParam("notchingenable")->value();
+      myPrefs.putInt("notchingEnable", inputMessage.toInt());
+      inputMessage = request->getParam("notchup")->value();
+      myPrefs.putInt("notchUp", inputMessage.toInt());
+      inputMessage = request->getParam("notchdown")->value();
+      myPrefs.putInt("notchDown", inputMessage.toInt());
+      myPrefs.end();
+
+      throttle.getFunctionPrefs();
+      request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions);
+    } });
+
   // following from codeproject
   server.serveStatic("/", SPIFFS, "/");
-  
+
   AsyncElegantOTA.begin(&server); // Start ElegantOTA
   server.begin();
 
@@ -506,6 +609,10 @@ void setup()
 
   throttle.init();
   // WebSerial.println("Type help for instructions");
+
+#ifdef speeddebug
+  Serial.println("speeddebug is on");
+#endif
 } // setup
 
 ///////////////////////////////////////////////////////////////////////////////

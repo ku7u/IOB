@@ -1,67 +1,57 @@
 <!DOCTYPE html>
 <html lang="en-US">
+
 <head>
-<link rel="stylesheet" href="stylesheet.css">
-<title>IOB Network Parameters</title>
-  <script>
-    function submitMessage() {
-      alert("Saved value to ESP SPIFFS");
-      setTimeout(function(){ document.location.reload(false); }, 500);   
-    }
-  </script>
+  <link rel="stylesheet" href="stylesheet.css">
+  <title>IOB Network Parameters</title>
+  <meta charset="UTF-8">
+  <meta name="author" content="George Hofmann">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body >
 
-<div class="sidebar">
-<a href="index.html">Home</a>
-<a class="active" href="network.html">Network</a>
-<a href="locoParms.html">Locomotive</a>
-<a href="functions.html">Functions</a>
-<a href="update/index.html">Update</a>
-</div>
+<body>
 
-<div class="content">
-<h2>Assign Network Parameters</h2>
+  <div class="sidebar">
+    <a href="index.html">Home</a>
+    <a class="active" href="network.html">Network</a>
+    <a href="locoparms.html">Locomotive</a>
+    <a href="functions.html">Functions</a>
+    <a href="update/index.html">Update</a>
+  </div>
 
-<p>Assign all network parameters associated with this locomotive. </p>
- 
-<form action="/get">
-<table><tr>
-  <th>Item</th>
-  <th>Current Value</th>
-  <th>New Value</th>
-  </tr>
+  <div class="content">
+    <h2>Network Parameters</h2>
 
-<tr>
-  <td>SSID </td>
-  <td>%inputSSID%</td>
-  <td><input type="text" name="ssid"></td>
-  <td><input type="submit" value="Submit"></td>
-</tr>
+    <p>Assign the following network parameters associated with this loco. The topics must match those in the controlling device, such as JMRI.</p>
 
-<tr>
-  <td>Password </td>
-  <td>%inputpassword%</td>
-  <td><input type="password" name="netpass"></td>
-  <td><input type="submit" value="Submit"></td>
-</tr>
+    <form action="/get">
+      <input type="hidden" name="NetworkParm" value="0">
+      <table>
+        <tr>
+          <th>Item</th>
+          <th>Value</th>
+        </tr>
 
-<tr>
-  <td>MQTT Server IP</td>
-  <td>%inputmqttserver%</td>
-  <td><input type="text" name="mqttserver"></td>
-  <td><input type="submit" value="Submit"></td>
-</tr>
+        <tr>
+          <td>MQTT Server IP</td>
+          <td><input type="text" name="mqttserver" value="%MQTTSERVERIPADR%"></td>
+        </tr>
 
-<!--
-<form>
-<form action="/get" target="hidden-form">
-  SSID (current value %inputSSID%): <input type="text" name="inputSSID">
-  <input type="submit" value="Submit" onclick="submitMessage()">
-</form>
--->
+        <tr>
+          <td>Topic Command Left End</td>
+          <td><input type="text" name="commandtopic" value="%TOPICCOMMANDLEFTEND%"></td>
+        </tr>
 
-</div>
+        <tr>
+          <td>Topic Feedback Left End</td>
+          <td><input type="text" name="feedbacktopic" value="%TOPICFEEDBACKLEFTEND%"></td>
+        </tr>
+      </table>
+      <br>
+      <input type="submit" value="Submit">   <input type="reset">
+        </form>
+  </div>
 
 </body>
+
 </html>
