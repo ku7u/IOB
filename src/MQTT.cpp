@@ -72,13 +72,13 @@ void setupSubscriptions()
   strcpy(subscription, prefix.c_str());
   int ret = client.subscribe(subscription, 1);
 
-  if (ret == 0)
-    Serial.println("Main subscribe failed");
-  else
-  {
-    Serial.print("Main topic subscription set as: ");
-    Serial.println(subscription);
-  }
+  // if (ret == 0)
+  //   Serial.println("Main subscribe failed");
+  // else
+  // {
+  //   Serial.print("Main topic subscription set as: ");
+  //   Serial.println(subscription);
+  // }
 }
 
 /*****************************************************************************/
@@ -105,14 +105,6 @@ void callback(char *topic, byte *message, unsigned int length)
   messChars[length] = '\0';
   int msgVal = atoi(messChars);
 
-  // if (partString == "startstop")
-  // {
-  //   startStop(msgVal); // TBD this is clumsy as hell
-  //   if (msgVal)
-  //     throttle.startPM();
-  //   else
-  //     throttle.stopPM();
-  // }
   if (partString == "startstop")
     throttle.pmOnOff(msgVal);
   else if (partString == "bell")
@@ -121,6 +113,8 @@ void callback(char *topic, byte *message, unsigned int length)
     throttle.horn(msgVal);
   else if (partString == "headlight")
     throttle.headlight(msgVal);
+  else if (partString == "rearlight")
+    throttle.rearlight(msgVal);
   else if (partString == "throttleLever")
     throttle.setThrottleLever(msgVal);
   else if (partString == "notchUp")
@@ -135,8 +129,12 @@ void callback(char *topic, byte *message, unsigned int length)
     throttle.setIBrake(msgVal);
   else if (partString == "tbrake")
     throttle.setTBrake(msgVal);
+  else if (partString == "trainline")
+    throttle.trainline(msgVal);
   else if (partString == "tonnage")
     throttle.setMass(msgVal);
+  else if (partString == "calibrate")
+    throttle.calibrate(msgVal);
   else if (partString.substring(0, 1) == "f")
   {
     partString = partString.substring(partString.lastIndexOf('/') + 1);

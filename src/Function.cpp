@@ -12,6 +12,8 @@ void setFunction(int function, bool onOff)
     uint8_t byte1;
     uint8_t byte2;
     char dummyChars[31];
+    
+    byte2 = 0;
 
     int roadNum = throttle.getRoadNumber(); //TBD this is lame, do it once somehow, or include in parameter list
 

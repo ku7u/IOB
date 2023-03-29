@@ -16,12 +16,12 @@
         <a href="network.html">Network</a>
         <a class="active" href="locoparms.html">Locomotive</a>
         <a href="functions.html">Functions</a>
+        <a href="calibration.html">Calibration</a>
         <a href="update/index.html">Update</a>
     </div>
 
     <div class="content">
-        <h2>Assign Locomotive Parameters</h2>
-
+        <h2>Locomotive Parameters</h2>
 
         <p>Assign all parameters associated with this locomotive.
             If unknown, retain the default.</p>
@@ -42,10 +42,16 @@
                     <td><label for="weight">Weight (lbs)</label></td>
                     <td><input type="number" id="weight" name="weight" value="%WEIGHT%" min="50000" max="1000000"></td>
                 </tr>
+                <tr>
+                    <td><label for="tractiveeffort">Tractive Effort (lbs)</label></td>
+                    <td><input type="number" id="tractiveeffort" name="tractiveeffort" value="%TRACTIVEEFFORT%" min="50000" max="1000000"></td>
+                </tr>
             </table>
             <br><br>
             <input type="submit">   <input type="reset">
         </form>
+
+        
     </div>
 
 </body>

@@ -1,4 +1,4 @@
-//#define speeddebug
+// #define speeddebug
 
 #include "Throttle.h"
 #include "SerialCommand.h"
@@ -24,7 +24,6 @@ Throttle::Throttle(void)
 
     _direction = true; // forward
     _throttleLever = 0;
-    _locoMass = _locoWeight / 32;
     _carCount = 0;
     _tonnage = 0;
     _trainlinePSI = 42;
@@ -41,13 +40,14 @@ Throttle::Throttle(void)
     _compressorCountdown = 0;
 
     getLocoPrefs();
-    getFunctionPrefs();
+    _locoMass = _locoWeight / 32; // poundals
 
+    getFunctionPrefs();
 }
 
 void Throttle::init()
 {
-    // setFunction(functionNotchingEnable, 1);
+    setFunction(functionNotchingEnable, 1);
     setFunction(functionNotchUp, 0);
     setFunction(functionNotchDown, 0);
 }
@@ -55,18 +55,35 @@ void Throttle::init()
 void Throttle::getLocoPrefs(void)
 {
     Preferences myPrefs;
+
     myPrefs.begin("loco");
     _roadNumber = myPrefs.getInt("roadnum", 16);
     // // myPrefs.getBool("shortLong", 0);
     _horsepower = myPrefs.getInt("horsepower", 1500);
     _locoWeight = myPrefs.getLong("locoweight", 250000);
     _tractiveEffort = myPrefs.getFloat("tractiveeffort", 70000.);
+    _odometer = myPrefs.getFloat("odometer", 0.0);
+    myPrefs.end();
+
+    myPrefs.begin("calibration", true);
+    _calibrationTrapLength = myPrefs.getInt("traplength", 3);
+    _fpsDccFactorForward2 = myPrefs.getFloat("speed2forward", 2.);
+    _fpsDccFactorForward5 = myPrefs.getFloat("speed5forward", 2.);
+    _fpsDccFactorForward10 = myPrefs.getFloat("speed10forward", 2.);
+    _fpsDccFactorForward20 = myPrefs.getFloat("speed20forward", 2.);
+    _fpsDccFactorForward50 = myPrefs.getFloat("speed50forward", 2.);
+    _fpsDccFactorReverse2 = myPrefs.getFloat("speed2reverse", 2.);
+    _fpsDccFactorReverse5 = myPrefs.getFloat("speed5reverse", 2.);
+    _fpsDccFactorReverse10 = myPrefs.getFloat("speed10reverse", 2.);
+    _fpsDccFactorReverse20 = myPrefs.getFloat("speed20reverse", 2.);
+    _fpsDccFactorReverse50 = myPrefs.getFloat("speed50reverse", 2.);
     myPrefs.end();
 }
 
 void Throttle::getFunctionPrefs(void)
 {
     Preferences myPrefs;
+
     myPrefs.begin("functions");
     functionPM = myPrefs.getInt("pm", 28);
     functionBell = myPrefs.getInt("bell", 1);
@@ -97,10 +114,17 @@ int Throttle::getRoadNumber(void)
 
 void Throttle::pmOnOff(bool onOff)
 {
+    Preferences myPrefs;
     _running = onOff;
+    if (!onOff) // save the mileage
+    {
+        myPrefs.begin("loco", false);
+        myPrefs.putFloat("odometer", _odometer);
+        myPrefs.end();
+    }
     setFunction(functionPM, onOff);
-    setFunction(functionNotchingEnable, onOff); // TBD had to put here instead of init, don't get it
-    // TBD ETL has set notchup, down functions to off here 
+    setFunction(functionNotchingEnable, onOff); // TBD can't turn off PM unless this is here WMNS
+    // TBD ETL has set notchup, down functions to off here
 }
 
 void Throttle::headlight(int offDimBright)
@@ -141,9 +165,9 @@ void Throttle::rearlight(int offDimBright)
     }
 }
 
-
 void Throttle::panicStop()
 {
+    // TBD this - likely doesn't match ETL
 }
 
 void Throttle::bell(bool onOff)
@@ -155,7 +179,6 @@ void Throttle::horn(bool onOff)
 {
     setFunction(functionHorn, onOff);
 }
-
 
 void Throttle::setThrottleLever(int throttleLever)
 {
@@ -174,13 +197,14 @@ void Throttle::setDirection(int direction)
         _direction = true;
     else
         _neutral = true;
-
+    // TBD doesn't match ETL but seems to work as is
 }
 
-void Throttle::setMass(uint16_t mass)
+void Throttle::setMass(uint16_t carcount)
 {
-    _trainlinePSI = 0;
-    _tonnage = _carCount * 50;
+    // _trainlinePSI = 0;
+    _carCount = carcount;
+    _tonnage = carcount * 50;
 }
 
 void Throttle::setTonnage(uint16_t tonnage)
@@ -191,9 +215,6 @@ void Throttle::setTonnage(uint16_t tonnage)
 void Throttle::setIBrake(uint16_t val)
 {
     _independentBrake = val;
-#ifdef speeddebug
-Serial.print("ibrake "); Serial.println(_independentBrake);
-#endif
 
     if (val > 0)
         setFunction(functionIndependentBrake, true);
@@ -213,15 +234,23 @@ void Throttle::setTBrake(uint16_t val)
         setFunction(functionTrainBrake, false);
 }
 
+void Throttle::trainline(bool connect)
+// TBD this has to be linked to tbrake
+//  probably need an object variable that indicates trainline connected
+//  also should respond to increase in car count rather than total cars if already connected
+{
+    if (connect)
+        _trainlinePSI = _trainlinePSI - _carCount * 1.5; // TBD totally made this up
+    if (_trainlinePSI <= 0)
+        _trainlinePSI = 0;
+}
+
 //-------------------------------------------------------------------------------
 // use manual notching to control PM sound, throttle for movement
-// this routine just sets the raw setSpeed derived from the notch selected
-// not affected by hp, tonnage or grade at this point
-// for notch 1, advance throttle slightly with no notching [TBD what?]
+// this routine just sets the notch to be later processed in computeVelocity
 void Throttle::manualNotch(bool up)
 {
     static int currentNotch = 0;
-    static int lastNotch = 0;
     uint32_t now;
 
     now = millis();
@@ -259,63 +288,117 @@ void Throttle::manualNotch(bool up)
         setFunction(_notchDownFunction, false);
 }
 
-
-
+//-------------------------------------------------------------------------------
 void Throttle::computeVelocity(void)
 {
+    float effectiveHP;
     float tractiveForce;
     float dragForce;
+    float variableLocoDragForce;
+    float startingForce;
     float gradeForce;
     float independentBrakeForce;
     float trainBrakeForce;
-    uint16_t factorX = 4; // tractive force coefficient
-    // float factorY = 0.5;  // drag variable constant
-    float factorY = 0.2; // drag variable constant
-    // float factorZ = 0.1;  // similar to friction coefficient
-    float factorZ = 0.2; // similar to friction coefficient for brakes
-    float sumForce;
     float accel;
     char dummyChars[31];
     uint16_t intCurrentSpeed;
     static uint16_t intSpeedoSpeed;
     static uint16_t lastIntCurrentSpeed;
     float speedoSpeed;
+    float factorF;
+    float factorR;
+
+    setAirGauge();
 
     if (_neutral)
         return; // if in neutral don't waste time in here
 
-    tractiveForce = _notch * _horsepower * factorX;
-    // Serial.print("tractiveForce ");
-    // Serial.println(tractiveForce);
-
-    // create segmented drag force profile
-    if (_currentSpeed <= 0)
-        dragForce = 0;
-    else if (_currentSpeed < 20)
-        dragForce = 1000 + 100 * _currentSpeed;
-    else if (_currentSpeed < 50)
-        dragForce = 1000 + 100 * 20 + 200 * (_currentSpeed - 20);
+    if (_notch == 1)
+        effectiveHP = _horsepowerAtIdle;
     else
-        dragForce = 1000 + 100 * 20 + 200 * 50 + 1000 * (_currentSpeed - 50);
+        effectiveHP = (_horsepower * (_notch - 1) / 7) - 50;
 
-    dragForce *= factorY;
+    if (effectiveHP < 0)
+        effectiveHP = 0;
+
+#ifdef speeddebug
+    Serial.print("_mph  ");
+    Serial.println(_mph);
+#endif
+
+    if (_mph <= 0)
+        tractiveForce = effectiveHP * 308;
+    else
+    {
+        tractiveForce = effectiveHP * 308 / _mph;
+        if (tractiveForce > 37000) // TBD this should be continuous tractive effort parameter
+            tractiveForce = 37000;
+    }
+
+    if (tractiveForce > _tractiveEffort)
+        tractiveForce = _tractiveEffort;
+
+    // reduce tractive force by the starting force effect only when starting
+    if (_currentSpeed <= 0)
+    {
+        dragForce = 0;
+        startingForce = 20 * ((_locoMass * 32 / 2000) + _tonnage); // convert from poundals to lbs to tons
+        if (startingForce >= tractiveForce)
+            tractiveForce = 0;
+        else
+            tractiveForce -= startingForce;
+    }
+    else
+    // compute the moving drag force for any rolling stock
+    {
+        startingForce = 0;
+        dragForce = (_locoMass * 32 * ROLLING_RESISTANCE_COEFICIENT) + (_tonnage * 2000 * ROLLING_RESISTANCE_COEFICIENT);
+    }
+#ifdef speeddebug
+    Serial.print("_tonnage ");
+    Serial.println(_tonnage);
+    Serial.print("_locoMass  ");
+    Serial.println(_locoMass);
+    Serial.print("starting force ");
+    Serial.println(startingForce);
+#endif
+
+    if (tractiveForce > 1.25 * _lastTractiveForce)
+        tractiveForce = _lastTractiveForce + .15 * tractiveForce; // TBD was .25
+
+    _lastTractiveForce = tractiveForce;
+
+#ifdef speeddebug
+    Serial.print("tractiveForce ");
+    Serial.println(tractiveForce);
+#endif
+
+    // there must be some drag effect that varies with speed that is peculiar to locos
+    variableLocoDragForce = _locoMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT;
+
+    // consider brake forces if any
+    independentBrakeForce = (_independentBrake / 100.) * _locoMass * 32 * LOCO_FRICTION_COEFICIENT;
+    trainBrakeForce = (_trainBrake / 100.) * _tonnage * 2000 * .2;
 
 #ifdef speeddebug
     Serial.print("dragForce ");
     Serial.println(dragForce);
 #endif
 
-    independentBrakeForce = _independentBrake / 100. * _locoMass * 32 * factorZ;
-    trainBrakeForce = _trainBrake / 100. * _tonnage * 2000 * .2;
+    // independentBrakeForce = _independentBrake / 100. * _locoMass * 32 * factorZ;
+    // trainBrakeForce = _trainBrake / 100. * _tonnage * 2000 * .2;
 
 #ifdef speeddebug
-    Serial.print("independentBrakeForce ");
+    Serial.print("independentBrake and ...Force ");
     Serial.print(_independentBrake);
     Serial.print("   ");
     Serial.println(independentBrakeForce);
 #endif
 
-    accel = (tractiveForce - dragForce - independentBrakeForce) / (_locoMass + _tonnage * 2000 / 32);
+    // accel = (tractiveForce - dragForce - independentBrakeForce) / (_locoMass + _tonnage * 2000 / 32);
+    accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce) / (_locoMass + (_tonnage * 2000 / 32));
+    if (accel > MAX_ACCEL)
+        accel = MAX_ACCEL;
 
 #ifdef speeddebug
     Serial.print("accel ");
@@ -326,7 +409,44 @@ void Throttle::computeVelocity(void)
     if (_currentSpeed < 0)
         _currentSpeed = 0;
 
-    intCurrentSpeed = _currentSpeed * _speedFactor;
+    _odometer = _odometer + abs(_currentSpeed); // TBD on this
+
+#ifdef speeddebug
+    Serial.print("_currentSpeed ");
+    Serial.println(_currentSpeed);
+#endif
+
+    // get the appropriate calibrated speed compensation value
+    if (_currentSpeed <= FPS_AT_MPH_FACTOR2)
+    {
+        factorF = _fpsDccFactorForward2;
+        factorR = _fpsDccFactorReverse2;
+    }
+    else if (_currentSpeed <= FPS_AT_MPH_FACTOR5)
+    {
+        factorF = _fpsDccFactorForward5;
+        factorR = _fpsDccFactorReverse5;
+    }
+    else if (_currentSpeed <= FPS_AT_MPH_FACTOR10)
+    {
+        factorF = _fpsDccFactorForward10;
+        factorR = _fpsDccFactorReverse10;
+    }
+    else if (_currentSpeed <= FPS_AT_MPH_FACTOR20)
+    {
+        factorF = _fpsDccFactorForward20;
+        factorR = _fpsDccFactorReverse20;
+    }
+    else
+    {
+        factorF = _fpsDccFactorForward50;
+        factorR = _fpsDccFactorReverse50;
+    }
+
+    if (_direction)
+        intCurrentSpeed = _currentSpeed * factorF;
+    else
+        intCurrentSpeed = _currentSpeed * factorR;
 
 #ifdef speeddebug
     Serial.print("_currentSpeed ");
@@ -336,13 +456,14 @@ void Throttle::computeVelocity(void)
 
     if (intCurrentSpeed != lastIntCurrentSpeed)
     {
-        speedoSpeed = _currentSpeed * _speedoCalFactor;
+        _mph = _currentSpeed * FPS_TO_MPH_FACTOR; // TBD fix this
+        speedoSpeed = _mph;
         intSpeedoSpeed = speedoSpeed;
         lastIntCurrentSpeed = intCurrentSpeed;
 
         // send back speedometer data to operator
         String speedFeedback = "IOB/" + String(_roadNumber) + "/feedback/speed";
-        String glarb = String(intSpeedoSpeed);
+        String glarb = String(intSpeedoSpeed); // TBD fix this
         client.publish(speedFeedback.c_str(), glarb.c_str());
 
         // build the command string
@@ -357,6 +478,15 @@ void Throttle::computeVelocity(void)
         strcpy(dummyChars, dummyString.c_str());
 
         SerialCommand::parse(dummyChars);
+    }
+
+    // send back odometer data to operator
+    // TBD maybe send this once on startup and/or shutdown as well
+    if (_currentSpeed != 0)
+    {
+        String odometerFeedback = "IOB/" + String(_roadNumber) + "/feedback/odometer";
+        String odometerString = String(_odometer); 
+        client.publish(odometerFeedback.c_str(), odometerString.c_str());
     }
 }
 
@@ -401,4 +531,133 @@ void Throttle::setAirGauge(void)
         String glarb = String(intCurrentPsi);
         client.publish(speedFeedback.c_str(), glarb.c_str());
     }
+}
+
+void Throttle::calibrate(int speed)
+{
+    Preferences myPrefs;
+    char dummyChars[31];
+    long calibrationPeriod;
+    int trapLength;
+    long targetTime;
+    float newFactor;
+    float factorF;
+    float factorR;
+    int dccVal;
+
+    if (abs(speed) == 2)
+    {
+        factorF = _fpsDccFactorForward2;
+        factorR = _fpsDccFactorReverse2;
+    }
+    else if (abs(speed) == 5)
+    {
+        factorF = _fpsDccFactorForward5;
+        factorR = _fpsDccFactorReverse5;
+    }
+    else if (abs(speed) == 10)
+    {
+        factorF = _fpsDccFactorForward10;
+        factorR = _fpsDccFactorReverse10;
+    }
+    else if (abs(speed) == 20)
+    {
+        factorF = _fpsDccFactorForward20;
+        factorR = _fpsDccFactorReverse20;
+    }
+    else
+    {
+        factorF = _fpsDccFactorForward50;
+        factorR = _fpsDccFactorReverse50;
+    }
+
+    // if (speed == 0)
+    if (_calibrationStage == 2)
+    {
+        trapLength = _calibrationTrapLength;
+        trapLength = 2; // TBD remove this
+        calibrationPeriod = millis() - _calibrationTimer;
+        // compute target time in ms to traverse test section at this speed point
+        targetTime = 1000 * trapLength * 87 / (abs(speed) * (5280 / 3600));
+        // divide calibrationPeriod by target value
+        // multiply result by existing FPS_TO_DCC_FACTOR
+        if (speed > 0)
+            newFactor = factorF * calibrationPeriod / targetTime;
+        else
+            newFactor = factorR * calibrationPeriod / targetTime;
+
+        myPrefs.begin("calibration", false);
+        if (abs(speed) == 2)
+        {
+            if (speed > 0)
+                myPrefs.putFloat("speed2forward", newFactor);
+            else
+                myPrefs.putFloat("speed2reverse", newFactor);
+        }
+        else if (abs(speed) == 5)
+        {
+            if (speed > 0)
+                myPrefs.putFloat("speed5forward", newFactor);
+            else
+                myPrefs.putFloat("speed5reverse", newFactor);
+        }
+        else if (abs(speed) == 10)
+        {
+            if (speed > 0)
+                myPrefs.putFloat("speed10forward", newFactor);
+            else
+                myPrefs.putFloat("speed10reverse", newFactor);
+        }
+        else if (abs(speed) == 20)
+        {
+            if (speed > 0)
+                myPrefs.putFloat("speed20forward", newFactor);
+            else
+                myPrefs.putFloat("speed20reverse", newFactor);
+        }
+        else if (abs(speed) == 50)
+        {
+            if (speed > 0)
+                myPrefs.putFloat("speed50forward", newFactor);
+            else
+                myPrefs.putFloat("speed50reverse", newFactor);
+        }
+        myPrefs.end();
+
+        setFunction(functionBell, false);
+        getLocoPrefs(); // read storage into variables
+    }
+    else if (_calibrationStage == 1)
+    {
+        _calibrationTimer = millis();
+        setFunction(functionBell, true);
+    }
+
+    if (_calibrationStage != 1) // either starting movement or stopping (0 or 2)
+    {
+        String dummyString = "t 1 ";
+        dummyString.concat(String(_roadNumber) + " ");
+        if (_calibrationStage == 0)
+        {
+            if (speed > 0)
+                dccVal = abs(speed * factorF / FPS_TO_MPH_FACTOR);
+            else
+                dccVal = abs(speed * factorR / FPS_TO_MPH_FACTOR);
+
+            dummyString.concat(String(dccVal) + " "); // starting
+        }
+        else
+            dummyString.concat(String(0) + " "); // end of movement
+
+        if (speed >= 0)
+            dummyString.concat("1");
+        else
+            dummyString.concat("0");
+
+        strcpy(dummyChars, dummyString.c_str());
+        SerialCommand::parse(dummyChars);
+    }
+
+    if (++_calibrationStage == 3)
+        _calibrationStage = 0;
 }

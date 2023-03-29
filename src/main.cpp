@@ -397,8 +397,18 @@ void IRAM_ATTR onTimer1()
 // this function converts placeholders in the html into active data values
 String processorNetwork(const String &var)
 {
-  // Serial.println(var);
-  if (var == "MQTTSERVERIPADR")
+  if (var == "IP")
+    return WiFi.localIP().toString();
+  else if (var == "SSID")
+    return WiFi.SSID();
+  else if (var == "RSSI")
+    // int8_t myRSSI = WiFi.RSSI();
+    return String(WiFi.RSSI());
+  else if (var =="MAC")
+    return WiFi.macAddress();
+  else if (var == "MQ")
+    return mqttServer;
+  else if (var == "MQTTSERVERIPADR")
     return mqttServer;
   else if (var == "TOPICCOMMANDLEFTEND")
     return topicCommandLeftEnd;
@@ -429,6 +439,39 @@ String processorLocoparms(const String &var)
 
 /*****************************************************************************/
 // this function converts placeholders in the html into active data values
+String processorCalibrationparms(const String &var)
+{
+  String returnVal;
+  returnVal = "";
+
+  myPrefs.begin("calibration", true);
+  if (var == "SPEED2FORWARD")
+    returnVal = String(myPrefs.getFloat("speed2forward", 1.));
+  else if (var == "SPEED2REVERSE")
+    returnVal = String(myPrefs.getFloat("speed2reverse", 1.));
+  else if (var == "SPEED5FORWARD")
+    returnVal = String(myPrefs.getFloat("speed5forward", 1.));
+  else if (var == "SPEED5REVERSE")
+    returnVal = String(myPrefs.getFloat("speed5reverse", 1.));
+  else if (var == "SPEED10FORWARD")
+    returnVal = String(myPrefs.getFloat("speed10forward", 1.));
+  else if (var == "SPEED10REVERSE")
+    returnVal = String(myPrefs.getFloat("speed10reverse", 1.));
+  else if (var == "SPEED20FORWARD")
+    returnVal = String(myPrefs.getFloat("speed20forward", 1.));
+  else if (var == "SPEED20REVERSE")
+    returnVal = String(myPrefs.getFloat("speed20reverse", 2.));
+  else if (var == "SPEED50FORWARD")
+    returnVal = String(myPrefs.getFloat("speed50forward", 2.));
+  else if (var == "SPEED50REVERSE")
+    returnVal = String(myPrefs.getFloat("speed50reverse", 2.));
+  myPrefs.end();
+
+  return (returnVal);
+}
+
+/*****************************************************************************/
+// this function converts placeholders in the html into active data values
 String processorFunctions(const String &var)
 {
   // Serial.println(var);
@@ -438,8 +481,12 @@ String processorFunctions(const String &var)
   myPrefs.begin("functions", true);
   if (var == "HEADLIGHT")
     returnVal = String(myPrefs.getInt("headlightBright", 0));
-  if (var == "REARLIGHT")
+  else if (var == "HEADLIGHTDIM")
+    returnVal = String(myPrefs.getInt("headlightDim", 0));
+  else if (var == "REARLIGHT")
     returnVal = String(myPrefs.getInt("rearlightBright", 0));
+  else if (var == "REARLIGHTDIM")
+    returnVal = String(myPrefs.getInt("rearlightDim", 0));
   else if (var == "BELL")
     returnVal = String(myPrefs.getInt("bell", 1));
   else if (var == "HORN")
@@ -458,13 +505,16 @@ String processorFunctions(const String &var)
 
   return (returnVal);
 }
-
+// #include "nvs_flash.h"
 ///////////////////////////////////////////////////////////////////////////////
 // INITIAL SETUP
 ///////////////////////////////////////////////////////////////////////////////
 void setup()
 {
   // static u32_t timer;
+// nvs_flash_erase();
+// nvs_flash_init();
+// while(true);
 
   Serial.begin(115200);
   SPIFFS.begin(true); // format on fail
@@ -508,6 +558,8 @@ void setup()
             { request->send(SPIFFS, "/locoparms.html", "text/html", false, processorLocoparms); });
   server.on("/network.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork); });
+  server.on("/calibration.html", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/calibration.html", "text/html", false, processorCalibrationparms); });
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/stylesheet.css", "text/css", false); });
 
@@ -545,6 +597,41 @@ void setup()
       throttle.getLocoPrefs();
       request->send(SPIFFS, "/locoparms.html", "text/html", false, processorLocoparms);
     }
+   
+   else if (request->hasParam("calibrationParm"))
+    {
+      myPrefs.begin("calibration", false);
+      inputMessage = request->getParam("speed2forward")->value();
+      myPrefs.putFloat("speed2forward", inputMessage.toFloat());
+      inputMessage = request->getParam("speed2reverse")->value();
+      myPrefs.putFloat("speed2reverse", inputMessage.toFloat());
+
+      inputMessage = request->getParam("speed5forward")->value();
+      myPrefs.putFloat("speed5forward", inputMessage.toFloat());
+      inputMessage = request->getParam("speed5reverse")->value();
+      myPrefs.putFloat("speed5reverse", inputMessage.toFloat());
+      
+      inputMessage = request->getParam("speed10forward")->value();
+      myPrefs.putFloat("speed10forward", inputMessage.toFloat());
+      inputMessage = request->getParam("speed10reverse")->value();
+      myPrefs.putFloat("speed10reverse", inputMessage.toFloat());
+
+
+      inputMessage = request->getParam("speed20forward")->value();
+      myPrefs.putFloat("speed20forward", inputMessage.toFloat());
+      inputMessage = request->getParam("speed20reverse")->value();
+      myPrefs.putFloat("speed20reverse", inputMessage.toFloat());
+
+      inputMessage = request->getParam("speed50forward")->value();
+      myPrefs.putFloat("speed50forward", inputMessage.toFloat());
+      inputMessage = request->getParam("speed50reverse")->value();
+      myPrefs.putFloat("speed50reverse", inputMessage.toFloat());
+      
+      myPrefs.end();
+
+      throttle.getLocoPrefs();  // TBD have to add to getLocoPrefs
+      request->send(SPIFFS, "/calibration.html", "text/html", false, processorCalibrationparms);
+    }
 
     else if (request->hasParam("FunctionsParm"))
     {
@@ -553,6 +640,10 @@ void setup()
       myPrefs.putInt("headlightBright", inputMessage.toInt());
       inputMessage = request->getParam("rearlight")->value();
       myPrefs.putInt("rearlightBright", inputMessage.toInt());
+      inputMessage = request->getParam("headlightdim")->value();
+      myPrefs.putInt("headlightDim", inputMessage.toInt());
+      inputMessage = request->getParam("rearlightdim")->value();
+      myPrefs.putInt("rearlightDim", inputMessage.toInt());
       inputMessage = request->getParam("bell")->value();
       myPrefs.putInt("bell", inputMessage.toInt());
       inputMessage = request->getParam("horn")->value();
@@ -632,10 +723,7 @@ void loop()
   }
 
   if (timer1sec.expired)
-  {
     throttle.computeVelocity();
-    throttle.setAirGauge();
-  }
 
   /*   if(CurrentMonitor::checkTime()){      // if sufficient time has elapsed since last update, check current draw on Main and Program Tracks
       mainMonitor.check();
@@ -646,72 +734,76 @@ void loop()
 
 } // loop
 
+
+
+
+// junk below
 ///////////////////////////////////////////////////////////////////////////////
 // PRINT CONFIGURATION INFO TO SERIAL PORT REGARDLESS OF INTERFACE TYPE
 // - ACTIVATED ON STARTUP IF SHOW_CONFIG_PIN IS TIED HIGH
-void showConfiguration()
-{
+// void showConfiguration()
+// {
 
-  int mac_address[] = MAC_ADDRESS;
+//   // int mac_address[] = MAC_ADDRESS;
 
-  Serial.print("\n*** DCC++ CONFIGURATION ***\n");
+//   Serial.print("\n*** DCC++ CONFIGURATION ***\n");
 
-  Serial.print("\nVERSION:      ");
-  Serial.print(VERSION);
-  Serial.print("\nCOMPILED:     ");
-  Serial.print(__DATE__);
-  Serial.print(" ");
-  Serial.print(__TIME__);
+//   Serial.print("\nVERSION:      ");
+//   Serial.print(VERSION);
+//   Serial.print("\nCOMPILED:     ");
+//   Serial.print(__DATE__);
+//   Serial.print(" ");
+//   Serial.print(__TIME__);
 
-  Serial.print("\n\nDCC SIG MAIN: ");
-  Serial.print(DCC_SIGNAL_PIN_MAIN);
+//   Serial.print("\n\nDCC SIG MAIN: ");
+//   Serial.print(DCC_SIGNAL_PIN_MAIN);
 
-  Serial.print("\n      ENABLE: ");
-  Serial.print(SIGNAL_ENABLE_PIN_MAIN);
-  Serial.print("\n     CURRENT: ");
-  Serial.print(CURRENT_MONITOR_PIN_MAIN);
+//   Serial.print("\n      ENABLE: ");
+//   Serial.print(SIGNAL_ENABLE_PIN_MAIN);
+//   Serial.print("\n     CURRENT: ");
+//   Serial.print(CURRENT_MONITOR_PIN_MAIN);
 
-  Serial.print("\n\nDCC SIG PROG: ");
-  Serial.print(DCC_SIGNAL_PIN_PROG);
+//   Serial.print("\n\nDCC SIG PROG: ");
+//   Serial.print(DCC_SIGNAL_PIN_PROG);
 
-  Serial.print("\n      ENABLE: ");
-  Serial.print(SIGNAL_ENABLE_PIN_PROG);
-  Serial.print("\n     CURRENT: ");
-  Serial.print(CURRENT_MONITOR_PIN_PROG);
+//   Serial.print("\n      ENABLE: ");
+//   Serial.print(SIGNAL_ENABLE_PIN_PROG);
+//   Serial.print("\n     CURRENT: ");
+//   Serial.print(CURRENT_MONITOR_PIN_PROG);
 
-  Serial.print("\n\nINTERFACE:    ");
-#if COMM_TYPE == 0
-  Serial.print("SERIAL");
-#elif COMM_TYPE == 1
-  Serial.print(COMM_SHIELD_NAME);
-  Serial.print("\nMAC ADDRESS:  ");
-  for (int i = 0; i < 5; i++)
-  {
-    Serial.print(mac_address[i], HEX);
-    Serial.print(":");
-  }
-  Serial.print(mac_address[5], HEX);
-  Serial.print("\nPORT:         ");
-  Serial.print(ETHERNET_PORT);
-  Serial.print("\nIP ADDRESS:   ");
+//   Serial.print("\n\nINTERFACE:    ");
+// #if COMM_TYPE == 0
+//   Serial.print("SERIAL");
+// #elif COMM_TYPE == 1
+//   Serial.print(COMM_SHIELD_NAME);
+//   Serial.print("\nMAC ADDRESS:  ");
+//   for (int i = 0; i < 5; i++)
+//   {
+//     Serial.print(mac_address[i], HEX);
+//     Serial.print(":");
+//   }
+//   Serial.print(mac_address[5], HEX);
+//   Serial.print("\nPORT:         ");
+//   Serial.print(ETHERNET_PORT);
+//   Serial.print("\nIP ADDRESS:   ");
 
-#ifdef IP_ADDRESS
-  Ethernet.begin(mac, IP_ADDRESS); // Start networking using STATIC IP Address
-#else
-  Ethernet.begin(mac); // Start networking using DHCP to get an IP Address
-#endif
+// #ifdef IP_ADDRESS
+//   Ethernet.begin(mac, IP_ADDRESS); // Start networking using STATIC IP Address
+// #else
+//   Ethernet.begin(mac); // Start networking using DHCP to get an IP Address
+// #endif
 
-  Serial.print(Ethernet.localIP());
+//   Serial.print(Ethernet.localIP());
 
-#ifdef IP_ADDRESS
-  Serial.print(" (STATIC)");
-#else
-  Serial.print(" (DHCP)");
-#endif
+// #ifdef IP_ADDRESS
+//   Serial.print(" (STATIC)");
+// #else
+//   Serial.print(" (DHCP)");
+// #endif
 
-#endif
-  Serial.print("\n\nPROGRAM HALTED - PLEASE RESTART ARDUINO");
+// #endif
+//   Serial.print("\n\nPROGRAM HALTED - PLEASE RESTART ARDUINO");
 
-  while (true)
-    ;
-}
+//   while (true)
+//     ;
+// }
