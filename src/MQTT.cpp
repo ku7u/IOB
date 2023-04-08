@@ -1,4 +1,5 @@
 #include "Arduino.h"
+#include "Preferences.h"
 #include "SerialCommand.h"
 #include "RBot.h"
 #include "Function.h"
@@ -62,13 +63,21 @@ void setupSubscriptions()
   // subscribe to 'IOB/roadnum/command/#'
 
   char subscription[100];
+  Preferences myPrefs;
   
-  int roadNum = throttle.getRoadNumber();
+  // int roadNum = throttle.getRoadNumber();
 
+  myPrefs.begin("general", true);
+  String prefix = myPrefs.getString("commandtopic", "cmd/ols/");
+  myPrefs.end();
+
+  // Serial.print("the topic "); Serial.println(prefix);
+  
   // String prefix = "IOB/command/";
-  String prefix = "IOB/";
-  prefix.concat(String(roadNum));
-  prefix.concat(String("/command/#"));
+  // String prefix = "IOB/";
+  // prefix.concat(String(roadNum));
+  // prefix.concat(String("/command/#"));
+  prefix.concat(String("#"));
   strcpy(subscription, prefix.c_str());
   int ret = client.subscribe(subscription, 1);
 
@@ -107,6 +116,8 @@ void callback(char *topic, byte *message, unsigned int length)
 
   if (partString == "startstop")
     throttle.pmOnOff(msgVal);
+  else if (partString == "stop")
+    throttle.panicStop();
   else if (partString == "bell")
     throttle.bell(msgVal);
   else if (partString == "horn")
@@ -131,8 +142,8 @@ void callback(char *topic, byte *message, unsigned int length)
     throttle.setTBrake(msgVal);
   else if (partString == "trainline")
     throttle.trainline(msgVal);
-  else if (partString == "tonnage")
-    throttle.setMass(msgVal);
+  else if (partString == "carcount")
+    throttle.setCarCount(msgVal);
   else if (partString == "calibrate")
     throttle.calibrate(msgVal);
   else if (partString.substring(0, 1) == "f")

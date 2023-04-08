@@ -23,7 +23,7 @@ public:
     void stopPM(void);
     void setDirection(int direction);
     void setThrottleLever(int throttleLever);
-    void setMass(uint16_t carcount);
+    void setCarCount(uint16_t carcount);
     void setTonnage(uint16_t tonnage);
     void setHorsepower(int HP);
     void setGrade(int grade);
@@ -37,6 +37,7 @@ public:
     void setAirGauge(void);
     int getRoadNumber(void);
     void calibrate(int speed);
+    bool isForward();
 
     int functionPM;
     int functionBell;
@@ -75,9 +76,9 @@ private:
     uint16_t _horsepowerAtIdle;
     uint16_t _carCount;
     uint16_t _tonnage = 0;            // tons
-    long _locoWeight;
+    uint32_t _locoWeight;
     long _locoMass; // slugs
-    float _tractiveEffort;
+    uint32_t _tractiveEffort;
     float _lastTractiveForce;
     uint16_t _independentBrake;       // percent
     uint16_t _iBrakeVal = 0;
@@ -97,6 +98,7 @@ private:
     uint32_t _lastCommandTime;
     float _trainlinePSI;
     uint16_t _trainlineSetPSI;
+    bool _trainlineConnected;
     uint16_t _lastIntCurrentPsi;
     bool _compressorRunning;
     uint16_t _compressorCountdown;
@@ -112,6 +114,7 @@ private:
     float _fpsDccFactorReverse10;
     float _fpsDccFactorReverse20;
     float _fpsDccFactorReverse50;
+    String _feedbackTopic;
 
 
     const float ROLLING_RESISTANCE_COEFICIENT = .0015;
@@ -126,6 +129,7 @@ private:
     const float LOCO_FRICTION_COEFICIENT = .1; // similar to friction coefficient for brakes TBD
     const float MAX_TRACTIVE_FORCE = 75000;    // assumed
     const float MAX_ACCEL = 3.;                // to limit accel on starting movement
+    const int TRAINLINE_SET_PSI = 75;
 };
 
 #endif

@@ -178,8 +178,8 @@ DCC++ BASE STATION is configured through the Config.h file that contains all use
    17  SIGNAL_ENABLE_PIN_PROG - as above, prog track (not used)  TBD likely unecessary
    18  CURRENT_MONITOR_PIN_MAIN
    19  CURRENT_MONITOR_PIN_PROG
-   21
-   22
+   21  LEFT_HED_PIN
+   22  RIGHT_HED_PIN
    23
    25  DCC_SIGNAL_PIN_MAIN_2 - other side of H bridge
    26  DCC_SIGNAL_PIN_MAIN - one side of H bridge
@@ -219,11 +219,16 @@ GPIO Pins:
 #include "Config.h"
 #include "Comm.h"
 #include "Throttle.h"
+#include "Location.h"
 #include "MultiTimer.h"
 
 // #include "WebSerial.h"
 
 using namespace std;
+
+
+#define LEFT_HED_PIN 21
+#define RIGHT_HED_PIN 22
 
 Preferences myPrefs;
 void showConfiguration();
@@ -241,6 +246,8 @@ String topicCommandLeftEnd;
 String topicFeedbackLeftEnd;
 
 Throttle throttle;
+
+MagnetReader magReader(LEFT_HED_PIN, RIGHT_HED_PIN);
 
 // functions
 String headlightFunction;
@@ -426,12 +433,16 @@ String processorLocoparms(const String &var)
   returnVal = "";
 
   myPrefs.begin("loco", true);
+  if (var == "ODOMETER")
+    returnVal = String(myPrefs.getFloat("odometer", 0.));
   if (var == "ADDRESS")
     returnVal = String(myPrefs.getInt("roadnum", 3));
   else if (var == "HORSEPOWER")
     returnVal = String(myPrefs.getInt("horsepower", 1500));
   else if (var == "WEIGHT")
-    returnVal = String(myPrefs.getLong("locoweight", 200000));
+    returnVal = String(myPrefs.getUInt("locoweight", 200000));
+  else if (var == "TRACTIVEEFFORT")
+    returnVal = String(myPrefs.getUInt("tractiveeffort", 70000));
   myPrefs.end();
 
   return (returnVal);
@@ -491,6 +502,10 @@ String processorFunctions(const String &var)
     returnVal = String(myPrefs.getInt("bell", 1));
   else if (var == "HORN")
     returnVal = String(myPrefs.getInt("horn", 2));
+  else if (var == "IBRAKE")
+    returnVal = String(myPrefs.getInt("iBrake", 2));
+  else if (var == "TBRAKE")
+    returnVal = String(myPrefs.getInt("tBrake", 2));
   else if (var == "PM")
     returnVal = String(myPrefs.getInt("pm", 2));
   else if (var == "COMPRESSOR")
@@ -525,6 +540,9 @@ void setup()
   topicCommandLeftEnd = myPrefs.getString("commandtopic", "IOB/command/666/");
   topicFeedbackLeftEnd = myPrefs.getString("feedbacktopic", "IOB/feedback/667/");
   myPrefs.end();
+
+  throttle.getLocoPrefs();
+  throttle.getFunctionPrefs();
 
   // List contents of SPIFFS
   // listDir(SPIFFS, "/", 0);
@@ -591,7 +609,9 @@ void setup()
       inputMessage = request->getParam("horsepower")->value();
       myPrefs.putInt("horsepower", inputMessage.toInt());
       inputMessage = request->getParam("weight")->value();
-      myPrefs.putLong("locoweight", inputMessage.toInt());
+      myPrefs.putUInt("locoweight", inputMessage.toInt());
+      inputMessage = request->getParam("tractiveeffort")->value();
+      myPrefs.putUInt("tractiveeffort", inputMessage.toInt()); // TBD why float?
       myPrefs.end();
 
       throttle.getLocoPrefs();
@@ -648,6 +668,10 @@ void setup()
       myPrefs.putInt("bell", inputMessage.toInt());
       inputMessage = request->getParam("horn")->value();
       myPrefs.putInt("horn", inputMessage.toInt());
+      inputMessage = request->getParam("ibrake")->value();
+      myPrefs.putInt("iBrake", inputMessage.toInt());
+      inputMessage = request->getParam("tbrake")->value();
+      myPrefs.putInt("tBrake", inputMessage.toInt());
       inputMessage = request->getParam("pm")->value();
       myPrefs.putInt("pm", inputMessage.toInt());
       inputMessage = request->getParam("compressor")->value();
@@ -701,6 +725,7 @@ void setup()
   throttle.init();
   // WebSerial.println("Type help for instructions");
 
+
 #ifdef speeddebug
   Serial.println("speeddebug is on");
 #endif
@@ -713,7 +738,7 @@ void loop()
 {
   timer1sec.tick();
 
-  SerialCommand::process(); // check for, and process, and new serial commands TBD remove this
+  // SerialCommand::process(); // check for, and process, and new serial commands TBD remove this
 
   // process the mqtt input
   if (!client.loop())
@@ -722,9 +747,16 @@ void loop()
     setupSubscriptions();
   }
 
-  if (timer1sec.expired)
-    throttle.computeVelocity();
+  if (magReader.check())  // check for waypoints by reading magnets embedded in track
+    uint milepost = magReader.process(throttle.isForward());
 
+  if (timer1sec.expired)
+  {
+  // long  myStart = millis();
+    throttle.computeVelocity();
+    // long myDuration = millis() - myStart;
+  // Serial.print("Duration ");Serial.println(myDuration);
+  }
   /*   if(CurrentMonitor::checkTime()){      // if sufficient time has elapsed since last update, check current draw on Main and Program Tracks
       mainMonitor.check();
       progMonitor.check();

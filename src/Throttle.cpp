@@ -26,11 +26,11 @@ Throttle::Throttle(void)
     _throttleLever = 0;
     _carCount = 0;
     _tonnage = 0;
-    _trainlinePSI = 42;
-    _trainlineSetPSI = 75;
+    _trainlinePSI = rand() % TRAINLINE_SET_PSI; // random value between 0 and 75
+    _trainlineSetPSI = TRAINLINE_SET_PSI;
     _neutral = true;
-    _iBrakeVal = 0;
-    _trainBrake = 0;
+    // _iBrakeVal = 0;
+    // _trainBrake = 0;
     // _manualNotchingMode = false;
     _lastIntCurrentSpeed = 0;
     _lastTractiveForce = 0;
@@ -39,10 +39,10 @@ Throttle::Throttle(void)
     _compressorRunning = false;
     _compressorCountdown = 0;
 
-    getLocoPrefs();
-    _locoMass = _locoWeight / 32; // poundals
+    // getLocoPrefs();
+    // _locoMass = _locoWeight / 32; // poundals
 
-    getFunctionPrefs();
+    // getFunctionPrefs();
 }
 
 void Throttle::init()
@@ -60,10 +60,11 @@ void Throttle::getLocoPrefs(void)
     _roadNumber = myPrefs.getInt("roadnum", 16);
     // // myPrefs.getBool("shortLong", 0);
     _horsepower = myPrefs.getInt("horsepower", 1500);
-    _locoWeight = myPrefs.getLong("locoweight", 250000);
-    _tractiveEffort = myPrefs.getFloat("tractiveeffort", 70000.);
+    _locoWeight = myPrefs.getUInt("locoweight", 250000);
+    _tractiveEffort = myPrefs.getUInt("tractiveeffort", 70000.); // TBD why float?
     _odometer = myPrefs.getFloat("odometer", 0.0);
     myPrefs.end();
+    _locoMass = _locoWeight / 32; // poundals
 
     myPrefs.begin("calibration", true);
     _calibrationTrapLength = myPrefs.getInt("traplength", 3);
@@ -77,6 +78,10 @@ void Throttle::getLocoPrefs(void)
     _fpsDccFactorReverse10 = myPrefs.getFloat("speed10reverse", 2.);
     _fpsDccFactorReverse20 = myPrefs.getFloat("speed20reverse", 2.);
     _fpsDccFactorReverse50 = myPrefs.getFloat("speed50reverse", 2.);
+    myPrefs.end();
+
+    myPrefs.begin("general", true);
+    _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/");
     myPrefs.end();
 }
 
@@ -95,8 +100,8 @@ void Throttle::getFunctionPrefs(void)
     functionNotchingEnable = myPrefs.getInt("notchingEnable", 25);
     functionNotchUp = myPrefs.getInt("notchUp", 26);
     functionNotchDown = myPrefs.getInt("notchDown", 27);
-    functionIndependentBrake = myPrefs.getInt("independentBrake", 5);
-    functionTrainBrake = myPrefs.getInt("trainBrake", 4);
+    functionIndependentBrake = myPrefs.getInt("iBrake", 5);
+    functionTrainBrake = myPrefs.getInt("tBrake", 4);
     functionEmergencyBrake = myPrefs.getInt("emergencyBrake", 5);
     functionCompressor = myPrefs.getInt("compressor", 20);
     myPrefs.end();
@@ -110,6 +115,14 @@ void Throttle::setRoadNumber(int roadNumber)
 int Throttle::getRoadNumber(void)
 {
     return _roadNumber;
+}
+
+bool Throttle::isForward()
+{
+    if (_direction)
+        return true;
+    else
+        return false;
 }
 
 void Throttle::pmOnOff(bool onOff)
@@ -167,7 +180,21 @@ void Throttle::rearlight(int offDimBright)
 
 void Throttle::panicStop()
 {
+    char dummyChars[31];
     // TBD this - likely doesn't match ETL
+    String dummyString = "t 1 ";
+    dummyString.concat(String(_roadNumber) + " ");
+    dummyString.concat("0");
+
+    strcpy(dummyChars, dummyString.c_str());
+    SerialCommand::parse(dummyChars);
+
+    _currentSpeed = 0;
+    while (_notch > 0)
+    {
+        manualNotch(false);
+        delay(100);
+    }
 }
 
 void Throttle::bell(bool onOff)
@@ -200,7 +227,7 @@ void Throttle::setDirection(int direction)
     // TBD doesn't match ETL but seems to work as is
 }
 
-void Throttle::setMass(uint16_t carcount)
+void Throttle::setCarCount(uint16_t carcount)
 {
     // _trainlinePSI = 0;
     _carCount = carcount;
@@ -227,22 +254,32 @@ void Throttle::setTBrake(uint16_t val)
 
     if (val > 0)
     {
-        _trainlineSetPSI = val;
+        _trainlinePSI -= val;
+        _trainlineSetPSI = _trainlinePSI;
+        if (_trainlinePSI < 0)
+            _trainlinePSI = 0;
         setFunction(functionTrainBrake, true);
     }
     else
+    {
+        _trainlineSetPSI = TRAINLINE_SET_PSI;
         setFunction(functionTrainBrake, false);
+    }
 }
 
 void Throttle::trainline(bool connect)
 // TBD this has to be linked to tbrake
-//  probably need an object variable that indicates trainline connected
 //  also should respond to increase in car count rather than total cars if already connected
 {
     if (connect)
+    {
+        _trainlineConnected = true;
         _trainlinePSI = _trainlinePSI - _carCount * 1.5; // TBD totally made this up
-    if (_trainlinePSI <= 0)
-        _trainlinePSI = 0;
+        if (_trainlinePSI <= 0)
+            _trainlinePSI = 0;
+    }
+    else
+        _trainlineConnected = false;
 }
 
 //-------------------------------------------------------------------------------
@@ -277,7 +314,8 @@ void Throttle::manualNotch(bool up)
 
     _notch = currentNotch;
 
-    String throttleFeedback = "IOB/" + String(_roadNumber) + "/feedback/notch";
+    // String throttleFeedback = "IOB/" + String(_roadNumber) + "/feedback/notch";
+    String throttleFeedback = _feedbackTopic + "notch";
     String glarb = String(currentNotch);
     client.publish(throttleFeedback.c_str(), glarb.c_str());
 
@@ -307,6 +345,7 @@ void Throttle::computeVelocity(void)
     float speedoSpeed;
     float factorF;
     float factorR;
+    String feedbackPrefix;
 
     setAirGauge();
 
@@ -378,7 +417,11 @@ void Throttle::computeVelocity(void)
 
     // consider brake forces if any
     independentBrakeForce = (_independentBrake / 100.) * _locoMass * 32 * LOCO_FRICTION_COEFICIENT;
-    trainBrakeForce = (_trainBrake / 100.) * _tonnage * 2000 * .2;
+    // trainBrakeForce = (_trainBrake / 100.) * _tonnage * 2000 * .2;
+    if (_trainlineConnected)
+        trainBrakeForce = (TRAINLINE_SET_PSI - _trainlinePSI) / TRAINLINE_SET_PSI * _tonnage * 2000 * .2;
+    else
+        trainBrakeForce = 0;
 
 #ifdef speeddebug
     Serial.print("dragForce ");
@@ -396,7 +439,7 @@ void Throttle::computeVelocity(void)
 #endif
 
     // accel = (tractiveForce - dragForce - independentBrakeForce) / (_locoMass + _tonnage * 2000 / 32);
-    accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce) / (_locoMass + (_tonnage * 2000 / 32));
+    accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - trainBrakeForce) / (_locoMass + (_tonnage * 2000 / 32));
     if (accel > MAX_ACCEL)
         accel = MAX_ACCEL;
 
@@ -462,7 +505,8 @@ void Throttle::computeVelocity(void)
         lastIntCurrentSpeed = intCurrentSpeed;
 
         // send back speedometer data to operator
-        String speedFeedback = "IOB/" + String(_roadNumber) + "/feedback/speed";
+        // String speedFeedback = "IOB/" + String(_roadNumber) + "/feedback/speed";
+        String speedFeedback = _feedbackTopic + "speed";
         String glarb = String(intSpeedoSpeed); // TBD fix this
         client.publish(speedFeedback.c_str(), glarb.c_str());
 
@@ -484,8 +528,9 @@ void Throttle::computeVelocity(void)
     // TBD maybe send this once on startup and/or shutdown as well
     if (_currentSpeed != 0)
     {
-        String odometerFeedback = "IOB/" + String(_roadNumber) + "/feedback/odometer";
-        String odometerString = String(_odometer); 
+        // String odometerFeedback = "IOB/" + String(_roadNumber) + "/feedback/odometer";
+        String odometerFeedback = _feedbackTopic + "odometer";
+        String odometerString = String(_odometer);
         client.publish(odometerFeedback.c_str(), odometerString.c_str());
     }
 }
@@ -527,7 +572,10 @@ void Throttle::setAirGauge(void)
     if (intCurrentPsi != lastIntCurrentPsi)
     {
         lastIntCurrentPsi = intCurrentPsi;
-        String speedFeedback = "IOB/" + String(_roadNumber) + "/feedback/trainline";
+        // String speedFeedback = "IOB/" + String(_roadNumber) + "/feedback/trainline";
+        String speedFeedback = _feedbackTopic + "trainline";
+        Serial.print("in air gauge ");
+        Serial.println(speedFeedback);
         String glarb = String(intCurrentPsi);
         client.publish(speedFeedback.c_str(), glarb.c_str());
     }

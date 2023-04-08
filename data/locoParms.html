@@ -3,7 +3,7 @@
 
 <head>
     <link rel="stylesheet" href="stylesheet.css">
-    <title>IOB Loco Parameters</title>
+    <title>OLS Loco Parameters</title>
     <meta charset="UTF-8">
     <meta name="author" content="George Hofmann">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -23,35 +23,44 @@
     <div class="content">
         <h2>Locomotive Parameters</h2>
 
+        <table>
+            <tr>
+                <td>Odometer:</td>
+                <td> %ODOMETER%</td>
+            </tr>
+        </table>
+        <hr>
+        <br>
         <p>Assign all parameters associated with this locomotive.
             If unknown, retain the default.</p>
-
         <form action="/get">
             <input type="hidden" name="locoparmsParm" value="0">
             <table>
 
                 <tr>
                     <td><label for="address">Address</label></td>
-                    <td><input type="number" id="address" name="address" value="%ADDRESS%" min="1" max="9999"><br></td>
+                    <td><input type="number" id="address" name="address" value="%ADDRESS%" min="1" max="9999" style=text-align:center></td>
                 </tr>
                 <tr>
                     <td><label for="horsepower">Horsepower</label></td>
-                    <td><input type="number" id="horsepower" name="horsepower" value="%HORSEPOWER%" min="100" max="7000"><br></td>
+                    <td><input type="number" id="horsepower" name="horsepower" value="%HORSEPOWER%" min="100"
+                            max="7000" style=text-align:center></td>
                 </tr>
                 <tr>
                     <td><label for="weight">Weight (lbs)</label></td>
-                    <td><input type="number" id="weight" name="weight" value="%WEIGHT%" min="50000" max="1000000"></td>
+                    <td><input type="number" id="weight" name="weight" value="%WEIGHT%" min="50000" max="500000" style=text-align:center></td>
                 </tr>
                 <tr>
                     <td><label for="tractiveeffort">Tractive Effort (lbs)</label></td>
-                    <td><input type="number" id="tractiveeffort" name="tractiveeffort" value="%TRACTIVEEFFORT%" min="50000" max="1000000"></td>
+                    <td><input type="number" id="tractiveeffort" name="tractiveeffort" value="%TRACTIVEEFFORT%"
+                            min="1000" max="100000"  style=text-align:center></td>
                 </tr>
             </table>
             <br><br>
-            <input type="submit">   <input type="reset">
+            <input type="submit"> <input type="reset">
         </form>
 
-        
+
     </div>
 
 </body>

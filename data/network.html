@@ -3,7 +3,7 @@
 
 <head>
   <link rel="stylesheet" href="stylesheet.css">
-  <title>IOB Network Parameters</title>
+  <title>OLS Network Parameters</title>
   <meta charset="UTF-8">
   <meta name="author" content="George Hofmann">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -28,7 +28,8 @@
     <tr><td>Signal strength: </td> <td> %RSSI%</td></tr>
     <tr><td>MAC address: </td><td>%MAC%</td></tr>
     </table>
-
+<hr>
+<br>
     <p>Assign the following network parameters associated with this loco. The topics must match those in the controlling device, such as JMRI.</p>
 
     <form action="/get">
@@ -41,17 +42,17 @@
 
         <tr>
           <td>MQTT Server IP</td>
-          <td><input type="text" name="mqttserver" value="%MQTTSERVERIPADR%"></td>
+          <td><input type="text" name="mqttserver" value="%MQTTSERVERIPADR%" style=text-align:center></td>
         </tr>
 
         <tr>
-          <td>Topic Command Left End</td>
-          <td><input type="text" name="commandtopic" value="%TOPICCOMMANDLEFTEND%"></td>
+          <td>Command Topic Prefix</td>
+          <td><input type="text" name="commandtopic" value="%TOPICCOMMANDLEFTEND%" style=text-align:center></td>
         </tr>
 
         <tr>
-          <td>Topic Feedback Left End</td>
-          <td><input type="text" name="feedbacktopic" value="%TOPICFEEDBACKLEFTEND%"></td>
+          <td>Telemetry Topic Prefix</td>
+          <td><input type="text" name="feedbacktopic" value="%TOPICFEEDBACKLEFTEND%" style=text-align:center></td>
         </tr>
       </table>
       <br>
