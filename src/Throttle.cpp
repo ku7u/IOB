@@ -1,4 +1,4 @@
-// #define speeddebug
+#define speeddebug
 
 #include "Throttle.h"
 #include "SerialCommand.h"
@@ -57,14 +57,14 @@ void Throttle::getLocoPrefs(void)
     Preferences myPrefs;
 
     myPrefs.begin("loco");
-    _roadNumber = myPrefs.getInt("roadnum", 16);
+    _roadNumber = myPrefs.getInt("roadnum", 0);
     // // myPrefs.getBool("shortLong", 0);
     _horsepower = myPrefs.getInt("horsepower", 1500);
-    _locoWeight = myPrefs.getUInt("locoweight", 250000);
-    _tractiveEffort = myPrefs.getUInt("tractiveeffort", 70000.); // TBD why float?
+    _locoWeight = myPrefs.getULong("locoweight", 250000);
+    _tractiveEffort = myPrefs.getLong("tractiveeffort", 70000.); // TBD why float?
     _odometer = myPrefs.getFloat("odometer", 0.0);
     myPrefs.end();
-    _locoMass = _locoWeight / 32; // poundals
+    _locoMass = _locoWeight / 32; // slugs
 
     myPrefs.begin("calibration", true);
     _calibrationTrapLength = myPrefs.getInt("traplength", 3);
@@ -81,7 +81,7 @@ void Throttle::getLocoPrefs(void)
     myPrefs.end();
 
     myPrefs.begin("general", true);
-    _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/");
+    _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/3");
     myPrefs.end();
 }
 
@@ -123,6 +123,11 @@ bool Throttle::isForward()
         return true;
     else
         return false;
+}
+
+uint Throttle::getLastIntCurrentSpeed()
+{
+    return _lastIntCurrentSpeed;
 }
 
 void Throttle::pmOnOff(bool onOff)
@@ -199,12 +204,14 @@ void Throttle::panicStop()
 
 void Throttle::bell(bool onOff)
 {
-    setFunction(functionBell, onOff);
+    if (_running)
+        setFunction(functionBell, onOff);
 }
 
 void Throttle::horn(bool onOff)
 {
-    setFunction(functionHorn, onOff);
+    if (_running)
+        setFunction(functionHorn, onOff);
 }
 
 void Throttle::setThrottleLever(int throttleLever)
@@ -218,9 +225,9 @@ void Throttle::setDirection(int direction)
     _neutral = false;
     _direction = true;
 
-    if (direction == 0)
+    if (direction == -1)
         _direction = false;
-    else if (direction == 2)
+    else if (direction == 1)
         _direction = true;
     else
         _neutral = true;
@@ -290,9 +297,12 @@ void Throttle::manualNotch(bool up)
     static int currentNotch = 0;
     uint32_t now;
 
+    if (!_running)
+        return;
+
     now = millis();
 
-    if (now - _lastCommandTime < 250)
+    if (now - _lastCommandTime < 100) // was 250
         return;
     else
         _lastCommandTime = now;
@@ -347,18 +357,23 @@ void Throttle::computeVelocity(void)
     float factorR;
     String feedbackPrefix;
 
+    if (!_running)
+        return;
+
     setAirGauge();
 
     if (_neutral)
         return; // if in neutral don't waste time in here
 
-    if (_notch == 1)
+    if (_notch == 0)
+        effectiveHP = 0;
+    else if (_notch == 1)
         effectiveHP = _horsepowerAtIdle;
     else
         effectiveHP = (_horsepower * (_notch - 1) / 7) - 50;
 
-    if (effectiveHP < 0)
-        effectiveHP = 0;
+        // if (effectiveHP < 0)
+        //     effectiveHP = 0;
 
 #ifdef speeddebug
     Serial.print("_mph  ");
@@ -370,8 +385,8 @@ void Throttle::computeVelocity(void)
     else
     {
         tractiveForce = effectiveHP * 308 / _mph;
-        if (tractiveForce > 37000) // TBD this should be continuous tractive effort parameter
-            tractiveForce = 37000;
+        if (tractiveForce > _tractiveEffort)
+            tractiveForce = _tractiveEffort;
     }
 
     if (tractiveForce > _tractiveEffort)
@@ -402,8 +417,9 @@ void Throttle::computeVelocity(void)
     Serial.println(startingForce);
 #endif
 
-    if (tractiveForce > 1.25 * _lastTractiveForce)
-        tractiveForce = _lastTractiveForce + .15 * tractiveForce; // TBD was .25
+    if (_notch > 1)
+        if (tractiveForce > 1.25 * _lastTractiveForce)
+            tractiveForce = _lastTractiveForce + .15 * tractiveForce; // TBD was .25
 
     _lastTractiveForce = tractiveForce;
 
@@ -414,6 +430,11 @@ void Throttle::computeVelocity(void)
 
     // there must be some drag effect that varies with speed that is peculiar to locos
     variableLocoDragForce = _locoMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT;
+
+#ifdef speeddebug
+    Serial.print("variableLocoDragForce ");
+    Serial.println(variableLocoDragForce);
+#endif
 
     // consider brake forces if any
     independentBrakeForce = (_independentBrake / 100.) * _locoMass * 32 * LOCO_FRICTION_COEFICIENT;
@@ -492,7 +513,7 @@ void Throttle::computeVelocity(void)
         intCurrentSpeed = _currentSpeed * factorR;
 
 #ifdef speeddebug
-    Serial.print("_currentSpeed ");
+    Serial.print("_currentSpeed factored ");
     Serial.println(intCurrentSpeed);
     Serial.print('\n');
 #endif
@@ -539,6 +560,7 @@ void Throttle::setAirGauge(void)
 {
     int intCurrentPsi;
     static int lastIntCurrentPsi;
+    static int countDown;
 
     if ((_trainlineSetPSI > _trainlinePSI) && (_running))
     {
@@ -546,9 +568,15 @@ void Throttle::setAirGauge(void)
         {
             _compressorRunning = true;
             setFunction(functionCompressor, 1);
-            // TBD maybe countdown here
+            countDown = 8;
         }
-        _trainlinePSI += (.3 * (_notch + 1));
+        countDown--;
+        if (countDown <= 0)
+        {
+            // this holds off the pressure rise until compressor finally starts
+            countDown = 0;
+            _trainlinePSI += (.3 * (_notch + 1));
+        }
     }
 
     if ((_trainlineSetPSI <= _trainlinePSI) && _running && _compressorRunning)

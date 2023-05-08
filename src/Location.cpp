@@ -8,9 +8,26 @@ MagnetReader::MagnetReader(int leftPin, int rightPin)
     pinMode(rightPin, INPUT);
 }
 
-bool MagnetReader::check()
+bool MagnetReader::check(uint currentSpeed)
 {
     bool finished = false;
+
+    if (currentSpeed == 0)
+        // not moving so nothing to do here
+        return false;
+
+    uint maxInterMagnetInterval = 4 * 1000 / currentSpeed;  // interval (ms) between magnets at speed TBD the hard coded footage 
+
+    // TBD have to determine if has been a long time since last somestates was true, reset if so
+    // had already detected at least one digit but not seeing any others
+    // maybe like this
+    uint maxDeadInterval = 2 * maxInterMagnetInterval;
+    if ((millis() - maxDeadInterval > startOfPeriod) && (digitState > 0))
+    {
+        detectState = clear;
+        errorState = true;  // TBD maybe, maybe not
+        digitState = 0;
+    }
 
     // read the Hall effect devices
     int leftMagState = digitalRead(leftPin);
@@ -25,15 +42,28 @@ bool MagnetReader::check()
     bothStates = bothStates || (leftMagState * 2);
     bothStates = bothStates || rightMagState;
 
+    if (someStates == 0 )
+        errorState = false;
+    else if ((someStates > 0) && errorState)
+        return false;
+
     if ((someStates > 0) && (detectState == clear))
     // transition into 'over the magnets' state
     {
         detectState = started;
         digitState = digitState + 1;
+        startOfPeriod = millis();
     }
     else if ((someStates == 0) && (detectState == started))
     // transition to no magnets state, clear values to prep for next magnet or reset if done
     {
+        if (millis() - maxInterMagnetInterval > startOfPeriod)
+            {
+                // error TBD in here
+                errorState = true;
+                digitState = 0;
+                return false;
+            }
         digitValue[digitState - 1] = bothStates;
         detectState = clear;
         someStates = 0;

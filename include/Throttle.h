@@ -38,6 +38,8 @@ public:
     int getRoadNumber(void);
     void calibrate(int speed);
     bool isForward();
+    uint getLastIntCurrentSpeed();
+
 
     int functionPM;
     int functionBell;
@@ -75,7 +77,7 @@ private:
     uint16_t _horsepower;      // HP
     uint16_t _horsepowerAtIdle;
     uint16_t _carCount;
-    uint16_t _tonnage = 0;            // tons
+    uint32_t _tonnage = 0;            // tons
     uint32_t _locoWeight;
     long _locoMass; // slugs
     uint32_t _tractiveEffort;

@@ -226,12 +226,11 @@ GPIO Pins:
 
 using namespace std;
 
-
 #define LEFT_HED_PIN 21
 #define RIGHT_HED_PIN 22
 
 Preferences myPrefs;
-void showConfiguration();
+// void showConfiguration();
 
 AsyncWebServer server(80);
 
@@ -241,7 +240,7 @@ WiFiClient espClient;
 // mqtt
 PubSubClient client(espClient);
 String mqttServer = "192.168.0.109"; // TBD fix this
-String mqttNode = "IOBdevice";
+String mqttNode = "OLSdevice";
 String topicCommandLeftEnd;
 String topicFeedbackLeftEnd;
 
@@ -316,8 +315,22 @@ portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 void IRAM_ATTR onTimer0()
 {
   portENTER_CRITICAL_ISR(&timerMux);
-  digitalWrite(DCC_SIGNAL_PIN_MAIN, !digitalRead(DCC_SIGNAL_PIN_MAIN));
-  digitalWrite(DCC_SIGNAL_PIN_MAIN_2, !digitalRead(DCC_SIGNAL_PIN_MAIN));
+  // digitalWrite(DCC_SIGNAL_PIN_MAIN, !digitalRead(DCC_SIGNAL_PIN_MAIN));
+  // digitalWrite(DCC_SIGNAL_PIN_MAIN_2, !digitalRead(DCC_SIGNAL_PIN_MAIN));
+
+// the motor driver does not like both inputs to be zero simultaneously, takes 40 usec to recover
+  if (digitalRead(DCC_SIGNAL_PIN_MAIN))
+  {
+    // write a one first so that both are one rather than both zero
+    digitalWrite(DCC_SIGNAL_PIN_MAIN_2, 1);
+    digitalWrite(DCC_SIGNAL_PIN_MAIN, 0);
+  }
+  else
+  {
+    digitalWrite(DCC_SIGNAL_PIN_MAIN, 1);
+    digitalWrite(DCC_SIGNAL_PIN_MAIN_2, 0);
+  }
+
   portEXIT_CRITICAL_ISR(&timerMux);
 }
 
@@ -411,7 +424,7 @@ String processorNetwork(const String &var)
   else if (var == "RSSI")
     // int8_t myRSSI = WiFi.RSSI();
     return String(WiFi.RSSI());
-  else if (var =="MAC")
+  else if (var == "MAC")
     return WiFi.macAddress();
   else if (var == "MQ")
     return mqttServer;
@@ -440,9 +453,9 @@ String processorLocoparms(const String &var)
   else if (var == "HORSEPOWER")
     returnVal = String(myPrefs.getInt("horsepower", 1500));
   else if (var == "WEIGHT")
-    returnVal = String(myPrefs.getUInt("locoweight", 200000));
+    returnVal = String(myPrefs.getULong("locoweight", 200000));
   else if (var == "TRACTIVEEFFORT")
-    returnVal = String(myPrefs.getUInt("tractiveeffort", 70000));
+    returnVal = String(myPrefs.getLong("tractiveeffort", 70000));
   myPrefs.end();
 
   return (returnVal);
@@ -520,6 +533,7 @@ String processorFunctions(const String &var)
 
   return (returnVal);
 }
+
 // #include "nvs_flash.h"
 ///////////////////////////////////////////////////////////////////////////////
 // INITIAL SETUP
@@ -527,9 +541,8 @@ String processorFunctions(const String &var)
 void setup()
 {
   // static u32_t timer;
-// nvs_flash_erase();
-// nvs_flash_init();
-// while(true);
+  // nvs_flash_erase();
+  // nvs_flash_init();
 
   Serial.begin(115200);
   SPIFFS.begin(true); // format on fail
@@ -537,8 +550,8 @@ void setup()
   // get the stored configuration values, defaults are the second parameter in the list
   myPrefs.begin("general", true);
   mqttServer = myPrefs.getString("mqttserver", "192.168.99.99");
-  topicCommandLeftEnd = myPrefs.getString("commandtopic", "IOB/command/666/");
-  topicFeedbackLeftEnd = myPrefs.getString("feedbacktopic", "IOB/feedback/667/");
+  topicCommandLeftEnd = myPrefs.getString("commandtopic", "cmd/ols/");
+  topicFeedbackLeftEnd = myPrefs.getString("feedbacktopic", "tlm/ols/");
   myPrefs.end();
 
   throttle.getLocoPrefs();
@@ -547,11 +560,11 @@ void setup()
   // List contents of SPIFFS
   // listDir(SPIFFS, "/", 0);
 
-  int roadNum = throttle.getRoadNumber();
-  String SSID = "Loco_" + String(roadNum);
-  // AutoConnect AP
-  // Configure SSID and password for Captive Portal
-  ESPConnect.autoConnect(SSID.c_str()); // TBD use the actual roadnum
+  // use mac address as SSID to assure uniqueness
+  String SSID = WiFi.macAddress();
+  Serial.println(SSID);
+  // ESPConnect.erase();
+  ESPConnect.autoConnect(SSID.c_str());
 
   // Begin connecting to previous WiFi or start autoConnect AP if unable to connect
   if (ESPConnect.begin(&server))
@@ -609,9 +622,9 @@ void setup()
       inputMessage = request->getParam("horsepower")->value();
       myPrefs.putInt("horsepower", inputMessage.toInt());
       inputMessage = request->getParam("weight")->value();
-      myPrefs.putUInt("locoweight", inputMessage.toInt());
+      myPrefs.putULong("locoweight", inputMessage.toInt());
       inputMessage = request->getParam("tractiveeffort")->value();
-      myPrefs.putUInt("tractiveeffort", inputMessage.toInt()); // TBD why float?
+      myPrefs.putLong("tractiveeffort", inputMessage.toInt()); // TBD why float?
       myPrefs.end();
 
       throttle.getLocoPrefs();
@@ -694,13 +707,9 @@ void setup()
   AsyncElegantOTA.begin(&server); // Start ElegantOTA
   server.begin();
 
-  // MQTT
-  mqttNode = "IOBloco" + String(roadNum);
-  mqttSetup(mqttServer, mqttNode);
-
   // EEStore::init(); // initialize and load Turnout and Sensor definitions stored in EEPROM
 
-  Serial.println(SSID); // Print Status to Serial Line regardless of COMM_TYPE setting so user can open Serial Monitor and check configurtion
+  // Serial.println(SSID); // Print Status to Serial Line regardless of COMM_TYPE setting so user can open Serial Monitor and check configurtion
 
   SerialCommand::init(&mainRegs, &progRegs, &mainMonitor); // create structure to read and parse commands from serial line
 
@@ -723,12 +732,20 @@ void setup()
   progRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
 
   throttle.init();
-  // WebSerial.println("Type help for instructions");
 
+  // MQTT
+  int roadNum = throttle.getRoadNumber(); // TBD this ain't gonna work, roadnum is embedded in topic now
+  mqttNode = "OLS" + String(roadNum);
+  mqttSetup(mqttServer, mqttNode);
 
 #ifdef speeddebug
   Serial.println("speeddebug is on");
 #endif
+
+// steacy state test of the motor driver
+// digitalWrite(DCC_SIGNAL_PIN_MAIN, 0);
+// digitalWrite(DCC_SIGNAL_PIN_MAIN_2, 1);
+
 } // setup
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -747,15 +764,15 @@ void loop()
     setupSubscriptions();
   }
 
-  if (magReader.check())  // check for waypoints by reading magnets embedded in track
-    uint milepost = magReader.process(throttle.isForward());
+  // if (magReader.check(throttle.getLastIntCurrentSpeed())) // check for waypoints by reading magnets embedded in track
+  //   uint milepost = magReader.process(throttle.isForward());
 
   if (timer1sec.expired)
   {
-  // long  myStart = millis();
+    // long  myStart = millis();
     throttle.computeVelocity();
     // long myDuration = millis() - myStart;
-  // Serial.print("Duration ");Serial.println(myDuration);
+    // Serial.print("Duration ");Serial.println(myDuration);
   }
   /*   if(CurrentMonitor::checkTime()){      // if sufficient time has elapsed since last update, check current draw on Main and Program Tracks
       mainMonitor.check();
@@ -765,9 +782,6 @@ void loop()
   // Sensor::check();    // check sensors for activate/de-activate
 
 } // loop
-
-
-
 
 // junk below
 ///////////////////////////////////////////////////////////////////////////////

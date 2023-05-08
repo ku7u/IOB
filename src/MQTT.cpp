@@ -1,7 +1,5 @@
 #include "Arduino.h"
 #include "Preferences.h"
-#include "SerialCommand.h"
-#include "RBot.h"
 #include "Function.h"
 #include "MQTT.h"
 #include "PubSubClient.h"
@@ -9,9 +7,6 @@
 
 extern PubSubClient client;
 extern Throttle throttle;
-
-
-
 
 /*****************************************************************************/
 // defines the connection parameters, the callback, the subscriptions and then connects
@@ -22,7 +17,6 @@ void mqttSetup(String mqtt_Server, String iobNode)
   Serial.print("mqtt_server ");
   Serial.println(mqtt_server);
   uint8_t ip[4];
-  // int ip[4];
   sscanf(mqtt_server, "%u.%u.%u.%u", &ip[0], &ip[1], &ip[2], &ip[3]);
   client.setServer(ip, 1883); // 1883 is the default port on mosquitto server
   // client.setKeepAlive(60);    // this is probaably not necessary, just use the default
@@ -39,8 +33,6 @@ void connectMQTT(String nodeName)
 
   char mqtt_node[nodeName.length() + 1];
   strcpy(mqtt_node, nodeName.c_str());
-
-  // uint32_t now = millis();
 
   // Loop until we're reconnected
   while (!client.connect(mqtt_node))
@@ -68,26 +60,12 @@ void setupSubscriptions()
   // int roadNum = throttle.getRoadNumber();
 
   myPrefs.begin("general", true);
-  String prefix = myPrefs.getString("commandtopic", "cmd/ols/");
+  String prefix = myPrefs.getString("commandtopic", "cmd/ols/3");
   myPrefs.end();
 
-  // Serial.print("the topic "); Serial.println(prefix);
-  
-  // String prefix = "IOB/command/";
-  // String prefix = "IOB/";
-  // prefix.concat(String(roadNum));
-  // prefix.concat(String("/command/#"));
   prefix.concat(String("#"));
   strcpy(subscription, prefix.c_str());
   int ret = client.subscribe(subscription, 1);
-
-  // if (ret == 0)
-  //   Serial.println("Main subscribe failed");
-  // else
-  // {
-  //   Serial.print("Main topic subscription set as: ");
-  //   Serial.println(subscription);
-  // }
 }
 
 /*****************************************************************************/
@@ -105,8 +83,6 @@ void callback(char *topic, byte *message, unsigned int length)
   partString = partString.substring(partString.indexOf('/') + 1);          // gets rid of second field (roadnum)
   partString = partString.substring(partString.indexOf('/') + 1);          // gets rid of third field (command)
 
-  // Serial.print("topic string "); Serial.println(topicString);
-  // Serial.print("last part "); Serial.println(partString);
 
   for (int i = 0; i < length; i++)
     messChars[i] = (char)message[i];

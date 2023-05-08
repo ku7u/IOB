@@ -10,16 +10,19 @@ struct MagnetReader
 
     enum sampleState {clear, started };
     sampleState detectState;
+    bool errorState;
 
     uint someStates;
     uint bothStates;
     uint digitState;
     uint digitValue[4];
 
+    uint32_t startOfPeriod;
+
     int leftPin;
     int rightPin;
 
-    bool check();
+    bool check(uint);
     uint process(bool);
 };
 
