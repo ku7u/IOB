@@ -8,11 +8,12 @@
 #include "Preferences.h"
 #include "PubSubClient.h"
 #include "WebSerial.h"
+#include "Fifo.h"
 
 extern PubSubClient client;
+extern Fifo commandFifo;
 
 // Constructor
-// Throttle::Throttle(int roadNumber)
 Throttle::Throttle(void)
 {
     _notch = 0;
@@ -26,10 +27,9 @@ Throttle::Throttle(void)
     _throttleLever = 0;
     _carCount = 0;
     _tonnage = 0;
-    _trainlinePSI = rand() % TRAINLINE_SET_PSI; // random value between 0 and 75
+    // _trainlinePSI = rand() % TRAINLINE_SET_PSI; // random value between 0 and 75
     _trainlineSetPSI = TRAINLINE_SET_PSI;
     _neutral = true;
-    // _iBrakeVal = 0;
     // _trainBrake = 0;
     // _manualNotchingMode = false;
     _lastIntCurrentSpeed = 0;
@@ -47,9 +47,9 @@ Throttle::Throttle(void)
 
 void Throttle::init()
 {
-    setFunction(functionNotchingEnable, 1);
-    setFunction(functionNotchUp, 0);
-    setFunction(functionNotchDown, 0);
+    commandFifo.pushCommand(functionNotchingEnable, true);
+    commandFifo.pushCommand(functionNotchUp, 0);
+    commandFifo.pushCommand(functionNotchDown, 0);
 }
 
 void Throttle::getLocoPrefs(void)
@@ -57,12 +57,14 @@ void Throttle::getLocoPrefs(void)
     Preferences myPrefs;
 
     myPrefs.begin("loco");
+    _dccAddress = myPrefs.getInt("dccaddress", 3);
     _roadNumber = myPrefs.getInt("roadnum", 0);
     // // myPrefs.getBool("shortLong", 0);
     _horsepower = myPrefs.getInt("horsepower", 1500);
     _locoWeight = myPrefs.getULong("locoweight", 250000);
     _tractiveEffort = myPrefs.getLong("tractiveeffort", 70000.); // TBD why float?
     _odometer = myPrefs.getFloat("odometer", 0.0);
+    _muLeadLoco = myPrefs.getUInt("mulead", 0);
     myPrefs.end();
     _locoMass = _locoWeight / 32; // slugs
 
@@ -81,7 +83,7 @@ void Throttle::getLocoPrefs(void)
     myPrefs.end();
 
     myPrefs.begin("general", true);
-    _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/3");
+    _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/") + String(_roadNumber) + "/";
     myPrefs.end();
 }
 
@@ -105,6 +107,31 @@ void Throttle::getFunctionPrefs(void)
     functionEmergencyBrake = myPrefs.getInt("emergencyBrake", 5);
     functionCompressor = myPrefs.getInt("compressor", 20);
     myPrefs.end();
+}
+
+void Throttle::report()
+{
+    String reportTopic = _feedbackTopic + "report";
+    String x = "{id:";
+    x.concat(String (getRoadNumber()));
+    x.concat(",ip:");
+    x.concat(WiFi.localIP().toString());
+    x.concat("}");
+    client.publish(reportTopic.c_str(), x.c_str());
+}
+
+uint32_t Throttle::getTime()
+// try to get GMT and return as unix time variable
+{
+    time_t now;
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo))
+    {
+        // Serial.println("Failed to obtain time");
+        return (0);
+    }
+    time(&now);
+    return now;
 }
 
 void Throttle::setRoadNumber(int roadNumber)
@@ -133,34 +160,63 @@ uint Throttle::getLastIntCurrentSpeed()
 void Throttle::pmOnOff(bool onOff)
 {
     Preferences myPrefs;
+    uint32_t thisStartupTime;
+    uint32_t deltaTime;
+
     _running = onOff;
     if (!onOff) // save the mileage
     {
         myPrefs.begin("loco", false);
         myPrefs.putFloat("odometer", _odometer);
+        myPrefs.putULong("lastshuttime", getTime());
         myPrefs.end();
+        _opMode = off;
     }
-    setFunction(functionPM, onOff);
-    setFunction(functionNotchingEnable, onOff); // TBD can't turn off PM unless this is here WMNS
-    // TBD ETL has set notchup, down functions to off here
+    else
+    {
+        _opMode = idle;
+        _startTimestamp = millis();
+
+        // find the elapsed time since last shutdown
+        thisStartupTime = getTime();
+        myPrefs.begin("loco", false);
+        _lastShutdownTime = myPrefs.getULong("lastshuttime", 0);
+        if (_lastShutdownTime > thisStartupTime)
+            deltaTime = 0;
+        else
+            deltaTime = thisStartupTime - _lastShutdownTime;
+        myPrefs.end();
+
+        // _trainlinePSI = rand() % TRAINLINE_SET_PSI; // random value between 0 and 75, TBD this should depend on how long we have been shut down
+        if (deltaTime > 48 * 3600)
+            _trainlinePSI = 0;
+        else if (deltaTime <= 0)
+            _trainlinePSI = TRAINLINE_SET_PSI;
+        else
+            // bleeds down to zero after 48 hours
+            _trainlinePSI = (1 - (deltaTime / (48. * 3600))) * TRAINLINE_SET_PSI;
+    }
+
+    commandFifo.pushCommand(functionPM, onOff);
+    commandFifo.pushCommand(functionNotchingEnable, onOff); // TBD can't turn off PM unless this is here WMNS
 }
 
 void Throttle::headlight(int offDimBright)
 {
     if (offDimBright == 0)
     {
-        setFunction(functionHeadlightDim, false);
-        setFunction(functionHeadlightBright, false);
+        commandFifo.pushCommand(functionHeadlightDim, false);
+        commandFifo.pushCommand(functionHeadlightBright, false);
     }
     else if (offDimBright == 1)
     {
-        setFunction(functionHeadlightDim, true);
-        setFunction(functionHeadlightBright, false);
+        commandFifo.pushCommand(functionHeadlightDim, true);
+        commandFifo.pushCommand(functionHeadlightBright, false);
     }
     else if (offDimBright == 2)
     {
-        setFunction(functionHeadlightDim, false);
-        setFunction(functionHeadlightBright, true);
+        commandFifo.pushCommand(functionHeadlightDim, false);
+        commandFifo.pushCommand(functionHeadlightBright, true);
     }
 }
 
@@ -168,18 +224,18 @@ void Throttle::rearlight(int offDimBright)
 {
     if (offDimBright == 0)
     {
-        setFunction(functionRearlightDim, false);
-        setFunction(functionRearlightBright, false);
+        commandFifo.pushCommand(functionRearlightDim, false);
+        commandFifo.pushCommand(functionRearlightBright, false);
     }
     else if (offDimBright == 1)
     {
-        setFunction(functionRearlightDim, true);
-        setFunction(functionRearlightBright, false);
+        commandFifo.pushCommand(functionRearlightDim, true);
+        commandFifo.pushCommand(functionRearlightBright, false);
     }
     else if (offDimBright == 2)
     {
-        setFunction(functionRearlightDim, false);
-        setFunction(functionRearlightBright, true);
+        commandFifo.pushCommand(functionRearlightDim, false);
+        commandFifo.pushCommand(functionRearlightBright, true);
     }
 }
 
@@ -188,7 +244,7 @@ void Throttle::panicStop()
     char dummyChars[31];
     // TBD this - likely doesn't match ETL
     String dummyString = "t 1 ";
-    dummyString.concat(String(_roadNumber) + " ");
+    dummyString.concat(String(_dccAddress) + " ");
     dummyString.concat("0");
 
     strcpy(dummyChars, dummyString.c_str());
@@ -198,26 +254,30 @@ void Throttle::panicStop()
     while (_notch > 0)
     {
         manualNotch(false);
-        delay(100);
     }
 }
 
 void Throttle::bell(bool onOff)
 {
     if (_running)
-        setFunction(functionBell, onOff);
+        commandFifo.pushCommand(functionBell, onOff);
 }
 
 void Throttle::horn(bool onOff)
 {
     if (_running)
-        setFunction(functionHorn, onOff);
+        commandFifo.pushCommand(functionHorn, onOff);
 }
 
 void Throttle::setThrottleLever(int throttleLever)
 {
-    // _throttleLever = throttleLever;
-    // Throttle::compute();
+    while (throttleLever != _notch)
+    {
+        if (throttleLever > _notch)
+            manualNotch(true);
+        else
+            manualNotch(false);
+    }
 }
 
 void Throttle::setDirection(int direction)
@@ -225,9 +285,9 @@ void Throttle::setDirection(int direction)
     _neutral = false;
     _direction = true;
 
-    if (direction == -1)
+    if (direction == 0)
         _direction = false;
-    else if (direction == 1)
+    else if (direction == 2)
         _direction = true;
     else
         _neutral = true;
@@ -251,9 +311,15 @@ void Throttle::setIBrake(uint16_t val)
     _independentBrake = val;
 
     if (val > 0)
-        setFunction(functionIndependentBrake, true);
+    {
+        _opMode = braking;
+        commandFifo.pushCommand(functionIndependentBrake, true);
+    }
     else
-        setFunction(functionIndependentBrake, false);
+    {
+        _opMode = idle;
+        commandFifo.pushCommand(functionIndependentBrake, false);
+    }
 }
 
 void Throttle::setTBrake(uint16_t val)
@@ -261,16 +327,17 @@ void Throttle::setTBrake(uint16_t val)
 
     if (val > 0)
     {
-        _trainlinePSI -= val;
-        _trainlineSetPSI = _trainlinePSI;
+        // _trainlinePSI -= val;
+        // _trainlineSetPSI = _trainlinePSI;
+        _trainlineSetPSI = val;
         if (_trainlinePSI < 0)
             _trainlinePSI = 0;
-        setFunction(functionTrainBrake, true);
+        commandFifo.pushCommand(functionTrainBrake, true);
     }
     else
     {
         _trainlineSetPSI = TRAINLINE_SET_PSI;
-        setFunction(functionTrainBrake, false);
+        commandFifo.pushCommand(functionTrainBrake, false);
     }
 }
 
@@ -289,54 +356,89 @@ void Throttle::trainline(bool connect)
         _trainlineConnected = false;
 }
 
-//-------------------------------------------------------------------------------
-// use manual notching to control PM sound, throttle for movement
-// this routine just sets the notch to be later processed in computeVelocity
 void Throttle::manualNotch(bool up)
+// this routine just sets the notch to be later processed in computeVelocity
 {
-    static int currentNotch = 0;
     uint32_t now;
 
-    if (!_running)
+    if (!_running) // nothing to do here, move along
         return;
 
     now = millis();
-
-    if (now - _lastCommandTime < 100) // was 250
+    if ((now - _startTimestamp) < 8000) // wait for decoder to prime itself
         return;
-    else
-        _lastCommandTime = now;
 
-    if (up) // notching up
+    if (up && _opMode != braking)
+    // notching up
     {
-        if (currentNotch == 8)
+        if (_notch == 8)
             return;
-        setFunction(functionNotchUp, true);
-        currentNotch++;
+        _opMode = powered;
+        commandFifo.pushCommand(functionNotchUp, true);
+        commandFifo.pushCommand(functionNotchUp, false);
+        _notch++;
     }
-    else // notching down
+    else if (up && _opMode == braking)
+    // release the brakes
     {
-        if (currentNotch == 0)
+        _opMode = idle;
+        _independentBrake = 0;
+        setIBrake(_independentBrake);
+        setTBrake(75); // TBD this, avoid numbers
+    }
+    else if (!up && _opMode == powered)
+    // notching down
+    {
+        if (_notch == 0)
             return;
-        setFunction(functionNotchDown, true);
-        currentNotch--;
+        commandFifo.pushCommand(functionNotchDown, true);
+        commandFifo.pushCommand(functionNotchDown, false);
+        _notch--;
+        if (_notch == 0)
+            _opMode = idle;
+    }
+    else if (!up && ((_opMode == idle) || (_opMode == braking)))
+    // incrementally apply brakes
+    {
+        _independentBrake += 20;
+        setIBrake(_independentBrake);
+        // TBD tbrake required
     }
 
-    _notch = currentNotch;
-
-    // String throttleFeedback = "IOB/" + String(_roadNumber) + "/feedback/notch";
     String throttleFeedback = _feedbackTopic + "notch";
-    String glarb = String(currentNotch);
+    String glarb = String(_notch);
     client.publish(throttleFeedback.c_str(), glarb.c_str());
-
-    delay(100);
-    if (up)
-        setFunction(_notchUpFunction, false); // TBD this is really a kludge as workaround for timing issue
-    else
-        setFunction(_notchDownFunction, false);
 }
 
-//-------------------------------------------------------------------------------
+void Throttle::longPress(bool up)
+// long press on the volume up or down buttons in Android app
+{
+    if (_opMode == off)
+        return;
+
+    if (up && _opMode == braking)
+        // all brakes off
+        setIBrake(0);
+    else if (up && (_opMode == idle || _opMode == powered)) // TBD shouldn't need more than up
+    // straight to eight
+    {
+        while (_notch < 8)
+            manualNotch(true);
+    }
+    else if (!up && _opMode == powered)
+    // straight to zero
+    {
+        while (_notch > 0)
+            manualNotch(false);
+    }
+    else if (!up && _mph > 10 && _opMode == idle)
+        // emergency
+        panicStop(); // TBD fix this
+    else if (!up && _mph <= 10 && ((_opMode == idle) || (_opMode == braking)))
+        // quick stop at low speed
+        panicStop();
+}
+
 void Throttle::computeVelocity(void)
 {
     float effectiveHP;
@@ -417,6 +519,7 @@ void Throttle::computeVelocity(void)
     Serial.println(startingForce);
 #endif
 
+    // this routine attempts to simulate spooling up
     if (_notch > 1)
         if (tractiveForce > 1.25 * _lastTractiveForce)
             tractiveForce = _lastTractiveForce + .15 * tractiveForce; // TBD was .25
@@ -428,7 +531,7 @@ void Throttle::computeVelocity(void)
     Serial.println(tractiveForce);
 #endif
 
-    // there must be some drag effect that varies with speed that is peculiar to locos
+    // there must be some drag effect that varies with speed that is peculiar to locos - this is a guess
     variableLocoDragForce = _locoMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT;
 
 #ifdef speeddebug
@@ -526,14 +629,13 @@ void Throttle::computeVelocity(void)
         lastIntCurrentSpeed = intCurrentSpeed;
 
         // send back speedometer data to operator
-        // String speedFeedback = "IOB/" + String(_roadNumber) + "/feedback/speed";
         String speedFeedback = _feedbackTopic + "speed";
         String glarb = String(intSpeedoSpeed); // TBD fix this
         client.publish(speedFeedback.c_str(), glarb.c_str());
 
         // build the command string
         String dummyString = "t 1 ";
-        dummyString.concat(String(_roadNumber) + " ");
+        dummyString.concat(String(_dccAddress) + " ");
         dummyString.concat(String(intCurrentSpeed) + " ");
         if (_direction)
             dummyString.concat("1");
@@ -549,9 +651,8 @@ void Throttle::computeVelocity(void)
     // TBD maybe send this once on startup and/or shutdown as well
     if (_currentSpeed != 0)
     {
-        // String odometerFeedback = "IOB/" + String(_roadNumber) + "/feedback/odometer";
         String odometerFeedback = _feedbackTopic + "odometer";
-        String odometerString = String(_odometer);
+        String odometerString = String(_odometer / 5280);
         client.publish(odometerFeedback.c_str(), odometerString.c_str());
     }
 }
@@ -567,8 +668,8 @@ void Throttle::setAirGauge(void)
         if (!_compressorRunning)
         {
             _compressorRunning = true;
-            setFunction(functionCompressor, 1);
-            countDown = 8;
+            commandFifo.pushCommand(functionCompressor, 1);
+            countDown = 20;
         }
         countDown--;
         if (countDown <= 0)
@@ -582,7 +683,7 @@ void Throttle::setAirGauge(void)
     if ((_trainlineSetPSI <= _trainlinePSI) && _running && _compressorRunning)
     {
         _compressorRunning = false;
-        setFunction(functionCompressor, 0);
+        commandFifo.pushCommand(functionCompressor, 0);
     }
 
     if (_trainlinePSI > _trainlineSetPSI)
@@ -593,17 +694,16 @@ void Throttle::setAirGauge(void)
         _trainlinePSI -= 3;
 
     if (_trainlineSetPSI < _trainlinePSI)
-        _trainlinePSI = _trainlineSetPSI;
+        _trainlinePSI = _trainlineSetPSI; // TBD wtf? see above
 
     intCurrentPsi = int(_trainlinePSI);
 
     if (intCurrentPsi != lastIntCurrentPsi)
     {
         lastIntCurrentPsi = intCurrentPsi;
-        // String speedFeedback = "IOB/" + String(_roadNumber) + "/feedback/trainline";
         String speedFeedback = _feedbackTopic + "trainline";
-        Serial.print("in air gauge ");
-        Serial.println(speedFeedback);
+        // Serial.print("in air gauge ");
+        // Serial.println(speedFeedback);
         String glarb = String(intCurrentPsi);
         client.publish(speedFeedback.c_str(), glarb.c_str());
     }
@@ -620,6 +720,31 @@ void Throttle::calibrate(int speed)
     float factorF;
     float factorR;
     int dccVal;
+
+    // if in neutral when commanded then bail and reset
+    // if (_neutral)
+    // {
+    //     _calibrationStage = 0;
+    //     return;
+    // }
+
+    // user is canceling
+    if (speed == 0)
+    {
+        String stopString = "t 1 ";
+        stopString.concat(String(_dccAddress) + " ");
+        stopString.concat(String(0) + " ");
+        stopString.concat("1");
+        strcpy(dummyChars, stopString.c_str());
+        SerialCommand::parse(dummyChars);
+        _calibrationStage = 0;
+        return;
+    }
+
+    // reverser position determines forward or reverse computation
+    // as well as setting direction of motion
+    // if (!_direction)
+    //     speed = speed * -1;
 
     if (abs(speed) == 2)
     {
@@ -647,11 +772,15 @@ void Throttle::calibrate(int speed)
         factorR = _fpsDccFactorReverse50;
     }
 
-    // if (speed == 0)
+    // calibration stages
+    // 0 = startup to first gate
+    // 1 = between gates
+    // 2 = stopping after second gate
+
     if (_calibrationStage == 2)
     {
         trapLength = _calibrationTrapLength;
-        trapLength = 2; // TBD remove this
+        trapLength = 1; // TBD remove this
         calibrationPeriod = millis() - _calibrationTimer;
         // compute target time in ms to traverse test section at this speed point
         targetTime = 1000 * trapLength * 87 / (abs(speed) * (5280 / 3600));
@@ -700,19 +829,20 @@ void Throttle::calibrate(int speed)
         }
         myPrefs.end();
 
-        setFunction(functionBell, false);
+        commandFifo.pushCommand(functionBell, false);
         getLocoPrefs(); // read storage into variables
     }
     else if (_calibrationStage == 1)
+    // passing the start gate
     {
         _calibrationTimer = millis();
-        setFunction(functionBell, true);
+        commandFifo.pushCommand(functionBell, true);
     }
 
     if (_calibrationStage != 1) // either starting movement or stopping (0 or 2)
     {
         String dummyString = "t 1 ";
-        dummyString.concat(String(_roadNumber) + " ");
+        dummyString.concat(String(_dccAddress) + " ");
         if (_calibrationStage == 0)
         {
             if (speed > 0)

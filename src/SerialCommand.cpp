@@ -65,7 +65,7 @@ void SerialCommand::process()
 void SerialCommand::parse(char *com)
 {
 
-  Serial.println(com);
+  // Serial.println(com);
   switch (com[0])
   {
 

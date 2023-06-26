@@ -201,6 +201,7 @@ GPIO Pins:
 // there is a problem in ESPAsyncWebServer and the dorks don't fix it
 // I forced the platform version in platformio.ini per recommendation in following
 // https://github.com/me-no-dev/ESPAsyncWebServer/issues/1147
+#include <ESPmDNS.h>
 #include "ESPAsyncWebServer.h"
 #include "AsyncTCP.h"
 #include "ESPConnect.h"
@@ -212,6 +213,7 @@ GPIO Pins:
 #include "FS.h"
 #include "SPIFFS.h"
 #include "RBot.h"
+#include "Function.h"
 #include "PacketRegister.h"
 #include "CurrentMonitor.h"
 #include "Sensor.h"
@@ -220,7 +222,9 @@ GPIO Pins:
 #include "Comm.h"
 #include "Throttle.h"
 #include "Location.h"
+#include "Fifo.h"
 #include "MultiTimer.h"
+#include "time.h"
 
 // #include "WebSerial.h"
 
@@ -237,12 +241,19 @@ AsyncWebServer server(80);
 // wifi
 WiFiClient espClient;
 
+// time
+const char *ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 0;
+const int daylightOffset_sec = 0;
+
 // mqtt
 PubSubClient client(espClient);
 String mqttServer = "192.168.0.109"; // TBD fix this
 String mqttNode = "OLSdevice";
 String topicCommandLeftEnd;
 String topicFeedbackLeftEnd;
+
+Fifo commandFifo;
 
 Throttle throttle;
 
@@ -251,8 +262,9 @@ MagnetReader magReader(LEFT_HED_PIN, RIGHT_HED_PIN);
 // functions
 String headlightFunction;
 
-// timer
+// timers
 MultiTimer timer1sec(1000);
+MultiTimer timer200ms(200);
 
 // NEXT DECLARE GLOBAL OBJECTS TO PROCESS AND STORE DCC PACKETS AND MONITOR TRACK CURRENTS.
 // NOTE REGISTER LISTS MUST BE DECLARED WITH "VOLATILE" QUALIFIER TO ENSURE THEY ARE PROPERLY UPDATED BY INTERRUPT ROUTINES
@@ -318,10 +330,10 @@ void IRAM_ATTR onTimer0()
   // digitalWrite(DCC_SIGNAL_PIN_MAIN, !digitalRead(DCC_SIGNAL_PIN_MAIN));
   // digitalWrite(DCC_SIGNAL_PIN_MAIN_2, !digitalRead(DCC_SIGNAL_PIN_MAIN));
 
-// the motor driver does not like both inputs to be zero simultaneously, takes 40 usec to recover
+  // the motor driver does not like both inputs to be zero simultaneously, takes 40 usec to recover
   if (digitalRead(DCC_SIGNAL_PIN_MAIN))
   {
-    // write a one first so that both are one rather than both zero
+    // write a one first to the pin that was zero so that both are one rather than both zero
     digitalWrite(DCC_SIGNAL_PIN_MAIN_2, 1);
     digitalWrite(DCC_SIGNAL_PIN_MAIN, 0);
   }
@@ -382,36 +394,15 @@ void IRAM_ATTR onTimer1()
   portEXIT_CRITICAL_ISR(&timerMux);
 }
 
-// Message callback for WebSerial
-// void recvMsg(uint8_t *data, size_t len)
-// {
-//   Preferences myPrefs;
-//   uint16_t myInt;
-
-//   // WebSerial.println("Received Data...");
-//   String d = "";
-//   for (int i = 0; i < len; i++)
-//   {
-//     d += char(data[i]);
-//   }
-//   if (d == "status")
-//   {
-//     myPrefs.begin("functions");
-//     WebSerial.print("1) PM function ");
-//     WebSerial.println(String(myPrefs.getInt("pm", 0)));
-//     WebSerial.print("2) Horn function ");
-//     WebSerial.println(String(myPrefs.getInt("horn", 0)));
-//     WebSerial.println("\nType a number to change a value");
-//     myPrefs.end();
-//   }
-//   else if (d == "help")
-//   {
-//     WebSerial.println("Type 'status' to view/change configuration");
-//     WebSerial.println("Close the window if done");
-//   }
-//   else
-//     WebSerial.println("Type 'help' for instructions");
-// }
+void getGeneralPrefs()
+{
+  // get the stored configuration values, defaults are the second parameter in the list
+  myPrefs.begin("general", true);
+  mqttServer = myPrefs.getString("mqttserver", "192.168.99.99");
+  topicCommandLeftEnd = myPrefs.getString("commandtopic", "cmd/ols/");
+  topicFeedbackLeftEnd = myPrefs.getString("feedbacktopic", "tlm/ols/");
+  myPrefs.end();
+}
 
 /*****************************************************************************/
 // this function converts placeholders in the html into active data values
@@ -448,7 +439,9 @@ String processorLocoparms(const String &var)
   myPrefs.begin("loco", true);
   if (var == "ODOMETER")
     returnVal = String(myPrefs.getFloat("odometer", 0.));
-  if (var == "ADDRESS")
+  if (var == "DCCADDRESS")
+    returnVal = String(myPrefs.getInt("dccaddress", 3));
+  if (var == "ADDRESS") // TBD this should be called roadnum now
     returnVal = String(myPrefs.getInt("roadnum", 3));
   else if (var == "HORSEPOWER")
     returnVal = String(myPrefs.getInt("horsepower", 1500));
@@ -534,54 +527,9 @@ String processorFunctions(const String &var)
   return (returnVal);
 }
 
-// #include "nvs_flash.h"
-///////////////////////////////////////////////////////////////////////////////
-// INITIAL SETUP
-///////////////////////////////////////////////////////////////////////////////
-void setup()
+void setupWeb()
 {
-  // static u32_t timer;
-  // nvs_flash_erase();
-  // nvs_flash_init();
-
-  Serial.begin(115200);
-  SPIFFS.begin(true); // format on fail
-
-  // get the stored configuration values, defaults are the second parameter in the list
-  myPrefs.begin("general", true);
-  mqttServer = myPrefs.getString("mqttserver", "192.168.99.99");
-  topicCommandLeftEnd = myPrefs.getString("commandtopic", "cmd/ols/");
-  topicFeedbackLeftEnd = myPrefs.getString("feedbacktopic", "tlm/ols/");
-  myPrefs.end();
-
-  throttle.getLocoPrefs();
-  throttle.getFunctionPrefs();
-
-  // List contents of SPIFFS
-  // listDir(SPIFFS, "/", 0);
-
-  // use mac address as SSID to assure uniqueness
-  String SSID = WiFi.macAddress();
-  Serial.println(SSID);
-  // ESPConnect.erase();
-  ESPConnect.autoConnect(SSID.c_str());
-
-  // Begin connecting to previous WiFi or start autoConnect AP if unable to connect
-  if (ESPConnect.begin(&server))
-  {
-    Serial.println("Connected to WiFi");
-    Serial.println("IPAddress: " + WiFi.localIP().toString());
-    String mySSID = WiFi.SSID();
-    Serial.println("SSID: " + mySSID);
-    int8_t myRSSI = WiFi.RSSI();
-    Serial.println("Signal strength: " + String(myRSSI));
-  }
-  else
-  {
-    Serial.println("Failed to connect to WiFi");
-  }
-
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/index.html", "text/html", false); });
   server.on("/functions.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions); });
@@ -617,8 +565,10 @@ void setup()
    else if (request->hasParam("locoparmsParm"))
     {
       myPrefs.begin("loco", false);
+      inputMessage = request->getParam("dccaddress")->value();
+      myPrefs.putInt("dccaddress", inputMessage.toInt());  
       inputMessage = request->getParam("address")->value();
-      myPrefs.putInt("roadnum", inputMessage.toInt());
+      myPrefs.putInt("roadnum", inputMessage.toInt());  
       inputMessage = request->getParam("horsepower")->value();
       myPrefs.putInt("horsepower", inputMessage.toInt());
       inputMessage = request->getParam("weight")->value();
@@ -703,13 +653,87 @@ void setup()
 
   // following from codeproject
   server.serveStatic("/", SPIFFS, "/");
+}
+
+void setupMDNS(int roadNum)
+{
+  // start mDNS
+  String myNode = "OLS" + String(roadNum);
+  Serial.print("myNode ");
+  Serial.println(myNode.c_str());
+  if (!MDNS.begin(myNode.c_str()))
+  {
+    Serial.println("Error starting mDNS");
+    return;
+  }
+}
+
+void report()
+{
+  // String x = "{id:" + "GN2178" + ",ip:" + "1234"}";
+  String x = "{id:GN4321,ip:192.168.0.132}";
+  client.publish("tlm/ols/16/report", x.c_str());
+}
+
+// #include "nvs_flash.h"
+///////////////////////////////////////////////////////////////////////////////
+// INITIAL SETUP
+///////////////////////////////////////////////////////////////////////////////
+void setup()
+{
+  // static u32_t timer;
+  // nvs_flash_erase();
+  // nvs_flash_init();
+
+  Serial.begin(115200);
+  SPIFFS.begin(true); // format on fail
+
+  getGeneralPrefs();
+
+  // get the road number
+  myPrefs.begin("loco", true);
+  int roadNum = myPrefs.getInt("roadnum", 0);
+  myPrefs.end();
+
+  throttle.getLocoPrefs();
+  throttle.getFunctionPrefs();
+
+  // use mac address as SSID to assure uniqueness
+  String SSID = WiFi.macAddress();
+  Serial.println(SSID);
+  // ESPConnect.erase();
+  ESPConnect.autoConnect(SSID.c_str(), "123456789", 90000);
+
+  // Begin connecting to previous WiFi or start autoConnect AP if unable to connect
+  // ESPConnect.erase();
+  if (ESPConnect.begin(&server))
+  {
+    Serial.println("Connected to WiFi");
+    Serial.println("IPAddress: " + WiFi.localIP().toString());
+    String mySSID = WiFi.SSID();
+    Serial.println("SSID: " + mySSID);
+    int8_t myRSSI = WiFi.RSSI();
+    Serial.println("Signal strength: " + String(myRSSI));
+    if (myRSSI == 0)
+      ESP.restart();
+  }
+  else
+  {
+    Serial.println("Failed to connect to WiFi");
+    ESP.restart();
+  }
+
+  // while (!ESPConnect.begin(&server));
+  // {
+  //   ESPConnect.erase();  // this seems to be necessary if can't reconnect to preexisting SSID, i.e. his s/w is hosed
+  // }
 
   AsyncElegantOTA.begin(&server); // Start ElegantOTA
   server.begin();
 
-  // EEStore::init(); // initialize and load Turnout and Sensor definitions stored in EEPROM
+  setupMDNS(roadNum);
 
-  // Serial.println(SSID); // Print Status to Serial Line regardless of COMM_TYPE setting so user can open Serial Monitor and check configurtion
+  setupWeb();
 
   SerialCommand::init(&mainRegs, &progRegs, &mainMonitor); // create structure to read and parse commands from serial line
 
@@ -724,7 +748,7 @@ void setup()
   timerAlarmWrite(pulseTimer1, DCC_ZERO_BIT_TOTAL_DURATION_TIMER1, true);
   timerAlarmEnable(pulseTimer1);
 
-  // gfh opposite phases are sent to these two pins controlling one H bridge pair
+  // opposite phases are sent to these two pins controlling one H bridge pair
   pinMode(DCC_SIGNAL_PIN_MAIN, OUTPUT);
   pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT);
 
@@ -734,19 +758,23 @@ void setup()
   throttle.init();
 
   // MQTT
-  int roadNum = throttle.getRoadNumber(); // TBD this ain't gonna work, roadnum is embedded in topic now
-  mqttNode = "OLS" + String(roadNum);
-  mqttSetup(mqttServer, mqttNode);
+  String myNode = "OLS" + String(roadNum);
+  mqttSetup(mqttServer, myNode);
 
 #ifdef speeddebug
   Serial.println("speeddebug is on");
 #endif
 
-// steacy state test of the motor driver
-// digitalWrite(DCC_SIGNAL_PIN_MAIN, 0);
-// digitalWrite(DCC_SIGNAL_PIN_MAIN_2, 1);
+  // use millis as seed for random generator
+  srand(millis());
 
-} // setup
+  // time is used in throttle object to set trainline psi after extended shutdown
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+  // steady state test of the motor driver
+  // digitalWrite(DCC_SIGNAL_PIN_MAIN, 0);
+  // digitalWrite(DCC_SIGNAL_PIN_MAIN_2, 1);
+} // end setup
 
 ///////////////////////////////////////////////////////////////////////////////
 // MAIN LOOP
@@ -754,8 +782,7 @@ void setup()
 void loop()
 {
   timer1sec.tick();
-
-  // SerialCommand::process(); // check for, and process, and new serial commands TBD remove this
+  timer200ms.tick();
 
   // process the mqtt input
   if (!client.loop())
@@ -767,6 +794,11 @@ void loop()
   // if (magReader.check(throttle.getLastIntCurrentSpeed())) // check for waypoints by reading magnets embedded in track
   //   uint milepost = magReader.process(throttle.isForward());
 
+  // read and process a command from the fifo every 200 ms to not overwhelm the decoder
+  if (timer200ms.expired)
+    commandFifo.pop();
+
+  // process the dynamics once per second
   if (timer1sec.expired)
   {
     // long  myStart = millis();
@@ -781,75 +813,4 @@ void loop()
 
   // Sensor::check();    // check sensors for activate/de-activate
 
-} // loop
-
-// junk below
-///////////////////////////////////////////////////////////////////////////////
-// PRINT CONFIGURATION INFO TO SERIAL PORT REGARDLESS OF INTERFACE TYPE
-// - ACTIVATED ON STARTUP IF SHOW_CONFIG_PIN IS TIED HIGH
-// void showConfiguration()
-// {
-
-//   // int mac_address[] = MAC_ADDRESS;
-
-//   Serial.print("\n*** DCC++ CONFIGURATION ***\n");
-
-//   Serial.print("\nVERSION:      ");
-//   Serial.print(VERSION);
-//   Serial.print("\nCOMPILED:     ");
-//   Serial.print(__DATE__);
-//   Serial.print(" ");
-//   Serial.print(__TIME__);
-
-//   Serial.print("\n\nDCC SIG MAIN: ");
-//   Serial.print(DCC_SIGNAL_PIN_MAIN);
-
-//   Serial.print("\n      ENABLE: ");
-//   Serial.print(SIGNAL_ENABLE_PIN_MAIN);
-//   Serial.print("\n     CURRENT: ");
-//   Serial.print(CURRENT_MONITOR_PIN_MAIN);
-
-//   Serial.print("\n\nDCC SIG PROG: ");
-//   Serial.print(DCC_SIGNAL_PIN_PROG);
-
-//   Serial.print("\n      ENABLE: ");
-//   Serial.print(SIGNAL_ENABLE_PIN_PROG);
-//   Serial.print("\n     CURRENT: ");
-//   Serial.print(CURRENT_MONITOR_PIN_PROG);
-
-//   Serial.print("\n\nINTERFACE:    ");
-// #if COMM_TYPE == 0
-//   Serial.print("SERIAL");
-// #elif COMM_TYPE == 1
-//   Serial.print(COMM_SHIELD_NAME);
-//   Serial.print("\nMAC ADDRESS:  ");
-//   for (int i = 0; i < 5; i++)
-//   {
-//     Serial.print(mac_address[i], HEX);
-//     Serial.print(":");
-//   }
-//   Serial.print(mac_address[5], HEX);
-//   Serial.print("\nPORT:         ");
-//   Serial.print(ETHERNET_PORT);
-//   Serial.print("\nIP ADDRESS:   ");
-
-// #ifdef IP_ADDRESS
-//   Ethernet.begin(mac, IP_ADDRESS); // Start networking using STATIC IP Address
-// #else
-//   Ethernet.begin(mac); // Start networking using DHCP to get an IP Address
-// #endif
-
-//   Serial.print(Ethernet.localIP());
-
-// #ifdef IP_ADDRESS
-//   Serial.print(" (STATIC)");
-// #else
-//   Serial.print(" (DHCP)");
-// #endif
-
-// #endif
-//   Serial.print("\n\nPROGRAM HALTED - PLEASE RESTART ARDUINO");
-
-//   while (true)
-//     ;
-// }
+} // end loop

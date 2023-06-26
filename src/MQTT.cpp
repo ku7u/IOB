@@ -43,7 +43,7 @@ void connectMQTT(String nodeName)
     Serial.println(client.state());
     Serial.println("Retrying...");
 
-    delay(1000);
+    delay(5000);
     // todo should make a technique to notify op about this, he can't see the serial
   }
   Serial.println("connected to MQTT server");
@@ -56,16 +56,30 @@ void setupSubscriptions()
 
   char subscription[100];
   Preferences myPrefs;
-  
-  // int roadNum = throttle.getRoadNumber();
 
-  myPrefs.begin("general", true);
-  String prefix = myPrefs.getString("commandtopic", "cmd/ols/3");
+  myPrefs.begin("loco", true);
+  String myRoadnum = String(myPrefs.getInt("roadnum", 3));
   myPrefs.end();
 
-  prefix.concat(String("#"));
+  myPrefs.begin("general", true);
+  // String prefix = myPrefs.getString("commandtopic", "cmd/ols/") + myRoadnum + "/";
+  String prefix = myPrefs.getString("commandtopic", "cmd/ols/");
+  myPrefs.end();
+
+  String prefixGlobal = prefix;
+
+  // prefix.concat(String("#"));
+  prefix.concat(String(myRoadnum + "/#"));
   strcpy(subscription, prefix.c_str());
-  int ret = client.subscribe(subscription, 1);
+  client.subscribe(subscription, 1);
+
+  // myPrefs.begin("general", true);
+  // prefix = myPrefs.getString("commandtopic", "cmd/ols/") + "/0/"; // the 0 is used for broadcast messages like report
+  // myPrefs.end();
+
+  prefixGlobal.concat(String("0/#"));
+  strcpy(subscription, prefixGlobal.c_str());
+  client.subscribe(subscription, 1);
 }
 
 /*****************************************************************************/
@@ -79,10 +93,9 @@ void callback(char *topic, byte *message, unsigned int length)
   char messChars[50];
   String topicString = String(topic);
 
-  String partString = topicString.substring(topicString.indexOf('/') + 1); // gets rid of first field (IOB)
-  partString = partString.substring(partString.indexOf('/') + 1);          // gets rid of second field (roadnum)
-  partString = partString.substring(partString.indexOf('/') + 1);          // gets rid of third field (command)
-
+  String partString = topicString.substring(topicString.indexOf('/') + 1); // gets rid of first field (cmd)
+  partString = partString.substring(partString.indexOf('/') + 1);          // gets rid of second field (ols)
+  partString = partString.substring(partString.indexOf('/') + 1);          // gets rid of third field (roadnum)
 
   for (int i = 0; i < length; i++)
     messChars[i] = (char)message[i];
@@ -90,7 +103,9 @@ void callback(char *topic, byte *message, unsigned int length)
   messChars[length] = '\0';
   int msgVal = atoi(messChars);
 
-  if (partString == "startstop")
+  if (partString == "report")
+    throttle.report();
+  else if (partString == "startstop")
     throttle.pmOnOff(msgVal);
   else if (partString == "stop")
     throttle.panicStop();
@@ -102,16 +117,21 @@ void callback(char *topic, byte *message, unsigned int length)
     throttle.headlight(msgVal);
   else if (partString == "rearlight")
     throttle.rearlight(msgVal);
-  else if (partString == "throttleLever")
+  else if (partString == "throttlelever")
     throttle.setThrottleLever(msgVal);
-  else if (partString == "notchUp")
-    throttle.manualNotch(true);
-  else if (partString == "notchDown")
-    throttle.manualNotch(false);
+  else if (partString == "notch")
+    throttle.manualNotch(msgVal);
+  else if (partString == "longpress")
+    throttle.longPress(msgVal);
   else if (partString == "direction")
     throttle.setDirection(msgVal);
   else if (partString == "reverser")
     throttle.setDirection(msgVal);
+  else if (partString == "brake")
+  {
+    throttle.setIBrake(msgVal);
+    // throttle.setTBrake(msgVal);  TBD setTbrake must be changed such that msgVal relates to a psi reduction, and sensitive to airline connect status
+  }
   else if (partString == "ibrake")
     throttle.setIBrake(msgVal);
   else if (partString == "tbrake")
@@ -127,7 +147,7 @@ void callback(char *topic, byte *message, unsigned int length)
     partString = partString.substring(partString.lastIndexOf('/') + 1);
     setFunction(atoi(partString.c_str()), (bool)msgVal);
   }
-  else if (partString == "test")
-    Serial.println("received test message");
+
   return;
 }
+
