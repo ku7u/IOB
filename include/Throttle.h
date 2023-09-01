@@ -20,17 +20,17 @@ public:
     void horn(bool onOff);
     void headlight(int offDimBright);
     void rearlight(int offDimBright);
-    void startPM(void);
-    void stopPM(void);
+    // void startPM(void);
+    // void stopPM(void);
     void setDirection(int direction);
     void setThrottleLever(int throttleLever);
     void setCarCount(uint16_t carcount);
     void setTonnage(uint16_t tonnage);
-    void setHorsepower(int HP);
-    void setGrade(int grade);
+    // void setHorsepower(int HP);
+    // void setGrade(int grade);
     void manualNotch(bool up);
     void longPress(bool up);
-    void compute(void);
+    // void compute(void);
     void computeVelocity(void);
     void setIBrake(uint16_t val);
     void setTBrake(uint16_t val);
@@ -39,8 +39,14 @@ public:
     void setAirGauge(void);
     int getRoadNumber(void);
     void calibrate(int speed);
+    uint16_t interpolateSpeedFactor(float fps);
     bool isForward();
     uint getLastIntCurrentSpeed();
+    void setMuState(char *);
+    // void setMuSpeed(float);
+    void setMuSpeed(char *);
+    void setMuPerformance(char *);
+    void sendStatus(void);
 
     int functionPM;
     int functionBell;
@@ -63,8 +69,14 @@ private:
     enum opModeType {off, idle, braking, powered};
     opModeType _opMode;
     uint16_t _roadNumber = 3; // TBD set this programatically
+    String _locoID;
+    String _locoType;
     uint16_t _dccAddress = 3;
-    uint16_t _muLeadLoco = 0;
+    uint8_t _muState;
+    const char * _muLeadLoco;
+    bool _muTrailingUnit; // false = mid, true = trailing unit
+    bool _muReversed; // true if running reversed in consist
+    bool _muActive; // false = not MUed
     bool _running = false;
     bool _direction; // true = forward
     uint16_t _throttleLever;
@@ -86,7 +98,8 @@ private:
     uint16_t _carCount;
     uint32_t _tonnage = 0; // tons
     uint32_t _locoWeight;
-    long _locoMass; // slugs
+    // long _locoMass; // slugs
+    uint16_t _locoMass; // slugs
     uint32_t _tractiveEffort;
     float _lastTractiveForce;
     uint16_t _independentBrake; // percent
@@ -126,14 +139,16 @@ private:
     float _fpsDccFactorReverse20;
     float _fpsDccFactorReverse50;
     String _feedbackTopic;
+    String _commandTopic;
     struct functionParms
     {
         int functionID;
         bool onOff;
     };
 
-    const float ROLLING_RESISTANCE_COEFICIENT = .0015;
-    const float VARIABLE_LOCO_DRAG_COEFICIENT = .0003;
+    const float ROLLING_RESISTANCE_COEFICIENT = .0020;  // was .0015
+    // const float VARIABLE_LOCO_DRAG_COEFICIENT = .0003;
+    const float VARIABLE_LOCO_DRAG_COEFICIENT = .000; // was .0003
     const float FPS_TO_MPH_FACTOR = 3600. / 5280;
 
     const float FPS_AT_MPH_FACTOR2 = 2 * 5280 / 3600.;

@@ -59,6 +59,7 @@ void setupSubscriptions()
 
   myPrefs.begin("loco", true);
   String myRoadnum = String(myPrefs.getInt("roadnum", 3));
+  String myLocoID = myPrefs.getString("locoid", "none");
   myPrefs.end();
 
   myPrefs.begin("general", true);
@@ -69,7 +70,8 @@ void setupSubscriptions()
   String prefixGlobal = prefix;
 
   // prefix.concat(String("#"));
-  prefix.concat(String(myRoadnum + "/#"));
+  // prefix.concat(String(myRoadnum + "/#"));
+  prefix.concat(String(myLocoID + "/#"));
   strcpy(subscription, prefix.c_str());
   client.subscribe(subscription, 1);
 
@@ -90,12 +92,16 @@ void setupSubscriptions()
 void callback(char *topic, byte *message, unsigned int length)
 {
 
-  char messChars[50];
+  char messChars[100];
   String topicString = String(topic);
 
   String partString = topicString.substring(topicString.indexOf('/') + 1); // gets rid of first field (cmd)
   partString = partString.substring(partString.indexOf('/') + 1);          // gets rid of second field (ols)
   partString = partString.substring(partString.indexOf('/') + 1);          // gets rid of third field (roadnum)
+  // the above scheme also works for mu messaging
+  // we only see cmd messages addressed to us or tlm messages sourced from our lead
+  // if mid or trailing we will see messages like tlm/ols/leadID/status but only from leadID as subscribed
+  // so can ignore first three fields as above and search for 'status'
 
   for (int i = 0; i < length; i++)
     messChars[i] = (char)message[i];
@@ -140,9 +146,20 @@ void callback(char *topic, byte *message, unsigned int length)
     throttle.trainline(msgVal);
   else if (partString == "carcount")
     throttle.setCarCount(msgVal);
+  else if (partString == "setmustate")
+    throttle.setMuState(messChars);
+  else if (partString == "muperformance")
+    throttle.setMuPerformance(messChars);
+  else if (partString == "status")
+    throttle.setMuSpeed(messChars);
+  else if (partString == "sendstatus")
+  {
+    throttle.sendStatus();
+    throttle.setAirGauge();
+  }
   else if (partString == "calibrate")
     throttle.calibrate(msgVal);
-  else if (partString.substring(0, 1) == "f")
+  else if (partString.substring(0, 1) == "f")  // TBD likely bogus
   {
     partString = partString.substring(partString.lastIndexOf('/') + 1);
     setFunction(atoi(partString.c_str()), (bool)msgVal);

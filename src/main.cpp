@@ -225,6 +225,7 @@ GPIO Pins:
 #include "Fifo.h"
 #include "MultiTimer.h"
 #include "time.h"
+#include "ArduinoJson.h"
 
 // #include "WebSerial.h"
 
@@ -265,6 +266,7 @@ String headlightFunction;
 // timers
 MultiTimer timer1sec(1000);
 MultiTimer timer200ms(200);
+// MultiTimer timer150ms(150);
 
 // NEXT DECLARE GLOBAL OBJECTS TO PROCESS AND STORE DCC PACKETS AND MONITOR TRACK CURRENTS.
 // NOTE REGISTER LISTS MUST BE DECLARED WITH "VOLATILE" QUALIFIER TO ENSURE THEY ARE PROPERLY UPDATED BY INTERRUPT ROUTINES
@@ -439,10 +441,12 @@ String processorLocoparms(const String &var)
   myPrefs.begin("loco", true);
   if (var == "ODOMETER")
     returnVal = String(myPrefs.getFloat("odometer", 0.));
-  if (var == "DCCADDRESS")
+  else if (var == "DCCADDRESS")
     returnVal = String(myPrefs.getInt("dccaddress", 3));
-  if (var == "ADDRESS") // TBD this should be called roadnum now
+  else if (var == "ADDRESS") // TBD this should be called roadnum now
     returnVal = String(myPrefs.getInt("roadnum", 3));
+  else if (var == "LOCOID")
+    returnVal = myPrefs.getString("locoid", "3");
   else if (var == "HORSEPOWER")
     returnVal = String(myPrefs.getInt("horsepower", 1500));
   else if (var == "WEIGHT")
@@ -569,6 +573,8 @@ server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
       myPrefs.putInt("dccaddress", inputMessage.toInt());  
       inputMessage = request->getParam("address")->value();
       myPrefs.putInt("roadnum", inputMessage.toInt());  
+      inputMessage = request->getParam("locoid")->value();
+      myPrefs.putString("locoid", inputMessage);
       inputMessage = request->getParam("horsepower")->value();
       myPrefs.putInt("horsepower", inputMessage.toInt());
       inputMessage = request->getParam("weight")->value();
@@ -655,10 +661,11 @@ server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
   server.serveStatic("/", SPIFFS, "/");
 }
 
-void setupMDNS(int roadNum)
+void setupMDNS(String locoid)
 {
   // start mDNS
-  String myNode = "OLS" + String(roadNum);
+  // String myNode = "OLS" + String(roadNum);
+  String myNode = "OLS" + locoid;
   Serial.print("myNode ");
   Serial.println(myNode.c_str());
   if (!MDNS.begin(myNode.c_str()))
@@ -693,6 +700,7 @@ void setup()
   // get the road number
   myPrefs.begin("loco", true);
   int roadNum = myPrefs.getInt("roadnum", 0);
+  String locoID = myPrefs.getString("locoid", "undefined");
   myPrefs.end();
 
   throttle.getLocoPrefs();
@@ -731,7 +739,7 @@ void setup()
   AsyncElegantOTA.begin(&server); // Start ElegantOTA
   server.begin();
 
-  setupMDNS(roadNum);
+  setupMDNS(locoID);
 
   setupWeb();
 
@@ -758,8 +766,9 @@ void setup()
   throttle.init();
 
   // MQTT
-  String myNode = "OLS" + String(roadNum);
-  mqttSetup(mqttServer, myNode);
+  mqttNode = "OLS"+ locoID;
+  // String myNode = "OLS" + String(roadNum);
+  mqttSetup(mqttServer, mqttNode);
 
 #ifdef speeddebug
   Serial.println("speeddebug is on");
@@ -783,6 +792,7 @@ void loop()
 {
   timer1sec.tick();
   timer200ms.tick();
+  // timer150ms.tick();
 
   // process the mqtt input
   if (!client.loop())

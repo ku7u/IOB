@@ -1,4 +1,4 @@
-#define speeddebug
+// #define speeddebug
 
 #include "Throttle.h"
 #include "SerialCommand.h"
@@ -9,6 +9,7 @@
 #include "PubSubClient.h"
 #include "WebSerial.h"
 #include "Fifo.h"
+#include "ArduinoJson.h"
 
 extern PubSubClient client;
 extern Fifo commandFifo;
@@ -59,12 +60,17 @@ void Throttle::getLocoPrefs(void)
     myPrefs.begin("loco");
     _dccAddress = myPrefs.getInt("dccaddress", 3);
     _roadNumber = myPrefs.getInt("roadnum", 0);
-    // // myPrefs.getBool("shortLong", 0);
+    _locoID = myPrefs.getString("locoid", "none");
+    _locoType = myPrefs.getString("locotype", "diesel");
+    // myPrefs.getBool("shortLong", 0);
     _horsepower = myPrefs.getInt("horsepower", 1500);
     _locoWeight = myPrefs.getULong("locoweight", 250000);
-    _tractiveEffort = myPrefs.getLong("tractiveeffort", 70000.); // TBD why float?
+    _tractiveEffort = myPrefs.getLong("tractiveeffort", 70000);
     _odometer = myPrefs.getFloat("odometer", 0.0);
-    _muLeadLoco = myPrefs.getUInt("mulead", 0);
+    _muState = myPrefs.getUInt("mustate", 0);
+    // _muLeadLoco = myPrefs.getString("muleadloco", dummy.c_str() );
+    _muReversed = myPrefs.getBool("mureversed", false);
+
     myPrefs.end();
     _locoMass = _locoWeight / 32; // slugs
 
@@ -83,7 +89,10 @@ void Throttle::getLocoPrefs(void)
     myPrefs.end();
 
     myPrefs.begin("general", true);
-    _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/") + String(_roadNumber) + "/";
+    // _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/") + String(_roadNumber) + "/";
+    // _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/") + _locoID + "/";
+    _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/");
+    _commandTopic = myPrefs.getString("commandtopic", "cmd/ols/");
     myPrefs.end();
 }
 
@@ -110,14 +119,22 @@ void Throttle::getFunctionPrefs(void)
 }
 
 void Throttle::report()
+// respond to a broadcast message that requests who is online
+// send locoID, ip address, loco type
 {
-    String reportTopic = _feedbackTopic + "report";
-    String x = "{id:";
-    x.concat(String (getRoadNumber()));
-    x.concat(",ip:");
+    char topicChars[30];
+    strcpy(topicChars, _feedbackTopic.c_str());
+    strcat(topicChars, "report");
+
+    // String locoType = "GP18";              // TBD fix this
+    String x = "{\"id\":\"";
+    x.concat(_locoID);
+    x.concat("\",\"ip\":\"");
     x.concat(WiFi.localIP().toString());
-    x.concat("}");
-    client.publish(reportTopic.c_str(), x.c_str());
+    x.concat("\",\"type\":\"");
+    x.concat(_locoType);
+    x.concat("\"}");
+    client.publish(topicChars, x.c_str());
 }
 
 uint32_t Throttle::getTime()
@@ -199,6 +216,7 @@ void Throttle::pmOnOff(bool onOff)
 
     commandFifo.pushCommand(functionPM, onOff);
     commandFifo.pushCommand(functionNotchingEnable, onOff); // TBD can't turn off PM unless this is here WMNS
+    sendStatus();
 }
 
 void Throttle::headlight(int offDimBright)
@@ -241,14 +259,14 @@ void Throttle::rearlight(int offDimBright)
 
 void Throttle::panicStop()
 {
-    char dummyChars[31];
-    // TBD this - likely doesn't match ETL
-    String dummyString = "t 1 ";
-    dummyString.concat(String(_dccAddress) + " ");
-    dummyString.concat("0");
+    char dccCommandChars[20];
+    char buffer[10];
+    itoa(_dccAddress, buffer, 10);
 
-    strcpy(dummyChars, dummyString.c_str());
-    SerialCommand::parse(dummyChars);
+    strcpy(dccCommandChars, "t 1 ");
+    strcat(dccCommandChars, buffer);
+    strcat(dccCommandChars, " 0");
+    SerialCommand::parse(dccCommandChars);
 
     _currentSpeed = 0;
     while (_notch > 0)
@@ -327,17 +345,23 @@ void Throttle::setTBrake(uint16_t val)
 
     if (val > 0)
     {
-        // _trainlinePSI -= val;
-        // _trainlineSetPSI = _trainlinePSI;
         _trainlineSetPSI = val;
-        if (_trainlinePSI < 0)
-            _trainlinePSI = 0;
+        if (_trainlinePSI > _trainlineSetPSI)
+            _trainlinePSI = _trainlineSetPSI;
+        // _trainlineSetPSI = val;
+        // if (_trainlinePSI < 0)
+        //     _trainlinePSI = 0;
         commandFifo.pushCommand(functionTrainBrake, true);
     }
-    else
+    else if (val == 0)
     {
         _trainlineSetPSI = TRAINLINE_SET_PSI;
         commandFifo.pushCommand(functionTrainBrake, false);
+    }
+    else
+    {
+        _trainlinePSI = 0;
+        _trainlineSetPSI = 0;
     }
 }
 
@@ -365,7 +389,7 @@ void Throttle::manualNotch(bool up)
         return;
 
     now = millis();
-    if ((now - _startTimestamp) < 8000) // wait for decoder to prime itself
+    if ((now - _startTimestamp) < 6000) // wait for decoder to prime itself
         return;
 
     if (up && _opMode != braking)
@@ -382,9 +406,8 @@ void Throttle::manualNotch(bool up)
     // release the brakes
     {
         _opMode = idle;
-        _independentBrake = 0;
-        setIBrake(_independentBrake);
-        setTBrake(75); // TBD this, avoid numbers
+        setIBrake(0);
+        setTBrake(0);
     }
     else if (!up && _opMode == powered)
     // notching down
@@ -400,14 +423,23 @@ void Throttle::manualNotch(bool up)
     else if (!up && ((_opMode == idle) || (_opMode == braking)))
     // incrementally apply brakes
     {
-        _independentBrake += 20;
-        setIBrake(_independentBrake);
-        // TBD tbrake required
+        setIBrake(_independentBrake + 20);
+        if (_trainlineConnected)
+            setTBrake(_trainlinePSI - TRAINLINE_SET_PSI * .07);
+        return; // so that notch is not redundantly returned to throttle
     }
 
-    String throttleFeedback = _feedbackTopic + "notch";
-    String glarb = String(_notch);
-    client.publish(throttleFeedback.c_str(), glarb.c_str());
+    char topicChars[50];
+    strcpy(topicChars, _feedbackTopic.c_str());
+    strcat(topicChars, _locoID.c_str());
+    strcat(topicChars, "/notch");
+
+    char buffer[10];
+    itoa(_notch, buffer, 10);
+    char msgChars[20];
+    strcpy(msgChars, buffer);
+
+    client.publish(topicChars, msgChars);
 }
 
 void Throttle::longPress(bool up)
@@ -417,13 +449,36 @@ void Throttle::longPress(bool up)
         return;
 
     if (up && _opMode == braking)
+    {
         // all brakes off
         setIBrake(0);
-    else if (up && (_opMode == idle || _opMode == powered)) // TBD shouldn't need more than up
-    // straight to eight
+        setTBrake(0);
+    }
+    // else if (up && (_opMode == idle || _opMode == powered)) // TBD shouldn't need more than up
+    else if (up && (_opMode == idle)) // TBD shouldn't need more than up
+    // switch direction
     {
-        while (_notch < 8)
-            manualNotch(true);
+        if (_neutral)
+        {
+            _direction = true;
+            _neutral = false;
+        }
+        else
+            _direction = !_direction;
+
+        // send back new direction as telemetry
+        char topicChars[30]; // TBD the 30
+        strcpy(topicChars, _feedbackTopic.c_str());
+        strcat(topicChars, _locoID.c_str());
+        strcat(topicChars, "/reverser");
+
+        char msgChars[2];
+        if (_direction)
+            strcpy(msgChars, "2");
+        else
+            strcpy(msgChars, "0");
+
+        client.publish(topicChars, msgChars);
     }
     else if (!up && _opMode == powered)
     // straight to zero
@@ -435,7 +490,7 @@ void Throttle::longPress(bool up)
         // emergency
         panicStop(); // TBD fix this
     else if (!up && _mph <= 10 && ((_opMode == idle) || (_opMode == braking)))
-        // quick stop at low speed
+        // quick stop at low speed TBD maybe release brakes also
         panicStop();
 }
 
@@ -446,20 +501,17 @@ void Throttle::computeVelocity(void)
     float dragForce;
     float variableLocoDragForce;
     float startingForce;
-    float gradeForce;
+    // float gradeForce;  //TBD
     float independentBrakeForce;
     float trainBrakeForce;
     float accel;
     char dummyChars[31];
     uint16_t intCurrentSpeed;
-    static uint16_t intSpeedoSpeed;
+    static bool zeroWasSent = false;
     static uint16_t lastIntCurrentSpeed;
-    float speedoSpeed;
-    float factorF;
-    float factorR;
-    String feedbackPrefix;
+    // String feedbackPrefix;
 
-    if (!_running)
+    if ((!_running) || (_muActive))
         return;
 
     setAirGauge();
@@ -486,7 +538,7 @@ void Throttle::computeVelocity(void)
         tractiveForce = effectiveHP * 308;
     else
     {
-        tractiveForce = effectiveHP * 308 / _mph;
+        tractiveForce = effectiveHP * 308 / (_mph * 1); // TBD REALITY_FACTOR goes here to replace the 1
         if (tractiveForce > _tractiveEffort)
             tractiveForce = _tractiveEffort;
     }
@@ -532,7 +584,7 @@ void Throttle::computeVelocity(void)
 #endif
 
     // there must be some drag effect that varies with speed that is peculiar to locos - this is a guess
-    variableLocoDragForce = _locoMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT;
+    variableLocoDragForce = _locoMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT; // TBD now at zero
 
 #ifdef speeddebug
     Serial.print("variableLocoDragForce ");
@@ -573,47 +625,18 @@ void Throttle::computeVelocity(void)
 #endif
 
     _currentSpeed = _currentSpeed + accel; // accel is feet/sec/sec so if integrated once / sec, accel = vel
-    if (_currentSpeed < 0)
+    if (_currentSpeed < 0.)
         _currentSpeed = 0;
 
-    _odometer = _odometer + abs(_currentSpeed); // TBD on this
+    _odometer = _odometer + abs(_currentSpeed); // TBD on this (seems to work)
 
 #ifdef speeddebug
     Serial.print("_currentSpeed ");
     Serial.println(_currentSpeed);
 #endif
 
-    // get the appropriate calibrated speed compensation value
-    if (_currentSpeed <= FPS_AT_MPH_FACTOR2)
-    {
-        factorF = _fpsDccFactorForward2;
-        factorR = _fpsDccFactorReverse2;
-    }
-    else if (_currentSpeed <= FPS_AT_MPH_FACTOR5)
-    {
-        factorF = _fpsDccFactorForward5;
-        factorR = _fpsDccFactorReverse5;
-    }
-    else if (_currentSpeed <= FPS_AT_MPH_FACTOR10)
-    {
-        factorF = _fpsDccFactorForward10;
-        factorR = _fpsDccFactorReverse10;
-    }
-    else if (_currentSpeed <= FPS_AT_MPH_FACTOR20)
-    {
-        factorF = _fpsDccFactorForward20;
-        factorR = _fpsDccFactorReverse20;
-    }
-    else
-    {
-        factorF = _fpsDccFactorForward50;
-        factorR = _fpsDccFactorReverse50;
-    }
-
-    if (_direction)
-        intCurrentSpeed = _currentSpeed * factorF;
-    else
-        intCurrentSpeed = _currentSpeed * factorR;
+    // get the appropriate calibrated and interpolated speed compensation value
+    intCurrentSpeed = interpolateSpeedFactor(_currentSpeed);
 
 #ifdef speeddebug
     Serial.print("_currentSpeed factored ");
@@ -621,39 +644,42 @@ void Throttle::computeVelocity(void)
     Serial.print('\n');
 #endif
 
-    if (intCurrentSpeed != lastIntCurrentSpeed)
+    if (_mph > 0)
+        zeroWasSent = false; // flags status to be sent for special case of intCurrentSpeed going to zero
+
+    if ((intCurrentSpeed != lastIntCurrentSpeed) || (!zeroWasSent))
     {
-        _mph = _currentSpeed * FPS_TO_MPH_FACTOR; // TBD fix this
-        speedoSpeed = _mph;
-        intSpeedoSpeed = speedoSpeed;
+        _mph = _currentSpeed * FPS_TO_MPH_FACTOR; // TBD fix this (why?)
+
         lastIntCurrentSpeed = intCurrentSpeed;
 
-        // send back speedometer data to operator
-        String speedFeedback = _feedbackTopic + "speed";
-        String glarb = String(intSpeedoSpeed); // TBD fix this
-        client.publish(speedFeedback.c_str(), glarb.c_str());
-
         // build the command string
-        String dummyString = "t 1 ";
-        dummyString.concat(String(_dccAddress) + " ");
-        dummyString.concat(String(intCurrentSpeed) + " ");
-        if (_direction)
-            dummyString.concat("1");
-        else
-            dummyString.concat("0");
+        char buffer[20];
+        strcpy(dummyChars, "t 1 ");
 
-        strcpy(dummyChars, dummyString.c_str());
+        itoa(_dccAddress, buffer, 10);
+        strcat(dummyChars, buffer);
+        strcat(dummyChars, " ");
+
+        itoa(intCurrentSpeed, buffer, 10);
+        strcat(dummyChars, buffer);
+        strcat(dummyChars, " ");
+
+        if (_direction)
+            strcat(dummyChars, "1");
+        else
+            strcat(dummyChars, "0");
 
         SerialCommand::parse(dummyChars);
     }
 
     // send back odometer data to operator
     // TBD maybe send this once on startup and/or shutdown as well
-    if (_currentSpeed != 0)
+    if ((_mph > 0) || (!zeroWasSent))
     {
-        String odometerFeedback = _feedbackTopic + "odometer";
-        String odometerString = String(_odometer / 5280);
-        client.publish(odometerFeedback.c_str(), odometerString.c_str());
+        if (_mph == 0)
+            zeroWasSent = true;
+        sendStatus();
     }
 }
 
@@ -674,10 +700,12 @@ void Throttle::setAirGauge(void)
         countDown--;
         if (countDown <= 0)
         {
-            // this holds off the pressure rise until compressor finally starts
+            // this holds off the pressure rise until compressor finally starts, have no way of knowing when the compressor sound starts (startup only)
             countDown = 0;
             _trainlinePSI += (.3 * (_notch + 1));
         }
+        else if (_currentSpeed > 0)
+            _trainlinePSI += (3 * (_notch + 1));
     }
 
     if ((_trainlineSetPSI <= _trainlinePSI) && _running && _compressorRunning)
@@ -701,16 +729,29 @@ void Throttle::setAirGauge(void)
     if (intCurrentPsi != lastIntCurrentPsi)
     {
         lastIntCurrentPsi = intCurrentPsi;
-        String speedFeedback = _feedbackTopic + "trainline";
-        // Serial.print("in air gauge ");
-        // Serial.println(speedFeedback);
-        String glarb = String(intCurrentPsi);
-        client.publish(speedFeedback.c_str(), glarb.c_str());
+
+        // char topicChars[30];
+        // strcpy(topicChars, _feedbackTopic.c_str());
+        // strcat(topicChars, _locoID.c_str());
+        // strcat(topicChars, "/trainline");
+
+        // char msgChars[5];
+        // char buffer[20];
+        // itoa(intCurrentPsi, buffer, 10);
+        // strcpy(msgChars, buffer);
+
+        if (_mph == 0)
+            // client.publish(topicChars, msgChars);
+            // else
+            sendStatus();
     }
 }
 
 void Throttle::calibrate(int speed)
 {
+    // this routine sets a factor that is applied to the commanded DCC speed such that
+    // the actual scale speed over the rails is accurate with respect to commanded mph
+
     Preferences myPrefs;
     char dummyChars[31];
     long calibrationPeriod;
@@ -720,13 +761,6 @@ void Throttle::calibrate(int speed)
     float factorF;
     float factorR;
     int dccVal;
-
-    // if in neutral when commanded then bail and reset
-    // if (_neutral)
-    // {
-    //     _calibrationStage = 0;
-    //     return;
-    // }
 
     // user is canceling
     if (speed == 0)
@@ -738,13 +772,12 @@ void Throttle::calibrate(int speed)
         strcpy(dummyChars, stopString.c_str());
         SerialCommand::parse(dummyChars);
         _calibrationStage = 0;
+        commandFifo.pushCommand(functionBell, false);
         return;
     }
 
-    // reverser position determines forward or reverse computation
+    // sign of speed determines forward or reverse computation
     // as well as setting direction of motion
-    // if (!_direction)
-    //     speed = speed * -1;
 
     if (abs(speed) == 2)
     {
@@ -866,4 +899,295 @@ void Throttle::calibrate(int speed)
 
     if (++_calibrationStage == 3)
         _calibrationStage = 0;
+}
+
+void Throttle::setMuState(char *jsonMsg)
+{
+    // messages causing change of mu state will be sent to this loco address and are processed here
+    // mu states:
+    //  0 - not mued so leave consist and inform lead if was mid or trailing
+    //  1 - mued as lead, look for incoming hp and mass values from locos in consist
+    //  2 - mued as mid, send hp and mass values to lead
+    //  3 - mued as trailing, send hp and mass values to lead
+
+    // json
+    // {muState:"", leadID:"", reversed:""}
+
+    Preferences myPrefs;
+
+    StaticJsonDocument<100> doc;
+
+    // Deserialize the JSON document
+    DeserializationError error = deserializeJson(doc, jsonMsg);
+    if (error)
+        return;
+
+    // String value = doc["muState"];
+    // int commandedState = value.toInt();
+    int commandedState = doc["muState"];
+    _muLeadLoco = doc["leadID"];
+    String value = doc["reversed"];
+    _muReversed = value.toInt();
+    // _muReversed = doc["reversed"];
+
+    switch (commandedState)
+    {
+    case 0: // not mued
+        _muActive = false;
+        if (_muState == 1)
+            // if was mu lead then retrieve original hp and mass and exit the consist
+            getLocoPrefs();
+        else if ((_muState == 2) || (_muState == 3))
+        // if was mu mid or trailing then send negative hp and mass values to lead and exit the consist
+        {
+            // TBD send negative hp, mass and tractive effort to lead now
+            // unsubscribe from lead loco messages
+            char subscription[100];
+            strcpy(subscription, _feedbackTopic.c_str());
+            strcat(subscription, _muLeadLoco);
+            strcat(subscription, "/status");
+            // strcat(subscription, "#");
+            client.unsubscribe(subscription);
+        }
+        _muState = commandedState;
+        // store the state
+        myPrefs.begin("loco");
+        myPrefs.putUInt("mustate", 0);
+        // TBD store other aspects?
+        myPrefs.end();
+        break;
+
+    case 1:                // lead
+        if (_muState != 0) // only allowed if coming from not mued
+            return;
+        // TBD mu setup
+        _muState = commandedState;
+        _muActive = true;
+        // store the state
+        myPrefs.begin("loco");
+        myPrefs.putUInt("mustate", 1);
+        // TBD store other aspects?
+        myPrefs.end();
+        break;
+
+    case 2:                // mid
+                           // case 2 falls through into 3
+    case 3:                // trailing
+        if (_muState != 0) // only allowed if coming from not mued
+            return;
+        _muState = commandedState;
+        _muActive = true;
+        // store the state
+        if (commandedState == 3)
+        {
+            myPrefs.begin("loco");
+            myPrefs.putUInt("mustate", commandedState);
+            myPrefs.putString("muleadloco", _muLeadLoco);
+            myPrefs.putBool("mureversed", _muReversed);
+            // TBD store other aspects?
+            myPrefs.end();
+        }
+        // TBD mu setup
+        // send my id, mass, hp and tractive effort to lead now
+        char topicChars[100];
+        strcpy(topicChars, _commandTopic.c_str());
+        strcat(topicChars, _muLeadLoco);
+        strcat(topicChars, "/muperformance");
+
+        char msgChars[100]; // myID, locomass, hp, tractive effort
+        char buffer[50];
+
+        strcpy(msgChars, "{\"id\":\"");
+        strcat(msgChars, _locoID.c_str());
+
+        strcat(msgChars, "\",\"mass\":\"");
+        itoa(_locoMass, buffer, 10);
+        strcat(msgChars, buffer);
+
+        strcat(msgChars, "\",\"hp\":\"");
+        itoa(_horsepower, buffer, 10);
+        strcat(msgChars, buffer);
+
+        strcat(msgChars, "\",\"te\":\"");
+        String teString = String(_tractiveEffort); // TBD this is double so itoa may not work
+        strcat(msgChars, teString.c_str());
+
+        strcat(msgChars, "\"}");
+
+        // send the parameters to lead loco to affect its performance
+        client.publish(topicChars, msgChars);
+
+        // subscribe to lead loco messages for speed, direction and notch
+        char subscription[100];
+        strcpy(subscription, _feedbackTopic.c_str());
+        strcat(subscription, _muLeadLoco);
+        strcat(subscription, "/status");
+
+        client.subscribe(subscription, 1);
+
+        // _muReversed = rev.toInt();
+        _muState = commandedState;
+        break;
+    }
+} // setMuState
+
+void Throttle::setMuPerformance(char *jsonMsg)
+{
+    // TBD
+    // Serial.println(jsonMsg);
+}
+
+void Throttle::setMuSpeed(char *jsonMsg)
+{
+    static bool alternateSeconds = false;
+    StaticJsonDocument<100> doc;
+
+    // switch this each 1 sec cycle, it will be used to add or subtract 1 mph to commanded speed
+    // this (theoretically) will defeat the back emf algorithm in the decoder to eliminate tug-of-war effect
+    alternateSeconds = !alternateSeconds;
+
+    // Deserialize the JSON document
+    DeserializationError error = deserializeJson(doc, jsonMsg);
+    if (error)
+        return;
+
+    // retrieve mph value
+    float muMPH = doc["mph"];
+
+    // wiggle the value to outsmart BEMF
+    if (muMPH > .5)
+    {
+        if (alternateSeconds)
+            muMPH += .5;
+        else
+            muMPH -= .5;
+    }
+
+    // retrieve direction, 1=fwd, 0=rev
+    bool direction = doc["dir"];
+
+    if (_muReversed) // true if running reversed in consist
+        direction = !direction;
+
+    _direction = direction; // TBD this is sloppy, but possibly prototypical
+
+    // retrieve notch in order to alter PM sound
+    u16_t notch = doc["notch"];
+
+    while (_notch != notch)
+    {
+        manualNotch(_notch < notch); // if true notch up, else down until equal
+    }
+
+    // convert mph to fps
+    float muFPS = muMPH / FPS_TO_MPH_FACTOR;
+
+    uint16_t dccFPS = interpolateSpeedFactor(muFPS); // returns dcc val corresponding to fps, interpolated between cal points
+
+    char buffer[20];
+    char dccCommandChars[30];
+    strcpy(dccCommandChars, "t 1 ");
+    itoa(_dccAddress, buffer, 10);
+    strcat(dccCommandChars, buffer);
+    strcat(dccCommandChars, " ");
+    itoa(dccFPS, buffer, 10);
+    strcat(dccCommandChars, buffer);
+    strcat(dccCommandChars, " ");
+
+    if (direction)
+        strcat(dccCommandChars, "1");
+    else
+        strcat(dccCommandChars, "0");
+
+    SerialCommand::parse(dccCommandChars);
+}
+
+void Throttle::sendStatus()
+{
+    // String topic = _feedbackTopic + _locoID + "/status";
+    int intSpeedoSpeed = _mph * 10;
+    float speedoSpeed = intSpeedoSpeed / 10.; // to get tenths of mph
+
+    char topicChars[40];
+    strcpy(topicChars, _feedbackTopic.c_str());
+    strcat(topicChars, _locoID.c_str());
+    strcat(topicChars, "/status");
+
+    char msgChars[100];
+    char charSpeed[10];
+    char charOdo[10];
+    char charPsi[10];
+
+    strcpy(msgChars, "{\"mph\":");
+    dtostrf(speedoSpeed, 4, 2, charSpeed);
+    strcat(msgChars, charSpeed);
+
+    strcat(msgChars, ",\"dir\":");
+    const char charDir[2] = {char(_direction + 48), 0}; // 48 = ascii zero
+    strcat(msgChars, charDir);
+
+    strcat(msgChars, ",\"notch\":");
+    const char charNotch[2] = {char(_notch + 48), 0}; // 48 = ascii zero
+    strcat(msgChars, charNotch);
+
+    strcat(msgChars, ",\"odo\":");
+    dtostrf((_odometer / 5280), 4, 2, charOdo);
+    strcat(msgChars, charOdo);
+
+    strcat(msgChars, ",\"mu\":");
+    const char charMu[2] = {char(_muActive + 48)}; // 48 = ascii zero
+    strcat(msgChars, charMu);
+
+    strcat(msgChars, ",\"psi\":");
+    dtostrf(_trainlinePSI, 2, 0, charPsi);
+    strcat(msgChars, charPsi);
+
+    strcat(msgChars, "}");
+
+    // client.publish(topic.c_str(), msgChars);
+    client.publish(topicChars, msgChars);
+}
+
+uint16_t Throttle::interpolateSpeedFactor(float fps)
+{
+    float factorF;
+    float factorR;
+
+    uint16_t mphInt = (int)fps;
+
+    if (mphInt <= FPS_AT_MPH_FACTOR2)
+    {
+        factorF = _fpsDccFactorForward2;
+        factorR = _fpsDccFactorReverse2;
+    }
+    else if (mphInt <= FPS_AT_MPH_FACTOR5)
+    {
+        factorF = _fpsDccFactorForward2 + ((_fpsDccFactorForward5 - _fpsDccFactorForward2) * (mphInt - 2) / 3);
+        factorR = _fpsDccFactorReverse2 + ((_fpsDccFactorReverse5 - _fpsDccFactorReverse2) * (mphInt - 2) / 3);
+    }
+    else if (mphInt <= FPS_AT_MPH_FACTOR10)
+    {
+        factorF = _fpsDccFactorForward5 + ((_fpsDccFactorForward10 - _fpsDccFactorForward5) * (mphInt - 5) / 5);
+        factorR = _fpsDccFactorReverse5 + ((_fpsDccFactorReverse10 - _fpsDccFactorReverse5) * (mphInt - 5) / 5);
+    }
+    else if (mphInt <= FPS_AT_MPH_FACTOR20)
+    {
+        factorF = _fpsDccFactorForward10 + ((_fpsDccFactorForward20 - _fpsDccFactorForward10) * (mphInt - 10) / 10);
+        factorR = _fpsDccFactorReverse10 + ((_fpsDccFactorReverse20 - _fpsDccFactorReverse10) * (mphInt - 10) / 10);
+    }
+    else if (mphInt <= FPS_AT_MPH_FACTOR50)
+    {
+        factorF = _fpsDccFactorForward20 + ((_fpsDccFactorForward50 - _fpsDccFactorForward20) * (mphInt - 20) / 30);
+        factorR = _fpsDccFactorReverse20 + ((_fpsDccFactorReverse50 - _fpsDccFactorReverse20) * (mphInt - 20) / 30);
+    }
+    else
+    {
+        factorF = _fpsDccFactorForward50;
+        factorR = _fpsDccFactorReverse50;
+    }
+
+    if (_direction)
+        return (fps * factorF);
+    else
+        return (fps * factorR);
 }
