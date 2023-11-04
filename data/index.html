@@ -2,34 +2,42 @@
 <html lang="en-US">
 
 <head>
-<link rel="stylesheet" href="stylesheet.css">
-<meta charset="UTF-8">
-<meta name="author" content="George Hofmann">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OLS Main Menu</title>
+  <link rel="stylesheet" href="stylesheet.css">
+  <meta charset="UTF-8">
+  <meta name="author" content="George Hofmann">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OLS Main Menu</title>
 </head>
 
 <body>
-<div class="sidebar">
-<a class="active" href="index.html">Home</a>
-<a href="network.html">Network</a>
-<a href="locoparms.html">Locomotive</a>
-<a href="functions.html">Functions</a>
-<a href="calibration.html">Calibration</a>
-<a href="/update/index.html">Update</a>
-</div>
+  <div class="sidebar">
+    <a class="active" href="index.html">Home</a>
+    <a href="network.html">Network</a>
+    <a href="locoparms.html">Locomotive</a>
+    <a href="functions.html">Functions</a>
+    <a href="calibration.html">Calibration</a>
+    <a href="/update/index.html">Update</a>
+  </div>
 
-<div class="content">
-  <h2>Onboard Loco Simulator Configuration</h2>
-  <p>
-  The OLS device requires information about the network, the locomotive prototype parameters,
-  and the function definitions in the model. Existing values are displayed.</p>
-  <p>
-  The values entered here will be stored aboard the loco and need not be entered again unless
-  changes are required. 
-Please note that certain changes will require the software to be rebooted.</p>
-  <p>
-  The OLS application itself can be updated over the wireless connection. If a new version has been supplied, use the <i>Update</i> menu item.</p>
-</div>
+  <div class="content">
+    <h2>Onboard Loco Simulator Configuration</h2>
+    <table>
+      <tr>
+        <td>OLS Firmware Version: </td>
+        <td> %version%</td>
+      </tr>
+    </table>
+    <p>
+      The OLS device requires information about the network, the locomotive prototype parameters,
+      and the function definitions in the model. Existing values are displayed.</p>
+    <p>
+      The values entered here will be stored aboard the loco and need not be entered again unless
+      changes are required.
+      Please note that certain changes will require the software to be rebooted.</p>
+    <p>
+      The OLS application itself can be updated over the wireless connection. If a new version has been supplied, use
+      the <i>Update</i> menu item.</p>
+  </div>
 </body>
+
 </html>

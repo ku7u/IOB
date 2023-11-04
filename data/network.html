@@ -24,13 +24,44 @@
     <h2>Network Parameters</h2>
 
     <table>
-    <tr><td>SSID:</td><td> %SSID%</td></tr>
-    <tr><td>Signal strength: </td> <td> %RSSI%</td></tr>
-    <tr><td>MAC address: </td><td>%MAC%</td></tr>
+      <tr>
+        <td>SSID:</td>
+        <td> %SSID%</td>
+      </tr>
+      <tr>
+        <td>Signal strength: </td>
+        <td> %RSSI%</td>
+      </tr>
+      <tr>
+        <td>MAC address: </td>
+        <td>%MAC%</td>
+      </tr>
+      <tr>
+        <td>IP address:</td>
+        <td> %IP%</td>
+      </tr>
+      <tr>
+        <td>mDNS URL: </td>
+        <td>%MDNS%</td>
+      </tr>
     </table>
-<hr>
-<br>
-    <p>Assign the following network parameters associated with this loco. The topics must match those in the controlling device, such as JMRI.</p>
+    <hr>
+    <br>
+    <p>To disconnect from the current WiFi access point (AP) to allow reconnecting to a new AP, enter a 'Y' in the input box below. A reboot is required afterward.</p>
+    <form action="/get">
+      <input type="hidden" name="EraseParm" value="0">
+      <table>
+        <tr>
+          <td>Force reconnect?</td>
+          <td><input type="text" name="erasessid" value="%ERASESSID%" size="2" style=text-align:center></td>
+        </tr>
+      </table>
+      <br>
+      <input type="submit" value="Submit"> <input type="reset">
+    </form>
+    <hr>
+    <br>
+    <p>Assign the following MQTT related network parameters associated with this loco. The topics should not be modified in most cases.</p>
 
     <form action="/get">
       <input type="hidden" name="NetworkParm" value="0">
@@ -56,8 +87,10 @@
         </tr>
       </table>
       <br>
-      <input type="submit" value="Submit">   <input type="reset">
-        </form>
+      <input type="submit" value="Submit"> <input type="reset">
+    </form>
+
+
   </div>
 
 </body>

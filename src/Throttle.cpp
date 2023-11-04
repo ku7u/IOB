@@ -61,21 +61,20 @@ void Throttle::getLocoPrefs(void)
     _dccAddress = myPrefs.getInt("dccaddress", 3);
     _roadNumber = myPrefs.getInt("roadnum", 0);
     _locoID = myPrefs.getString("locoid", "none");
-    _locoType = myPrefs.getString("locotype", "diesel");
+    // _locoType = myPrefs.getString("locotype", "diesel");
     // myPrefs.getBool("shortLong", 0);
     _horsepower = myPrefs.getInt("horsepower", 1500);
     _locoWeight = myPrefs.getULong("locoweight", 250000);
     _tractiveEffort = myPrefs.getLong("tractiveeffort", 70000);
     _odometer = myPrefs.getFloat("odometer", 0.0);
+    _muActive = myPrefs.getBool("muactive", false);
     _muState = myPrefs.getUInt("mustate", 0);
-    // _muLeadLoco = myPrefs.getString("muleadloco", dummy.c_str() );
+    _muLeadLoco = myPrefs.getString("muleadloco", "3");
     _muReversed = myPrefs.getBool("mureversed", false);
-
     myPrefs.end();
-    _locoMass = _locoWeight / 32; // slugs
 
     myPrefs.begin("calibration", true);
-    _calibrationTrapLength = myPrefs.getInt("traplength", 3);
+    // _calibrationTrapLength = myPrefs.getInt("traplength", 3);
     _fpsDccFactorForward2 = myPrefs.getFloat("speed2forward", 2.);
     _fpsDccFactorForward5 = myPrefs.getFloat("speed5forward", 2.);
     _fpsDccFactorForward10 = myPrefs.getFloat("speed10forward", 2.);
@@ -94,6 +93,10 @@ void Throttle::getLocoPrefs(void)
     _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/");
     _commandTopic = myPrefs.getString("commandtopic", "cmd/ols/");
     myPrefs.end();
+
+    _locoMass = _locoWeight / 32; // slugs
+
+    muSubscribe();
 }
 
 void Throttle::getFunctionPrefs(void)
@@ -133,6 +136,8 @@ void Throttle::report()
     x.concat(WiFi.localIP().toString());
     x.concat("\",\"type\":\"");
     x.concat(_locoType);
+    x.concat("\",\"mu\":\"");
+    x.concat(_muState);
     x.concat("\"}");
     client.publish(topicChars, x.c_str());
 }
@@ -221,6 +226,13 @@ void Throttle::pmOnOff(bool onOff)
 
 void Throttle::headlight(int offDimBright)
 {
+    // if mued no headlights are active unless it is the lead unit
+    if (_muActive)
+        if ((_muState != 1))
+            return;
+
+    _headlight = offDimBright;
+
     if (offDimBright == 0)
     {
         commandFifo.pushCommand(functionHeadlightDim, false);
@@ -240,6 +252,34 @@ void Throttle::headlight(int offDimBright)
 
 void Throttle::rearlight(int offDimBright)
 {
+    if (_muActive)
+    {
+        if ((_muState == 2)) // no lights for mid consist locos
+            return;
+
+        else if ((_muState == 3) && (_muReversed)) // if reversed the headlight is the rearlight
+        {
+            if (offDimBright == 0)
+            {
+                commandFifo.pushCommand(functionHeadlightDim, false);
+                commandFifo.pushCommand(functionHeadlightBright, false);
+            }
+            else if (offDimBright == 1)
+            {
+                commandFifo.pushCommand(functionHeadlightDim, true);
+                commandFifo.pushCommand(functionHeadlightBright, false);
+            }
+            else if (offDimBright == 2)
+            {
+                commandFifo.pushCommand(functionHeadlightDim, false);
+                commandFifo.pushCommand(functionHeadlightBright, true);
+            }
+            return;
+        }
+    }
+
+    _rearlight = offDimBright; // TBD on this
+
     if (offDimBright == 0)
     {
         commandFifo.pushCommand(functionRearlightDim, false);
@@ -283,8 +323,11 @@ void Throttle::bell(bool onOff)
 
 void Throttle::horn(bool onOff)
 {
+
     if (_running)
+    {
         commandFifo.pushCommand(functionHorn, onOff);
+    }
 }
 
 void Throttle::setThrottleLever(int throttleLever)
@@ -340,17 +383,14 @@ void Throttle::setIBrake(uint16_t val)
     }
 }
 
-void Throttle::setTBrake(uint16_t val)
+void Throttle::setTBrake(float val)
 {
-
+    // TBD explain logic here
     if (val > 0)
     {
         _trainlineSetPSI = val;
         if (_trainlinePSI > _trainlineSetPSI)
             _trainlinePSI = _trainlineSetPSI;
-        // _trainlineSetPSI = val;
-        // if (_trainlinePSI < 0)
-        //     _trainlinePSI = 0;
         commandFifo.pushCommand(functionTrainBrake, true);
     }
     else if (val == 0)
@@ -425,7 +465,8 @@ void Throttle::manualNotch(bool up)
     {
         setIBrake(_independentBrake + 20);
         if (_trainlineConnected)
-            setTBrake(_trainlinePSI - TRAINLINE_SET_PSI * .07);
+            // setTBrake(_trainlinePSI - TRAINLINE_SET_PSI * .07);
+            setTBrake(_trainlinePSI - TRAINLINE_SET_PSI * .058);
         return; // so that notch is not redundantly returned to throttle
     }
 
@@ -813,7 +854,6 @@ void Throttle::calibrate(int speed)
     if (_calibrationStage == 2)
     {
         trapLength = _calibrationTrapLength;
-        trapLength = 1; // TBD remove this
         calibrationPeriod = millis() - _calibrationTimer;
         // compute target time in ms to traverse test section at this speed point
         targetTime = 1000 * trapLength * 87 / (abs(speed) * (5280 / 3600));
@@ -899,7 +939,8 @@ void Throttle::calibrate(int speed)
 
     if (++_calibrationStage == 3)
         _calibrationStage = 0;
-}
+
+} // calibrate
 
 void Throttle::setMuState(char *jsonMsg)
 {
@@ -910,11 +951,10 @@ void Throttle::setMuState(char *jsonMsg)
     //  2 - mued as mid, send hp and mass values to lead
     //  3 - mued as trailing, send hp and mass values to lead
 
-    // json
+    // json format
     // {muState:"", leadID:"", reversed:""}
 
     Preferences myPrefs;
-
     StaticJsonDocument<100> doc;
 
     // Deserialize the JSON document
@@ -922,37 +962,33 @@ void Throttle::setMuState(char *jsonMsg)
     if (error)
         return;
 
-    // String value = doc["muState"];
-    // int commandedState = value.toInt();
-    int commandedState = doc["muState"];
-    _muLeadLoco = doc["leadID"];
+    int commandedState = doc["muState"]; // this is the new _muState
     String value = doc["reversed"];
     _muReversed = value.toInt();
-    // _muReversed = doc["reversed"];
 
     switch (commandedState)
     {
     case 0: // not mued
         _muActive = false;
         if (_muState == 1)
-            // if was mu lead then retrieve original hp and mass and exit the consist
-            getLocoPrefs();
+        // if was mu lead then retrieve original hp and mass and exit the consist
+        {
+            // getLocoPrefs();
+            _muState = 0;
+        }
         else if ((_muState == 2) || (_muState == 3))
         // if was mu mid or trailing then send negative hp and mass values to lead and exit the consist
         {
             // TBD send negative hp, mass and tractive effort to lead now
+
             // unsubscribe from lead loco messages
-            char subscription[100];
-            strcpy(subscription, _feedbackTopic.c_str());
-            strcat(subscription, _muLeadLoco);
-            strcat(subscription, "/status");
-            // strcat(subscription, "#");
-            client.unsubscribe(subscription);
+            muSubscribe();
         }
+
         _muState = commandedState;
         // store the state
         myPrefs.begin("loco");
-        myPrefs.putUInt("mustate", 0);
+        myPrefs.putUInt("mustate", _muState);
         // TBD store other aspects?
         myPrefs.end();
         break;
@@ -962,12 +998,8 @@ void Throttle::setMuState(char *jsonMsg)
             return;
         // TBD mu setup
         _muState = commandedState;
-        _muActive = true;
-        // store the state
-        myPrefs.begin("loco");
-        myPrefs.putUInt("mustate", 1);
-        // TBD store other aspects?
-        myPrefs.end();
+        // _muActive = true;
+
         break;
 
     case 2:                // mid
@@ -975,23 +1007,16 @@ void Throttle::setMuState(char *jsonMsg)
     case 3:                // trailing
         if (_muState != 0) // only allowed if coming from not mued
             return;
+
         _muState = commandedState;
         _muActive = true;
-        // store the state
-        if (commandedState == 3)
-        {
-            myPrefs.begin("loco");
-            myPrefs.putUInt("mustate", commandedState);
-            myPrefs.putString("muleadloco", _muLeadLoco);
-            myPrefs.putBool("mureversed", _muReversed);
-            // TBD store other aspects?
-            myPrefs.end();
-        }
-        // TBD mu setup
-        // send my id, mass, hp and tractive effort to lead now
+        const char *mull;
+        mull = doc["leadID"];
+        _muLeadLoco = String(mull);
+        // TBD send my id, mass, hp and tractive effort to lead now
         char topicChars[100];
         strcpy(topicChars, _commandTopic.c_str());
-        strcat(topicChars, _muLeadLoco);
+        strcat(topicChars, _muLeadLoco.c_str());
         strcat(topicChars, "/muperformance");
 
         char msgChars[100]; // myID, locomass, hp, tractive effort
@@ -1018,18 +1043,57 @@ void Throttle::setMuState(char *jsonMsg)
         client.publish(topicChars, msgChars);
 
         // subscribe to lead loco messages for speed, direction and notch
-        char subscription[100];
-        strcpy(subscription, _feedbackTopic.c_str());
-        strcat(subscription, _muLeadLoco);
-        strcat(subscription, "/status");
+        muSubscribe();
 
-        client.subscribe(subscription, 1);
-
-        // _muReversed = rev.toInt();
-        _muState = commandedState;
         break;
     }
+
+    myPrefs.begin("loco");
+    myPrefs.putBool("muactive", _muActive);
+    myPrefs.putUInt("mustate", commandedState);
+    myPrefs.putString("muleadloco", _muLeadLoco);
+    myPrefs.putBool("mureversed", _muReversed);
+    myPrefs.end();
+
+    getLocoPrefs();
+
 } // setMuState
+
+void Throttle::muSubscribe()
+{
+
+    // subscribe to lead loco messages for speed, direction and notch
+    char subscription[100];
+    strcpy(subscription, _feedbackTopic.c_str());
+    strcat(subscription, _muLeadLoco.c_str());
+    strcat(subscription, "/status");
+
+    if (_muActive)
+        client.subscribe(subscription, 1);
+    else
+        client.unsubscribe(subscription);
+
+    // subscribe to lead loco messages for headlight
+    strcpy(subscription, _feedbackTopic.c_str());
+    strcat(subscription, _muLeadLoco.c_str());
+    strcat(subscription, "/headlight");
+
+    if (_muActive)
+        client.subscribe(subscription, 1);
+    else
+        client.unsubscribe(subscription);
+
+    // subscribe to lead loco messages for rearklight
+    strcpy(subscription, _feedbackTopic.c_str());
+    strcat(subscription, _muLeadLoco.c_str());
+    strcat(subscription, "/rearlight");
+
+    if (_muActive)
+        client.subscribe(subscription, 1);
+    else
+        client.unsubscribe(subscription);
+
+} // muSubscribe
 
 void Throttle::setMuPerformance(char *jsonMsg)
 {
@@ -1039,6 +1103,9 @@ void Throttle::setMuPerformance(char *jsonMsg)
 
 void Throttle::setMuSpeed(char *jsonMsg)
 {
+    if (!_muActive) // TBD this is a workaround that can't be left in the code
+        return;
+
     static bool alternateSeconds = false;
     StaticJsonDocument<100> doc;
 
@@ -1102,6 +1169,71 @@ void Throttle::setMuSpeed(char *jsonMsg)
     SerialCommand::parse(dccCommandChars);
 }
 
+void Throttle::sendCondition()
+{
+    // sends static condition to app whenever app opens throttle fragment
+    // this sets the state of various views in the fragment
+
+    char topicChars[40];
+    char msgChars[100];
+    char charPsi[10];
+
+    // build the topic string
+    strcpy(topicChars, _feedbackTopic.c_str());
+    strcat(topicChars, _locoID.c_str());
+    strcat(topicChars, "/condition");
+
+    // build the msg json string
+    // PM status, on or off
+    strcpy(msgChars, "{\"pm\":");
+    const char charPm[2] = {char(_running + 48), 0}; // 48 = ascii zero, so sends back "0" or "1"
+    strcat(msgChars, charPm);
+
+    strcat(msgChars, ",\"rvrsr\":");
+    uint revPos;
+    if (_neutral)
+        revPos = 1;
+    else if (_direction)
+        revPos = 2;
+    else
+        revPos = 0;
+    const char charDir[2] = {char(revPos + 48), 0}; // 48 = ascii zero
+    strcat(msgChars, charDir);
+
+    // headlight status off, dim, bright
+    strcat(msgChars, ",\"hl\":");                      // new 10/29
+    const char charHl[2] = {char(_headlight + 48), 0}; // 48 = ascii zero
+    strcat(msgChars, charHl);
+
+    // rearlight status off, dim, bright
+    strcat(msgChars, ",\"rl\":");                      // new 10/29
+    const char charRl[2] = {char(_rearlight + 48), 0}; // 48 = ascii zero
+    strcat(msgChars, charRl);
+
+    // bell
+    // maybe notch, brake status
+    // car count
+    // mass
+
+    strcat(msgChars, ",\"psi\":"); // new 10/29
+    dtostrf(_trainlinePSI, 2, 0, charPsi);
+    strcat(msgChars, charPsi);
+
+    strcat(msgChars, ",\"mu\":");                    // new 10/29
+    const char charMu[2] = {char(_muState + 48), 0}; // 48 = ascii zero
+    strcat(msgChars, charMu);
+
+    if (_muActive) // new 10/29
+    {
+        strcat(msgChars, ",\"muto\":");
+        strcat(msgChars, _muLeadLoco.c_str());
+    }
+
+    strcat(msgChars, "}");
+
+    client.publish(topicChars, msgChars);
+}
+
 void Throttle::sendStatus()
 {
     // String topic = _feedbackTopic + _locoID + "/status";
@@ -1133,10 +1265,6 @@ void Throttle::sendStatus()
     strcat(msgChars, ",\"odo\":");
     dtostrf((_odometer / 5280), 4, 2, charOdo);
     strcat(msgChars, charOdo);
-
-    strcat(msgChars, ",\"mu\":");
-    const char charMu[2] = {char(_muActive + 48)}; // 48 = ascii zero
-    strcat(msgChars, charMu);
 
     strcat(msgChars, ",\"psi\":");
     dtostrf(_trainlinePSI, 2, 0, charPsi);
@@ -1190,4 +1318,26 @@ uint16_t Throttle::interpolateSpeedFactor(float fps)
         return (fps * factorF);
     else
         return (fps * factorR);
+}
+
+void Throttle::setCV(int cv, int value)
+{
+    char dummyChars[31];
+
+    // build the command string
+    char buffer[20];
+    strcpy(dummyChars, "w ");
+
+    itoa(_dccAddress, buffer, 10);
+    strcat(dummyChars, buffer);
+    strcat(dummyChars, " ");
+
+    itoa(cv, buffer, 10);
+    strcat(dummyChars, buffer);
+    strcat(dummyChars, " ");
+
+    itoa(value, buffer, 10);
+    strcat(dummyChars, buffer);
+
+    SerialCommand::parse(dummyChars);
 }

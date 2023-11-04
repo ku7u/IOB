@@ -127,22 +127,22 @@ void SerialCommand::parse(char *com)
     break;
 
   /***** CREATE/EDIT/REMOVE/SHOW A SENSOR  ****/
-  case 'S':
-    /*
-     *   *** SEE SENSOR.CPP FOR COMPLETE INFO ON THE DIFFERENT VARIATIONS OF THE "S" COMMAND
-     *   USED TO CREATE/EDIT/REMOVE/SHOW SENSOR DEFINITIONS
-     */
-    Sensor::parse(com + 1);
-    break;
+  // case 'S':
+  //   /*
+  //    *   *** SEE SENSOR.CPP FOR COMPLETE INFO ON THE DIFFERENT VARIATIONS OF THE "S" COMMAND
+  //    *   USED TO CREATE/EDIT/REMOVE/SHOW SENSOR DEFINITIONS
+  //    */
+  //   Sensor::parse(com + 1);
+  //   break;
 
   /***** SHOW STATUS OF ALL SENSORS ****/
-  case 'Q':
-    // <Q>
-    /*
-     *    returns: the status of each sensor ID in the form <Q ID> (active) or <q ID> (not active)
-     */
-    Sensor::status();
-    break;
+  // case 'Q':
+  //   // <Q>
+  //   /*
+  //    *    returns: the status of each sensor ID in the form <Q ID> (active) or <q ID> (not active)
+  //    */
+  //   Sensor::status();
+  //   break;
 
   /***** WRITE CONFIGURATION VARIABLE BYTE TO ENGINE DECODER ON MAIN OPERATIONS TRACK  ****/
   case 'w':
@@ -176,163 +176,163 @@ void SerialCommand::parse(char *com)
     break;
 
   /***** WRITE CONFIGURATION VARIABLE BYTE TO ENGINE DECODER ON PROGRAMMING TRACK  ****/
-  case 'W':
-    // <W CV VALUE CALLBACKNUM CALLBACKSUB>
-    /*
-     *    writes, and then verifies, a Configuration Variable to the decoder of an engine on the programming track
-     *
-     *    CV: the number of the Configuration Variable memory location in the decoder to write to (1-1024)
-     *    VALUE: the value to be written to the Configuration Variable memory location (0-255)
-     *    CALLBACKNUM: an arbitrary integer (0-32767) that is ignored by the Base Station and is simply echoed back in the output - useful for external programs that call this function
-     *    CALLBACKSUB: a second arbitrary integer (0-32767) that is ignored by the Base Station and is simply echoed back in the output - useful for external programs (e.g. DCC++ Interface) that call this function
-     *
-     *    returns: <r CALLBACKNUM|CALLBACKSUB|CV Value)
-     *    where VALUE is a number from 0-255 as read from the requested CV, or -1 if verificaiton read fails
-     */
-    pRegs->writeCVByte(com + 1);
-    break;
+  // case 'W':
+  //   // <W CV VALUE CALLBACKNUM CALLBACKSUB>
+  //   /*
+  //    *    writes, and then verifies, a Configuration Variable to the decoder of an engine on the programming track
+  //    *
+  //    *    CV: the number of the Configuration Variable memory location in the decoder to write to (1-1024)
+  //    *    VALUE: the value to be written to the Configuration Variable memory location (0-255)
+  //    *    CALLBACKNUM: an arbitrary integer (0-32767) that is ignored by the Base Station and is simply echoed back in the output - useful for external programs that call this function
+  //    *    CALLBACKSUB: a second arbitrary integer (0-32767) that is ignored by the Base Station and is simply echoed back in the output - useful for external programs (e.g. DCC++ Interface) that call this function
+  //    *
+  //    *    returns: <r CALLBACKNUM|CALLBACKSUB|CV Value)
+  //    *    where VALUE is a number from 0-255 as read from the requested CV, or -1 if verificaiton read fails
+  //    */
+  //   pRegs->writeCVByte(com + 1);
+  //   break;
 
   /***** WRITE CONFIGURATION VARIABLE BIT TO ENGINE DECODER ON PROGRAMMING TRACK  ****/
-  case 'B':
-    // <B CV BIT VALUE CALLBACKNUM CALLBACKSUB>
-    /*
-     *    writes, and then verifies, a single bit within a Configuration Variable to the decoder of an engine on the programming track
-     *
-     *    CV: the number of the Configuration Variable memory location in the decoder to write to (1-1024)
-     *    BIT: the bit number of the Configurarion Variable memory location to write (0-7)
-     *    VALUE: the value of the bit to be written (0-1)
-     *    CALLBACKNUM: an arbitrary integer (0-32767) that is ignored by the Base Station and is simply echoed back in the output - useful for external programs that call this function
-     *    CALLBACKSUB: a second arbitrary integer (0-32767) that is ignored by the Base Station and is simply echoed back in the output - useful for external programs (e.g. DCC++ Interface) that call this function
-     *
-     *    returns: <r CALLBACKNUM|CALLBACKSUB|CV BIT VALUE)
-     *    where VALUE is a number from 0-1 as read from the requested CV bit, or -1 if verificaiton read fails
-     */
-    pRegs->writeCVBit(com + 1);
-    break;
+  // case 'B':
+  //   // <B CV BIT VALUE CALLBACKNUM CALLBACKSUB>
+  //   /*
+  //    *    writes, and then verifies, a single bit within a Configuration Variable to the decoder of an engine on the programming track
+  //    *
+  //    *    CV: the number of the Configuration Variable memory location in the decoder to write to (1-1024)
+  //    *    BIT: the bit number of the Configurarion Variable memory location to write (0-7)
+  //    *    VALUE: the value of the bit to be written (0-1)
+  //    *    CALLBACKNUM: an arbitrary integer (0-32767) that is ignored by the Base Station and is simply echoed back in the output - useful for external programs that call this function
+  //    *    CALLBACKSUB: a second arbitrary integer (0-32767) that is ignored by the Base Station and is simply echoed back in the output - useful for external programs (e.g. DCC++ Interface) that call this function
+  //    *
+  //    *    returns: <r CALLBACKNUM|CALLBACKSUB|CV BIT VALUE)
+  //    *    where VALUE is a number from 0-1 as read from the requested CV bit, or -1 if verificaiton read fails
+  //    */
+  //   pRegs->writeCVBit(com + 1);
+  //   break;
 
   /***** READ CONFIGURATION VARIABLE BYTE FROM ENGINE DECODER ON PROGRAMMING TRACK  ****/
-  case 'R':
-    // <R CV CALLBACKNUM CALLBACKSUB>
-    /*
-     *    reads a Configuration Variable from the decoder of an engine on the programming track
-     *
-     *    CV: the number of the Configuration Variable memory location in the decoder to read from (1-1024)
-     *    CALLBACKNUM: an arbitrary integer (0-32767) that is ignored by the Base Station and is simply echoed back in the output - useful for external programs that call this function
-     *    CALLBACKSUB: a second arbitrary integer (0-32767) that is ignored by the Base Station and is simply echoed back in the output - useful for external programs (e.g. DCC++ Interface) that call this function
-     *
-     *    returns: <r CALLBACKNUM|CALLBACKSUB|CV VALUE)
-     *    where VALUE is a number from 0-255 as read from the requested CV, or -1 if read could not be verified
-     */
-    pRegs->readCV(com + 1);
-    break;
+  // case 'R':
+  //   // <R CV CALLBACKNUM CALLBACKSUB>
+  //   /*
+  //    *    reads a Configuration Variable from the decoder of an engine on the programming track
+  //    *
+  //    *    CV: the number of the Configuration Variable memory location in the decoder to read from (1-1024)
+  //    *    CALLBACKNUM: an arbitrary integer (0-32767) that is ignored by the Base Station and is simply echoed back in the output - useful for external programs that call this function
+  //    *    CALLBACKSUB: a second arbitrary integer (0-32767) that is ignored by the Base Station and is simply echoed back in the output - useful for external programs (e.g. DCC++ Interface) that call this function
+  //    *
+  //    *    returns: <r CALLBACKNUM|CALLBACKSUB|CV VALUE)
+  //    *    where VALUE is a number from 0-255 as read from the requested CV, or -1 if read could not be verified
+  //    */
+  //   pRegs->readCV(com + 1);
+  //   break;
 
   /***** TURN ON POWER FROM MOTOR SHIELD TO TRACKS  ****/
-  case '1':
-    // <1>
-    /*
-     *    enables power from the motor shield to the main operations and programming tracks
-     *
-     *    returns: <p1>
-     */
-    digitalWrite(SIGNAL_ENABLE_PIN_PROG, HIGH);
-    digitalWrite(SIGNAL_ENABLE_PIN_MAIN, HIGH);
-    INTERFACE.print("<p1>");
-    break;
+  // case '1':
+  //   // <1>
+  //   /*
+  //    *    enables power from the motor shield to the main operations and programming tracks
+  //    *
+  //    *    returns: <p1>
+  //    */
+  //   digitalWrite(SIGNAL_ENABLE_PIN_PROG, HIGH);
+  //   digitalWrite(SIGNAL_ENABLE_PIN_MAIN, HIGH);
+  //   INTERFACE.print("<p1>");
+  //   break;
 
   /***** TURN OFF POWER FROM MOTOR SHIELD TO TRACKS  ****/
-  case '0':
-    // <0>
-    /*
-     *    disables power from the motor shield to the main operations and programming tracks
-     *
-     *    returns: <p0>
-     */
-    digitalWrite(SIGNAL_ENABLE_PIN_PROG, LOW);
-    digitalWrite(SIGNAL_ENABLE_PIN_MAIN, LOW);
-    INTERFACE.print("<p0>");
-    break;
+  // case '0':
+  //   // <0>
+  //   /*
+  //    *    disables power from the motor shield to the main operations and programming tracks
+  //    *
+  //    *    returns: <p0>
+  //    */
+  //   digitalWrite(SIGNAL_ENABLE_PIN_PROG, LOW);
+  //   digitalWrite(SIGNAL_ENABLE_PIN_MAIN, LOW);
+  //   INTERFACE.print("<p0>");
+  //   break;
 
   /***** READ MAIN OPERATIONS TRACK CURRENT  ****/
-  case 'c':
-    // <c>
-    /*
-     *    reads current being drawn on main operations track
-     *
-     *    returns: <a CURRENT>
-     *    where CURRENT = 0-1024, based on exponentially-smoothed weighting scheme
-     */
-    INTERFACE.print("<a");
-    INTERFACE.print(int(mMonitor->current));
-    INTERFACE.print(">");
-    break;
+  // case 'c':
+  //   // <c>
+  //   /*
+  //    *    reads current being drawn on main operations track
+  //    *
+  //    *    returns: <a CURRENT>
+  //    *    where CURRENT = 0-1024, based on exponentially-smoothed weighting scheme
+  //    */
+  //   INTERFACE.print("<a");
+  //   INTERFACE.print(int(mMonitor->current));
+  //   INTERFACE.print(">");
+  //   break;
 
   /***** READ STATUS OF DCC++ BASE STATION  ****/
-  case 's':
-    // <s>
-    /*
-     *    returns status messages containing track power status, throttle status, turn-out status, and a version number
-     *    NOTE: this is very useful as a first command for an interface to send to this sketch in order to verify connectivity and update any GUI to reflect actual throttle and turn-out settings
-     *
-     *    returns: series of status messages that can be read by an interface to determine status of DCC++ Base Station and important settings
-     */
-    if (digitalRead(SIGNAL_ENABLE_PIN_PROG) == LOW) // could check either PROG or MAIN
-      INTERFACE.print("<p0>");
-    else
-      INTERFACE.print("<p1>");
+//   case 's':
+//     // <s>
+//     /*
+//      *    returns status messages containing track power status, throttle status, turn-out status, and a version number
+//      *    NOTE: this is very useful as a first command for an interface to send to this sketch in order to verify connectivity and update any GUI to reflect actual throttle and turn-out settings
+//      *
+//      *    returns: series of status messages that can be read by an interface to determine status of DCC++ Base Station and important settings
+//      */
+//     if (digitalRead(SIGNAL_ENABLE_PIN_PROG) == LOW) // could check either PROG or MAIN
+//       INTERFACE.print("<p0>");
+//     else
+//       INTERFACE.print("<p1>");
 
-    for (int i = 1; i <= MAX_MAIN_REGISTERS; i++)
-    {
-      if (mRegs->speedTable[i] == 0)
-        continue;
-      INTERFACE.print("<T");
-      INTERFACE.print(i);
-      INTERFACE.print(" ");
-      if (mRegs->speedTable[i] > 0)
-      {
-        INTERFACE.print(mRegs->speedTable[i]);
-        INTERFACE.print(" 1>");
-      }
-      else
-      {
-        INTERFACE.print(-mRegs->speedTable[i]);
-        INTERFACE.print(" 0>");
-      }
-    }
-    INTERFACE.print("<iDCC++ BASE STATION FOR ARDUINO ");
-    // INTERFACE.print(ARDUINO_TYPE);
-    INTERFACE.print(" / ");
-    INTERFACE.print(MOTOR_SHIELD_NAME);
-    INTERFACE.print(": V-");
-    INTERFACE.print(VERSION);
-    INTERFACE.print(" / ");
-    INTERFACE.print(__DATE__);
-    INTERFACE.print(" ");
-    INTERFACE.print(__TIME__);
-    INTERFACE.print(">");
+//     for (int i = 1; i <= MAX_MAIN_REGISTERS; i++)
+//     {
+//       if (mRegs->speedTable[i] == 0)
+//         continue;
+//       INTERFACE.print("<T");
+//       INTERFACE.print(i);
+//       INTERFACE.print(" ");
+//       if (mRegs->speedTable[i] > 0)
+//       {
+//         INTERFACE.print(mRegs->speedTable[i]);
+//         INTERFACE.print(" 1>");
+//       }
+//       else
+//       {
+//         INTERFACE.print(-mRegs->speedTable[i]);
+//         INTERFACE.print(" 0>");
+//       }
+//     }
+//     INTERFACE.print("<iDCC++ BASE STATION FOR ARDUINO ");
+//     // INTERFACE.print(ARDUINO_TYPE);
+//     INTERFACE.print(" / ");
+//     INTERFACE.print(MOTOR_SHIELD_NAME);
+//     INTERFACE.print(": V-");
+//     INTERFACE.print(VERSION);
+//     INTERFACE.print(" / ");
+//     INTERFACE.print(__DATE__);
+//     INTERFACE.print(" ");
+//     INTERFACE.print(__TIME__);
+//     INTERFACE.print(">");
 
-    INTERFACE.print("<N");
-    INTERFACE.print(COMM_TYPE);
-    INTERFACE.print(": ");
+//     INTERFACE.print("<N");
+//     INTERFACE.print(COMM_TYPE);
+//     INTERFACE.print(": ");
 
-#if COMM_TYPE == 0
-    INTERFACE.print("SERIAL>");
-#elif COMM_TYPE == 1
-    INTERFACE.print(Ethernet.localIP());
-    INTERFACE.print(">");
-#endif
+// #if COMM_TYPE == 0
+//     INTERFACE.print("SERIAL>");
+// #elif COMM_TYPE == 1
+//     INTERFACE.print(Ethernet.localIP());
+//     INTERFACE.print(">");
+// #endif
 
-    break;
+//     break;
 
   /***** PRINT CARRIAGE RETURN IN SERIAL MONITOR WINDOW  ****/
-  case ' ':
-    // < >
-    /*
-     *    simply prints a carriage return - useful when interacting with Ardiuno through serial monitor window
-     *
-     *    returns: a carriage return
-     */
-    INTERFACE.println("");
-    break;
+  // case ' ':
+  //   // < >
+  //   /*
+  //    *    simply prints a carriage return - useful when interacting with Ardiuno through serial monitor window
+  //    *
+  //    *    returns: a carriage return
+  //    */
+  //   INTERFACE.println("");
+  //   break;
 
     ///
     /// THE FOLLOWING COMMANDS ARE NOT NEEDED FOR NORMAL OPERATIONS AND ARE ONLY USED FOR TESTING AND DEBUGGING PURPOSES
@@ -340,15 +340,15 @@ void SerialCommand::parse(char *com)
     ///
 
   /***** ENTER DIAGNOSTIC MODE  ****/
-  case 'D':
-    // <D>
-    /*
-     *    changes the clock speed of the chip and the pre-scaler for the timers so that you can visually see the DCC signals flickering with an LED
-     *    SERIAL COMMUNICAITON WILL BE INTERUPTED ONCE THIS COMMAND IS ISSUED - MUST RESET BOARD OR RE-OPEN SERIAL WINDOW TO RE-ESTABLISH COMMS
-     */
+  // case 'D':
+  //   // <D>
+  //   /*
+  //    *    changes the clock speed of the chip and the pre-scaler for the timers so that you can visually see the DCC signals flickering with an LED
+  //    *    SERIAL COMMUNICAITON WILL BE INTERUPTED ONCE THIS COMMAND IS ISSUED - MUST RESET BOARD OR RE-OPEN SERIAL WINDOW TO RE-ESTABLISH COMMS
+  //    */
 
-    Serial.println("\nEntering Diagnostic Mode...");
-    delay(1000);
+  //   Serial.println("\nEntering Diagnostic Mode...");
+  //   delay(1000);
 
     /*     bitClear(TCCR1B,CS12);    // set Timer 1 prescale=8 - SLOWS NORMAL SPEED BY FACTOR OF 8
         bitSet(TCCR1B,CS11);
@@ -371,7 +371,7 @@ void SerialCommand::parse(char *com)
         CLKPR=0x80;           // THIS SLOWS DOWN SYSYEM CLOCK BY FACTOR OF 256
         CLKPR=0x08;           // BOARD MUST BE RESET TO RESUME NORMAL OPERATIONS
      */
-    break;
+    // break;
 
   /***** WRITE A DCC PACKET TO ONE OF THE REGSITERS DRIVING THE MAIN OPERATIONS TRACK  ****/
   case 'M':
@@ -393,40 +393,40 @@ void SerialCommand::parse(char *com)
     break;
 
   /***** WRITE A DCC PACKET TO ONE OF THE REGSITERS DRIVING THE MAIN OPERATIONS TRACK  ****/
-  case 'P':
-    // <P REGISTER BYTE1 BYTE2 [BYTE3] [BYTE4] [BYTE5]>
-    /*
-     *   writes a DCC packet of two, three, four, or five hexidecimal bytes to a register driving the programming track
-     *   FOR DEBUGGING AND TESTING PURPOSES ONLY.  DO NOT USE UNLESS YOU KNOW HOW TO CONSTRUCT NMRA DCC PACKETS - YOU CAN INADVERTENTLY RE-PROGRAM YOUR ENGINE DECODER
-     *
-     *    REGISTER: an internal register number, from 0 through MAX_MAIN_REGISTERS (inclusive), to write (if REGISTER=0) or write and store (if REGISTER>0) the packet
-     *    BYTE1:  first hexidecimal byte in the packet
-     *    BYTE2:  second hexidecimal byte in the packet
-     *    BYTE3:  optional third hexidecimal byte in the packet
-     *    BYTE4:  optional fourth hexidecimal byte in the packet
-     *    BYTE5:  optional fifth hexidecimal byte in the packet
-     *
-     *    returns: NONE
-     */
-    pRegs->writeTextPacket(com + 1);
-    break;
+  // case 'P':
+  //   // <P REGISTER BYTE1 BYTE2 [BYTE3] [BYTE4] [BYTE5]>
+  //   /*
+  //    *   writes a DCC packet of two, three, four, or five hexidecimal bytes to a register driving the programming track
+  //    *   FOR DEBUGGING AND TESTING PURPOSES ONLY.  DO NOT USE UNLESS YOU KNOW HOW TO CONSTRUCT NMRA DCC PACKETS - YOU CAN INADVERTENTLY RE-PROGRAM YOUR ENGINE DECODER
+  //    *
+  //    *    REGISTER: an internal register number, from 0 through MAX_MAIN_REGISTERS (inclusive), to write (if REGISTER=0) or write and store (if REGISTER>0) the packet
+  //    *    BYTE1:  first hexidecimal byte in the packet
+  //    *    BYTE2:  second hexidecimal byte in the packet
+  //    *    BYTE3:  optional third hexidecimal byte in the packet
+  //    *    BYTE4:  optional fourth hexidecimal byte in the packet
+  //    *    BYTE5:  optional fifth hexidecimal byte in the packet
+  //    *
+  //    *    returns: NONE
+  //    */
+  //   pRegs->writeTextPacket(com + 1);
+  //   break;
 
   /***** ATTEMPTS TO DETERMINE HOW MUCH FREE SRAM IS AVAILABLE IN ARDUINO  ****/
-  case 'F':
-    // <F>
-    /*
-     *     measure amount of free SRAM memory left on the Arduino based on trick found on the internet.
-     *     Useful when setting dynamic array sizes, considering the Uno only has 2048 bytes of dynamic SRAM.
-     *     Unfortunately not very reliable --- would be great to find a better method
-     *
-     *     returns: <f MEM>
-     *     where MEM is the number of free bytes remaining in the Arduino's SRAM
-     */
-    int v;
-    //      INTERFACE.print("<f");
-    //      INTERFACE.print((int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval));
-    //      INTERFACE.print(">");
-    break;
+  // case 'F':
+  //   // <F>
+  //   /*
+  //    *     measure amount of free SRAM memory left on the Arduino based on trick found on the internet.
+  //    *     Useful when setting dynamic array sizes, considering the Uno only has 2048 bytes of dynamic SRAM.
+  //    *     Unfortunately not very reliable --- would be great to find a better method
+  //    *
+  //    *     returns: <f MEM>
+  //    *     where MEM is the number of free bytes remaining in the Arduino's SRAM
+  //    */
+  //   int v;
+  //   //      INTERFACE.print("<f");
+  //   //      INTERFACE.print((int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval));
+  //   //      INTERFACE.print(">");
+  //   break;
 
   /***** LISTS BIT CONTENTS OF ALL INTERNAL DCC PACKET REGISTERS  ****/
   case 'L':

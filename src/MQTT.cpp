@@ -21,8 +21,8 @@ void mqttSetup(String mqtt_Server, String iobNode)
   client.setServer(ip, 1883); // 1883 is the default port on mosquitto server
   // client.setKeepAlive(60);    // this is probaably not necessary, just use the default
   client.setCallback(callback);
-  connectMQTT(iobNode);
-  setupSubscriptions();
+  // connectMQTT(iobNode);
+  // setupSubscriptions();
 }
 
 /*****************************************************************************/
@@ -69,8 +69,6 @@ void setupSubscriptions()
 
   String prefixGlobal = prefix;
 
-  // prefix.concat(String("#"));
-  // prefix.concat(String(myRoadnum + "/#"));
   prefix.concat(String(myLocoID + "/#"));
   strcpy(subscription, prefix.c_str());
   client.subscribe(subscription, 1);
@@ -82,6 +80,8 @@ void setupSubscriptions()
   prefixGlobal.concat(String("0/#"));
   strcpy(subscription, prefixGlobal.c_str());
   client.subscribe(subscription, 1);
+
+  throttle.muSubscribe();
 }
 
 /*****************************************************************************/
@@ -150,12 +150,13 @@ void callback(char *topic, byte *message, unsigned int length)
     throttle.setMuState(messChars);
   else if (partString == "muperformance")
     throttle.setMuPerformance(messChars);
-  else if (partString == "status")
+  else if (partString == "status") 
     throttle.setMuSpeed(messChars);
   else if (partString == "sendstatus")
   {
-    throttle.sendStatus();
+    throttle.sendCondition();
     throttle.setAirGauge();
+    throttle.sendStatus();  // new 10/28
   }
   else if (partString == "calibrate")
     throttle.calibrate(msgVal);

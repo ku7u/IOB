@@ -33,7 +33,7 @@ public:
     // void compute(void);
     void computeVelocity(void);
     void setIBrake(uint16_t val);
-    void setTBrake(uint16_t val);
+    void setTBrake(float val);
     void trainline(bool connect);
     void panicStop(void);
     void setAirGauge(void);
@@ -46,7 +46,10 @@ public:
     // void setMuSpeed(float);
     void setMuSpeed(char *);
     void setMuPerformance(char *);
+    void muSubscribe();
+    void sendCondition(void);
     void sendStatus(void);
+    void setCV(int, int);
 
     int functionPM;
     int functionBell;
@@ -73,11 +76,15 @@ private:
     String _locoType;
     uint16_t _dccAddress = 3;
     uint8_t _muState;
-    const char * _muLeadLoco;
+    // const char * _muLeadLoco;
+    String _muLeadLoco;
     bool _muTrailingUnit; // false = mid, true = trailing unit
     bool _muReversed; // true if running reversed in consist
     bool _muActive; // false = not MUed
     bool _running = false;
+    // bool _hornState = false;
+    uint _headlight;
+    uint _rearlight;
     bool _direction; // true = forward
     uint16_t _throttleLever;
     uint16_t _notch;
@@ -127,7 +134,7 @@ private:
     uint16_t _compressorCountdown;
     uint32_t _startTimestamp;
     long _calibrationTimer;
-    int _calibrationTrapLength;
+    const int _calibrationTrapLength = 3;
     float _fpsDccFactorForward2;
     float _fpsDccFactorForward5;
     float _fpsDccFactorForward10;
@@ -159,7 +166,7 @@ private:
     const float LOCO_FRICTION_COEFICIENT = .1; // similar to friction coefficient for brakes TBD
     const float MAX_TRACTIVE_FORCE = 75000;    // assumed
     const float MAX_ACCEL = 3.;                // to limit accel on starting movement
-    const int TRAINLINE_SET_PSI = 75;
+    const int TRAINLINE_SET_PSI = 90;
 };
 
 #endif

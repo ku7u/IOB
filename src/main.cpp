@@ -1,3 +1,14 @@
+// version
+#define olsVersion  "0.4  (compile date: " + String(__DATE__) + " " + String(__TIME__) + ")"
+
+/* history (version changes on upload to github)
+Version 0.4 
+Added setCV 
+Fixed MU code, demonstrated to work, still needs performance handoff to lead
+Sending current condition back to controlling device needs work
+Observed issue with calibration factors less than 1.0 (loco slows, then reverses at hight speed)
+*/
+
 /**********************************************************************
 
 DCC++ BASE STATION
@@ -18,46 +29,25 @@ COPYRIGHT (c) 2013-2016 Gregg E. Berman
 
 **********************************************************************/
 /**********************************************************************
-
-DCC++ BASE STATION is a C++ program written for the Arduino Uno and Arduino Mega
-using the Arduino IDE 1.6.6.
-
-It allows a standard Arduino Uno or Mega with an Arduino Motor Shield (as well as others)
-to be used as a fully-functioning digital command and control (DCC) base station
-for controlling model train layouts that conform to current National Model
-Railroad Association (NMRA) DCC standards.
-
 This version of DCC++ BASE STATION supports:
 
   * 2-byte and 4-byte locomotive addressing
   * Simultaneous control of multiple locomotives
   * 128-step speed throttling
   * Cab functions F0-F28
-  * Activate/de-activate accessory functions using 512 addresses, each with 4 sub-addresses
-      - includes optional functionailty to monitor and store of the direction of any connected turnouts
   * Programming on the Main Operations Track
       - write configuration variable bytes
       - set/clear specific configuration variable bits
-  * Programming on the Programming Track
-      - write configuration variable bytes
-      - set/clear specific configuration variable bits
-      - read configuration variable bytes
 
 DCC++ BASE STATION is controlled with simple text commands received via
 the Arduino's serial interface.  Users can type these commands directly
 into the Arduino IDE Serial Monitor, or can send such commands from another
 device or computer program.
 
-When compiled for the Arduino Mega, an Ethernet Shield can be used for network
-communications instead of using serial communications.
-
 DCC++ CONTROLLER, available separately under a similar open-source
 license, is a Java program written using the Processing library and Processing IDE
 that provides a complete and configurable graphic interface to control model train layouts
 via the DCC++ BASE STATION.
-
-With the exception of a standard 15V power supply that can be purchased in
-any electronics store, no additional hardware is required.
 
 Neither DCC++ BASE STATION nor DCC++ CONTROLLER use any known proprietary or
 commercial hardware, software, interfaces, specifications, or methods related
@@ -70,12 +60,6 @@ embedded libraries associated with Arduino and Processing.  Tremendous thanks to
 responsible for these terrific open-source initiatives that enable programs like
 DCC++ to be developed and distributed in the same fashion.
 
-REFERENCES:
-
-  NMRA DCC Standards:          http://www.nmra.org/index-nmra-standards-and-recommended-practices
-  Arduino:                     http://www.arduino.cc/
-  Processing:                  http://processing.org/
-  GNU General Public License:  http://opensource.org/licenses/GPL-3.0
 
 BRIEF NOTES ON THE THEORY AND OPERATION OF DCC++ BASE STATION:
 
@@ -164,7 +148,7 @@ DCC++ BASE STATION in split into multiple modules, each with its own header file
 
 DCC++ BASE STATION is configured through the Config.h file that contains all user-definable parameters
 
-  Pin assignments:
+  ESP32 pin assignments:
    01  TX0
    02
    03  RX0
@@ -241,6 +225,8 @@ AsyncWebServer server(80);
 
 // wifi
 WiFiClient espClient;
+bool eraseSSID = false;
+String mdnsURL;
 
 // time
 const char *ntpServer = "pool.ntp.org";
@@ -326,6 +312,7 @@ portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 // As structured, the interrupt code below completes at an average of just under 6 microseconds with a worse-case of just under 11 microseconds
 // when a new register is loaded and the logic needs to switch active register packet pointers.
 
+/*****************************************************************************/
 void IRAM_ATTR onTimer0()
 {
   portENTER_CRITICAL_ISR(&timerMux);
@@ -348,6 +335,7 @@ void IRAM_ATTR onTimer0()
   portEXIT_CRITICAL_ISR(&timerMux);
 }
 
+/*****************************************************************************/
 void IRAM_ATTR onTimer1()
 {
   portENTER_CRITICAL_ISR(&timerMux);
@@ -396,6 +384,7 @@ void IRAM_ATTR onTimer1()
   portEXIT_CRITICAL_ISR(&timerMux);
 }
 
+/*****************************************************************************/
 void getGeneralPrefs()
 {
   // get the stored configuration values, defaults are the second parameter in the list
@@ -403,11 +392,23 @@ void getGeneralPrefs()
   mqttServer = myPrefs.getString("mqttserver", "192.168.99.99");
   topicCommandLeftEnd = myPrefs.getString("commandtopic", "cmd/ols/");
   topicFeedbackLeftEnd = myPrefs.getString("feedbacktopic", "tlm/ols/");
+  eraseSSID = myPrefs.getBool("erasessid", false);
+
   myPrefs.end();
 }
 
 /*****************************************************************************/
-// this function converts placeholders in the html into active data values
+// this function converts placeholders in index.html into active data values
+String processorIndex(const String &var)
+{
+  if (var == "version")
+    return olsVersion;
+  
+  return String(); // in case nothing matched
+}
+
+/*****************************************************************************/
+// this function converts placeholders in network.html into active data values
 String processorNetwork(const String &var)
 {
   if (var == "IP")
@@ -415,10 +416,11 @@ String processorNetwork(const String &var)
   else if (var == "SSID")
     return WiFi.SSID();
   else if (var == "RSSI")
-    // int8_t myRSSI = WiFi.RSSI();
     return String(WiFi.RSSI());
   else if (var == "MAC")
     return WiFi.macAddress();
+  else if (var == "MDNS")
+    return mdnsURL;
   else if (var == "MQ")
     return mqttServer;
   else if (var == "MQTTSERVERIPADR")
@@ -427,12 +429,19 @@ String processorNetwork(const String &var)
     return topicCommandLeftEnd;
   else if (var == "TOPICFEEDBACKLEFTEND")
     return topicFeedbackLeftEnd;
+  else if (var == "ERASESSID")
+  {
+    if (eraseSSID)
+      return "Y";
+    else
+      return "N";
+  }
 
   return String(); // in case nothing matched
 }
 
 /*****************************************************************************/
-// this function converts placeholders in the html into active data values
+// this function converts placeholders in locoparms.html into active data values
 String processorLocoparms(const String &var)
 {
   String returnVal;
@@ -443,8 +452,6 @@ String processorLocoparms(const String &var)
     returnVal = String(myPrefs.getFloat("odometer", 0.));
   else if (var == "DCCADDRESS")
     returnVal = String(myPrefs.getInt("dccaddress", 3));
-  else if (var == "ADDRESS") // TBD this should be called roadnum now
-    returnVal = String(myPrefs.getInt("roadnum", 3));
   else if (var == "LOCOID")
     returnVal = myPrefs.getString("locoid", "3");
   else if (var == "HORSEPOWER")
@@ -459,7 +466,7 @@ String processorLocoparms(const String &var)
 }
 
 /*****************************************************************************/
-// this function converts placeholders in the html into active data values
+// this function converts placeholders in calibration.html into active data values
 String processorCalibrationparms(const String &var)
 {
   String returnVal;
@@ -492,7 +499,7 @@ String processorCalibrationparms(const String &var)
 }
 
 /*****************************************************************************/
-// this function converts placeholders in the html into active data values
+// this function converts placeholders in functions.html into active data values
 String processorFunctions(const String &var)
 {
   // Serial.println(var);
@@ -531,10 +538,14 @@ String processorFunctions(const String &var)
   return (returnVal);
 }
 
+/*****************************************************************************/
+// this function handles data entry from the web pages
 void setupWeb()
 {
-server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(SPIFFS, "/index.html", "text/html", false); });
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/index.html", "text/html", false, processorIndex); });
+  server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/index.html", "text/html", false, processorIndex); });
   server.on("/functions.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions); });
   server.on("/locoparms.html", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -562,7 +573,16 @@ server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
       topicFeedbackLeftEnd = request->getParam("feedbacktopic")->value();
       myPrefs.putString("feedbacktopic", topicFeedbackLeftEnd);
       myPrefs.end();
+      request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork);
+    }
 
+    else if (request->hasParam("EraseParm"))
+    {
+      myPrefs.begin("general", false);
+      inputParam = request->getParam("erasessid")->value();
+      myPrefs.putBool("erasessid", inputParam == "Y");
+      myPrefs.end();
+      eraseSSID = inputParam == "Y";
       request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork);
     }
 
@@ -571,8 +591,6 @@ server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
       myPrefs.begin("loco", false);
       inputMessage = request->getParam("dccaddress")->value();
       myPrefs.putInt("dccaddress", inputMessage.toInt());  
-      inputMessage = request->getParam("address")->value();
-      myPrefs.putInt("roadnum", inputMessage.toInt());  
       inputMessage = request->getParam("locoid")->value();
       myPrefs.putString("locoid", inputMessage);
       inputMessage = request->getParam("horsepower")->value();
@@ -661,11 +679,15 @@ server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
   server.serveStatic("/", SPIFFS, "/");
 }
 
+/*****************************************************************************/
+// configure mDNS - allows access via URL "ols<locoID>.local"
 void setupMDNS(String locoid)
 {
-  // start mDNS
-  // String myNode = "OLS" + String(roadNum);
+  // start mDNS, works on Win10, 11, Linux, Mac - supposed to work on Android but doesn't
+  // the web pages will be available at http://"WCBOD" + SSID.local and at IP address
   String myNode = "OLS" + locoid;
+  mdnsURL = myNode + ".local";
+  mdnsURL.toLowerCase();
   Serial.print("myNode ");
   Serial.println(myNode.c_str());
   if (!MDNS.begin(myNode.c_str()))
@@ -675,6 +697,8 @@ void setupMDNS(String locoid)
   }
 }
 
+/*****************************************************************************/
+// TBD TBD TBD
 void report()
 {
   // String x = "{id:" + "GN2178" + ",ip:" + "1234"}";
@@ -682,10 +706,7 @@ void report()
   client.publish("tlm/ols/16/report", x.c_str());
 }
 
-// #include "nvs_flash.h"
-///////////////////////////////////////////////////////////////////////////////
-// INITIAL SETUP
-///////////////////////////////////////////////////////////////////////////////
+/*****************************************************************************/
 void setup()
 {
   // static u32_t timer;
@@ -696,45 +717,37 @@ void setup()
   SPIFFS.begin(true); // format on fail
 
   getGeneralPrefs();
-
+  Serial.println("OLS firmware version: " + String(olsVersion));
+  
   // get the road number
   myPrefs.begin("loco", true);
-  int roadNum = myPrefs.getInt("roadnum", 0);
-  String locoID = myPrefs.getString("locoid", "undefined");
+  String locoID = myPrefs.getString("locoid", "new");
   myPrefs.end();
 
-  throttle.getLocoPrefs();
-  throttle.getFunctionPrefs();
+  // throttle.getLocoPrefs();
+  // throttle.getFunctionPrefs();
 
   // use mac address as SSID to assure uniqueness
   String SSID = WiFi.macAddress();
   Serial.println(SSID);
-  // ESPConnect.erase();
-  ESPConnect.autoConnect(SSID.c_str(), "123456789", 90000);
 
-  // Begin connecting to previous WiFi or start autoConnect AP if unable to connect
-  // ESPConnect.erase();
-  if (ESPConnect.begin(&server))
+  // force a reconnection to wifi AP
+  if (eraseSSID)
   {
-    Serial.println("Connected to WiFi");
-    Serial.println("IPAddress: " + WiFi.localIP().toString());
-    String mySSID = WiFi.SSID();
-    Serial.println("SSID: " + mySSID);
-    int8_t myRSSI = WiFi.RSSI();
-    Serial.println("Signal strength: " + String(myRSSI));
-    if (myRSSI == 0)
-      ESP.restart();
-  }
-  else
-  {
-    Serial.println("Failed to connect to WiFi");
-    ESP.restart();
+    myPrefs.begin("general", false);
+    myPrefs.putBool("erasessid", false);
+    myPrefs.end();
+    ESPConnect.erase();
   }
 
-  // while (!ESPConnect.begin(&server));
-  // {
-  //   ESPConnect.erase();  // this seems to be necessary if can't reconnect to preexisting SSID, i.e. his s/w is hosed
-  // }
+  String myMac = WiFi.macAddress();
+  while (!ESPConnect.isConnected())
+  {
+    Serial.println("ESPConnect reports not connected");
+    ESPConnect.autoConnect(myMac.c_str(), "123456789");
+    if (ESPConnect.begin(&server))
+      Serial.println("IPAddress: " + WiFi.localIP().toString());
+  }
 
   AsyncElegantOTA.begin(&server); // Start ElegantOTA
   server.begin();
@@ -763,32 +776,30 @@ void setup()
   mainRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
   progRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
 
-  throttle.init();
+  // throttle.init();
 
   // MQTT
-  mqttNode = "OLS"+ locoID;
-  // String myNode = "OLS" + String(roadNum);
-  mqttSetup(mqttServer, mqttNode);
+  mqttNode = "OLS" + locoID;
+  mqttSetup(mqttServer, mqttNode); 
+
+  throttle.getLocoPrefs();
+  throttle.getFunctionPrefs();
+  throttle.init();
 
 #ifdef speeddebug
   Serial.println("speeddebug is on");
 #endif
 
   // use millis as seed for random generator
-  srand(millis());
+  srand(millis());  // TBD don't think this is in use anymore
 
   // time is used in throttle object to set trainline psi after extended shutdown
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
-  // steady state test of the motor driver
-  // digitalWrite(DCC_SIGNAL_PIN_MAIN, 0);
-  // digitalWrite(DCC_SIGNAL_PIN_MAIN_2, 1);
 } // end setup
 
-///////////////////////////////////////////////////////////////////////////////
-// MAIN LOOP
-///////////////////////////////////////////////////////////////////////////////
-void loop()
+/*****************************************************************************/
+void loop() 
 {
   timer1sec.tick();
   timer200ms.tick();
@@ -816,11 +827,6 @@ void loop()
     // long myDuration = millis() - myStart;
     // Serial.print("Duration ");Serial.println(myDuration);
   }
-  /*   if(CurrentMonitor::checkTime()){      // if sufficient time has elapsed since last update, check current draw on Main and Program Tracks
-      mainMonitor.check();
-      progMonitor.check();
-    } */
 
-  // Sensor::check();    // check sensors for activate/de-activate
 
-} // end loop
+} // end loop 
