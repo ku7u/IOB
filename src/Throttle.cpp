@@ -61,7 +61,7 @@ void Throttle::getLocoPrefs(void)
     _dccAddress = myPrefs.getInt("dccaddress", 3);
     _roadNumber = myPrefs.getInt("roadnum", 0);
     _locoID = myPrefs.getString("locoid", "none");
-    // _locoType = myPrefs.getString("locotype", "diesel");
+    _locoType = myPrefs.getString("locotype", "none");
     // myPrefs.getBool("shortLong", 0);
     _horsepower = myPrefs.getInt("horsepower", 1500);
     _locoWeight = myPrefs.getULong("locoweight", 250000);
@@ -1340,4 +1340,19 @@ void Throttle::setCV(int cv, int value)
     strcat(dummyChars, buffer);
 
     SerialCommand::parse(dummyChars);
+}
+
+void Throttle::setFunction(char *jsonMsg)
+{
+    StaticJsonDocument<100> doc;
+
+    // Deserialize the JSON document
+    DeserializationError error = deserializeJson(doc, jsonMsg);
+    if (error)
+        return;
+
+    int function = doc["f"];
+    bool state = doc["s"];
+
+    commandFifo.pushCommand(function, state);
 }

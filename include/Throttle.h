@@ -50,6 +50,7 @@ public:
     void sendCondition(void);
     void sendStatus(void);
     void setCV(int, int);
+    void setFunction(char *);
 
     int functionPM;
     int functionBell;

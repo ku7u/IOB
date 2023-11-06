@@ -1,9 +1,9 @@
 // version
-#define olsVersion  "0.4  (compile date: " + String(__DATE__) + " " + String(__TIME__) + ")"
+#define olsVersion "0.4  (compile date: " + String(__DATE__) + " " + String(__TIME__) + ")"
 
 /* history (version changes on upload to github)
-Version 0.4 
-Added setCV 
+Version 0.4
+Added setCV
 Fixed MU code, demonstrated to work, still needs performance handoff to lead
 Sending current condition back to controlling device needs work
 Observed issue with calibration factors less than 1.0 (loco slows, then reverses at hight speed)
@@ -403,7 +403,7 @@ String processorIndex(const String &var)
 {
   if (var == "version")
     return olsVersion;
-  
+
   return String(); // in case nothing matched
 }
 
@@ -449,11 +449,13 @@ String processorLocoparms(const String &var)
 
   myPrefs.begin("loco", true);
   if (var == "ODOMETER")
-    returnVal = String(myPrefs.getFloat("odometer", 0.));
+    returnVal = String(myPrefs.getFloat("odometer", 0.)/5280.);
   else if (var == "DCCADDRESS")
     returnVal = String(myPrefs.getInt("dccaddress", 3));
   else if (var == "LOCOID")
     returnVal = myPrefs.getString("locoid", "3");
+  else if (var == "LOCOTYPE")
+    returnVal = myPrefs.getString("locotype", "none");
   else if (var == "HORSEPOWER")
     returnVal = String(myPrefs.getInt("horsepower", 1500));
   else if (var == "WEIGHT")
@@ -593,6 +595,8 @@ void setupWeb()
       myPrefs.putInt("dccaddress", inputMessage.toInt());  
       inputMessage = request->getParam("locoid")->value();
       myPrefs.putString("locoid", inputMessage);
+      inputMessage = request->getParam("locotype")->value();
+      myPrefs.putString("locotype", inputMessage);
       inputMessage = request->getParam("horsepower")->value();
       myPrefs.putInt("horsepower", inputMessage.toInt());
       inputMessage = request->getParam("weight")->value();
@@ -673,6 +677,13 @@ void setupWeb()
 
       throttle.getFunctionPrefs();
       request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions);
+    }
+    else if (request->hasParam("CvParm"))
+    {
+      String cv = request->getParam("cv")->value();
+      String cvValue = request->getParam("cvValue")->value();
+      throttle.setCV(cv.toInt(), cvValue.toInt());
+      request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions);
     } });
 
   // following from codeproject
@@ -707,7 +718,7 @@ void report()
 }
 
 /*****************************************************************************/
-void setup()
+void setup() 
 {
   // static u32_t timer;
   // nvs_flash_erase();
@@ -718,7 +729,7 @@ void setup()
 
   getGeneralPrefs();
   Serial.println("OLS firmware version: " + String(olsVersion));
-  
+
   // get the road number
   myPrefs.begin("loco", true);
   String locoID = myPrefs.getString("locoid", "new");
@@ -780,7 +791,7 @@ void setup()
 
   // MQTT
   mqttNode = "OLS" + locoID;
-  mqttSetup(mqttServer, mqttNode); 
+  mqttSetup(mqttServer, mqttNode);
 
   throttle.getLocoPrefs();
   throttle.getFunctionPrefs();
@@ -791,7 +802,7 @@ void setup()
 #endif
 
   // use millis as seed for random generator
-  srand(millis());  // TBD don't think this is in use anymore
+  srand(millis()); // TBD don't think this is in use anymore
 
   // time is used in throttle object to set trainline psi after extended shutdown
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -799,7 +810,7 @@ void setup()
 } // end setup
 
 /*****************************************************************************/
-void loop() 
+void loop()
 {
   timer1sec.tick();
   timer200ms.tick();
@@ -828,5 +839,4 @@ void loop()
     // Serial.print("Duration ");Serial.println(myDuration);
   }
 
-
-} // end loop 
+} // end loop

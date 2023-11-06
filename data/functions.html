@@ -89,6 +89,25 @@
             <br><br>
             <input type="submit">   <input type="reset">
         </form>
+        <br>
+        <hr>
+        <h2>Set CV Values</h2>
+        <p></p>
+        <form action="/get">
+            <input type="hidden" name="CvParm" value="0">
+            <table>
+                <tr>
+                    <td><label for="cv">CV</label></td>
+                    <td><input type="number" id="cv" name="cv" value="%CV%" min="0" max="255" style=text-align:center></td>
+                </tr>
+                <tr>
+                    <td><label for="cvValue">CV Value</label></td>
+                    <td><input type="number" id="cvValue" name="cvValue" value="%CVVALUE%" min="0" max="255" style=text-align:center></td>
+                </tr>
+            </table>
+            <br><br>
+            <input type="submit"> 
+        </form>
     </div>
 
 </body>

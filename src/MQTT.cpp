@@ -160,11 +160,8 @@ void callback(char *topic, byte *message, unsigned int length)
   }
   else if (partString == "calibrate")
     throttle.calibrate(msgVal);
-  else if (partString.substring(0, 1) == "f")  // TBD likely bogus
-  {
-    partString = partString.substring(partString.lastIndexOf('/') + 1);
-    setFunction(atoi(partString.c_str()), (bool)msgVal);
-  }
+  else if (partString == "function")
+    throttle.setFunction(messChars);
 
   return;
 }

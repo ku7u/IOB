@@ -7,6 +7,16 @@
     <meta charset="UTF-8">
     <meta name="author" content="George Hofmann">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        input[type="number"]{
+            width: 6em;
+        }
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+               -webkit-appearance: none;
+                margin: 0;
+        }
+    </style>
 </head>
 
 <body>
@@ -39,28 +49,28 @@
                 </tr>
                 <tr>
                     <td><label for="speed2forward">2 mph</label></td>
-                    <td><input type="number step=0.01" id="speed2forward" name="speed2forward" value="%SPEED2FORWARD%"  style=text-align:center></td>
-                    <td><input type="number step=0.01" id="speed2reverse" name="speed2reverse" value="%SPEED2REVERSE%"  style=text-align:center><br></td>
+                    <td><input type="number" id="speed2forward" name="speed2forward" value="%SPEED2FORWARD%"  style=text-align:center min="-10.00" max="10.00"></td>
+                    <td><input type="number" id="speed2reverse" name="speed2reverse" value="%SPEED2REVERSE%"  style=text-align:center min="-10.00" max="10.00"><br></td>
                 </tr>
                 <tr>
                     <td><label for="speed5forward">5 mph</label></td>
-                    <td><input type="number step=0.01" id="speed5forward" name="speed5forward" value="%SPEED5FORWARD%"  style=text-align:center></td>
-                    <td><input type="number step=0.01" id="speed5reverse" name="speed5reverse" value="%SPEED5REVERSE%"  style=text-align:center><br></td>
+                    <td><input type="number" id="speed5forward" name="speed5forward" value="%SPEED5FORWARD%"  style=text-align:center min="-10" max="10"></td>
+                    <td><input type="number" id="speed5reverse" name="speed5reverse" value="%SPEED5REVERSE%"  style=text-align:center min="-10" max="10"><br></td>
                 </tr>
                 <tr>
                     <td><label for="speed10forward">10 mph</label></td>
-                    <td><input type="number step=0.01" id="speed10forward" name="speed10forward" value="%SPEED10FORWARD%"  style=text-align:center></td>
-                    <td><input type="number step=0.01" id="speed10reverse" name="speed10reverse" value="%SPEED10REVERSE%"  style=text-align:center><br></td>
+                    <td><input type="number" id="speed10forward" name="speed10forward" value="%SPEED10FORWARD%"  style=text-align:center min="-10" max="10"></td>
+                    <td><input type="number" id="speed10reverse" name="speed10reverse" value="%SPEED10REVERSE%"  style=text-align:center min="-10" max="10"><br></td>
                 </tr>
                 <tr>
                     <td><label for="speed20forward">20 mph</label></td>
-                    <td><input type="number step=0.01" id="speed20forward" name="speed20forward" value="%SPEED20FORWARD%"  style=text-align:center></td>
-                    <td><input type="number step=0.01" id="speed20reverse" name="speed20reverse" value="%SPEED20REVERSE%"  style=text-align:center><br></td>
+                    <td><input type="number" id="speed20forward" name="speed20forward" value="%SPEED20FORWARD%"  style=text-align:center min="-10" max="10"></td>
+                    <td><input type="number" id="speed20reverse" name="speed20reverse" value="%SPEED20REVERSE%"  style=text-align:center min="-10" max="10"><br></td>
                 </tr>
                 <tr>
                     <td><label for="speed50forward">50 mph</label></td>
-                    <td><input type="number step=0.01" id="speed50forward" name="speed50forward" value="%SPEED50FORWARD%"  style=text-align:center></td>
-                    <td><input type="number step=0.01" id="speed50reverse" name="speed50reverse" value="%SPEED50REVERSE%"  style=text-align:center><br></td>
+                    <td><input type="number" id="speed50forward" name="speed50forward" value="%SPEED50FORWARD%"  style=text-align:center min="-10" max="10"></td>
+                    <td><input type="number" id="speed50reverse" name="speed50reverse" value="%SPEED50REVERSE%"  style=text-align:center min="-10" max="10"><br></td>
                 </tr>
       
             </table>
