@@ -118,6 +118,7 @@ void Throttle::getFunctionPrefs(void)
     functionTrainBrake = myPrefs.getInt("tBrake", 4);
     functionEmergencyBrake = myPrefs.getInt("emergencyBrake", 5);
     functionCompressor = myPrefs.getInt("compressor", 20);
+    functionBrakeSqueal = myPrefs.getInt("brakesqueal", -1);
     myPrefs.end();
 }
 
@@ -318,7 +319,10 @@ void Throttle::panicStop()
 void Throttle::bell(bool onOff)
 {
     if (_running)
+    {
         commandFifo.pushCommand(functionBell, onOff);
+        _bell = onOff;
+    }
 }
 
 void Throttle::horn(bool onOff)
@@ -388,6 +392,7 @@ void Throttle::setTBrake(float val)
     // TBD explain logic here
     if (val > 0)
     {
+        _opMode = braking; // TBD added 11/15/23
         _trainlineSetPSI = val;
         if (_trainlinePSI > _trainlineSetPSI)
             _trainlinePSI = _trainlineSetPSI;
@@ -395,6 +400,7 @@ void Throttle::setTBrake(float val)
     }
     else if (val == 0)
     {
+        _opMode = idle; // TBD added 11/15/23
         _trainlineSetPSI = TRAINLINE_SET_PSI;
         commandFifo.pushCommand(functionTrainBrake, false);
     }
@@ -721,6 +727,10 @@ void Throttle::computeVelocity(void)
         if (_mph == 0)
             zeroWasSent = true;
         sendStatus();
+        if (_independentBrake > 0)
+            brakeSqueal(true);
+        else
+            brakeSqueal(false);
     }
 }
 
@@ -1103,13 +1113,13 @@ void Throttle::setMuPerformance(char *jsonMsg)
 
 void Throttle::setMuSpeed(char *jsonMsg)
 {
-    if (!_muActive) // TBD this is a workaround that can't be left in the code
+    if ((!_muActive) || (!_running)) // TBD this is a workaround that can't be left in the code
         return;
 
     static bool alternateSeconds = false;
     StaticJsonDocument<100> doc;
 
-    // switch this each 1 sec cycle, it will be used to add or subtract 1 mph to commanded speed
+    // switch this each 1 sec cycle, it will be used to add or subtract 0.5 mph to commanded speed
     // this (theoretically) will defeat the back emf algorithm in the decoder to eliminate tug-of-war effect
     alternateSeconds = !alternateSeconds;
 
@@ -1177,6 +1187,7 @@ void Throttle::sendCondition()
     char topicChars[40];
     char msgChars[100];
     char charPsi[10];
+    char charCc[4]; // car count
 
     // build the topic string
     strcpy(topicChars, _feedbackTopic.c_str());
@@ -1211,8 +1222,17 @@ void Throttle::sendCondition()
     strcat(msgChars, charRl);
 
     // bell
-    // maybe notch, brake status
+    strcat(msgChars, ",\"bell\":");               // new 11/7
+    const char charBl[2] = {char(_bell + 48), 0}; // 48 = ascii zero
+    strcat(msgChars, charBl);
+
     // car count
+    strcat(msgChars, ",\"cc\":"); // new 11/8
+    dtostrf(_carCount, 2, 0, charCc);
+    strcat(msgChars, charCc);
+
+    // trainline
+    // maybe notch, brake status
     // mass
 
     strcat(msgChars, ",\"psi\":"); // new 10/29
@@ -1355,4 +1375,35 @@ void Throttle::setFunction(char *jsonMsg)
     bool state = doc["s"];
 
     commandFifo.pushCommand(function, state);
+}
+
+void Throttle::brakeSqueal(bool on)
+{
+    static bool squealOn;
+    bool activate;
+
+    if (((_mph > 1) && (_mph < 10)) && on)
+        activate = true;
+    else
+        activate = false;
+
+    if (activate && squealOn)
+        return;
+
+    else if (activate && !squealOn)
+    {
+        // turn on the sound
+        commandFifo.pushCommand(functionBrakeSqueal, true);
+        squealOn = true;
+    }
+    else if (!activate && !squealOn)
+        return;
+    else if (!activate && squealOn)
+    {
+        // turn off the sound
+        commandFifo.pushCommand(functionBrakeSqueal, false);
+        squealOn = false;
+    }
+
+    return;
 }

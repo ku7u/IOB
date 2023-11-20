@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"name": "IOB",
+			"path": "."
+		}
+	],
+	"settings": {
+		"cmake.configureOnOpen": false
+	}
+}

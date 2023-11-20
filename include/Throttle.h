@@ -66,9 +66,11 @@ public:
     int functionTrainBrake;
     int functionEmergencyBrake;
     int functionCompressor;
+    int functionBrakeSqueal;
 
 private:
     uint32_t getTime(void);
+    void brakeSqueal(bool);
 
     enum opModeType {off, idle, braking, powered};
     opModeType _opMode;
@@ -86,6 +88,7 @@ private:
     // bool _hornState = false;
     uint _headlight;
     uint _rearlight;
+    bool _bell;
     bool _direction; // true = forward
     uint16_t _throttleLever;
     uint16_t _notch;

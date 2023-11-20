@@ -525,6 +525,8 @@ String processorFunctions(const String &var)
     returnVal = String(myPrefs.getInt("iBrake", 2));
   else if (var == "TBRAKE")
     returnVal = String(myPrefs.getInt("tBrake", 2));
+  else if (var == "BRAKESQUEAL")
+    returnVal = String(myPrefs.getInt("brakesqueal", 0));
   else if (var == "PM")
     returnVal = String(myPrefs.getInt("pm", 2));
   else if (var == "COMPRESSOR")
@@ -644,7 +646,7 @@ void setupWeb()
       request->send(SPIFFS, "/calibration.html", "text/html", false, processorCalibrationparms);
     }
 
-    else if (request->hasParam("FunctionsParm"))
+    else if (request->hasParam("FunctionsParm")) 
     {
       myPrefs.begin("functions", false);
       inputMessage = request->getParam("headlight")->value();
@@ -663,6 +665,8 @@ void setupWeb()
       myPrefs.putInt("iBrake", inputMessage.toInt());
       inputMessage = request->getParam("tbrake")->value();
       myPrefs.putInt("tBrake", inputMessage.toInt());
+      inputMessage = request->getParam("brakesqueal")->value();
+      myPrefs.putInt("brakesqueal", inputMessage.toInt());
       inputMessage = request->getParam("pm")->value();
       myPrefs.putInt("pm", inputMessage.toInt());
       inputMessage = request->getParam("compressor")->value();
@@ -710,12 +714,12 @@ void setupMDNS(String locoid)
 
 /*****************************************************************************/
 // TBD TBD TBD
-void report()
-{
-  // String x = "{id:" + "GN2178" + ",ip:" + "1234"}";
-  String x = "{id:GN4321,ip:192.168.0.132}";
-  client.publish("tlm/ols/16/report", x.c_str());
-}
+// void report()
+// {
+//   // String x = "{id:" + "GN2178" + ",ip:" + "1234"}";
+//   String x = "{id:GN4321,ip:192.168.0.132}";
+//   client.publish("tlm/ols/16/report", x.c_str());
+// }
 
 /*****************************************************************************/
 void setup() 
@@ -811,7 +815,7 @@ void setup()
 
 /*****************************************************************************/
 void loop()
-{
+{ 
   timer1sec.tick();
   timer200ms.tick();
   // timer150ms.tick();

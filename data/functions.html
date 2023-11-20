@@ -66,6 +66,10 @@
                     <td><input type="number" id="tbrake" name="tbrake" value="%TBRAKE%" min="0" max="28" style=text-align:center><br></td>
                 </tr>
                 <tr>
+                    <td><label for="brakesqueal">Brake Squeal</label></td>
+                    <td><input type="number" id="brakesqueal" name="brakesqueal" value="%BRAKESQUEAL%" min="0" max="28" style=text-align:center><br></td>
+                </tr>
+                <tr>
                     <td><label for="pm">Prime Mover</label></td>
                     <td><input type="number" id="pm" name="pm" value="%PM%" min="0" max="28" style=text-align:center><br></td>
                 </tr>
@@ -104,9 +108,143 @@
                     <td><label for="cvValue">CV Value</label></td>
                     <td><input type="number" id="cvValue" name="cvValue" value="%CVVALUE%" min="0" max="255" style=text-align:center></td>
                 </tr>
+
             </table>
             <br><br>
             <input type="submit"> 
+        </form>
+        <br>
+        <hr>
+        <h2>Function Labels</h2>
+        <p></p>
+        <form action="/get">
+            <input type="hidden" name="functionLabels" value="0">
+            <table>
+                <tr>
+                    <th style="text-align:left;">Function</th>
+                    <th>Label</th>
+                    <tr>
+                        <td><label for="f0">0</label></td>
+                        <td><input type="text" id="f0" name="f0" value="%F0%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">1</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">2</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f3">3</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">4</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">5</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">6</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">7</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">8</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">9</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">10</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">11</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">12</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">13</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">14</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">15</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">16</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">17</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">18</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">19</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">20</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">21</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">22</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">23</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">24</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">25</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">26</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f1">27</label></td>
+                        <td><input type="text" id="f1" name="f1" value="%F1%"  style=text-align:center></td>
+                    </tr>
+                    <tr>
+                        <td><label for="f2">28</label></td>
+                        <td><input type="text" id="f2" name="f2" value="%F2%"  style=text-align:center></td>
+                    </tr>
+                </tr>
+            </table>
+            <br><br>
+            <input type="submit">   <input type="reset">
+            <br><br>
+
         </form>
     </div>
 
