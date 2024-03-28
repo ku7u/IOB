@@ -1,5 +1,6 @@
-#ifndef THROTTLE_H
-#define THROTTLE_H
+// #ifndef THROTTLE_H
+// #define THROTTLE_H
+#pragma once
 
 #include <stdint.h>
 #include "Arduino.h"
@@ -38,6 +39,7 @@ public:
     void panicStop(void);
     void setAirGauge(void);
     int getRoadNumber(void);
+    int getDccAddress(void);
     void calibrate(int speed);
     uint16_t interpolateSpeedFactor(float fps);
     bool isForward();
@@ -47,8 +49,9 @@ public:
     void setMuSpeed(char *);
     void setMuPerformance(char *);
     void muSubscribe();
-    void sendCondition(void);
-    void sendStatus(void);
+    void reportCondition(void);
+    void reportStatus(void);
+    void reportFunctionLabels(void);
     void setCV(int, int);
     void setFunction(char *);
 
@@ -71,10 +74,11 @@ public:
 private:
     uint32_t getTime(void);
     void brakeSqueal(bool);
+    void setEBrake(bool);
 
     enum opModeType {off, idle, braking, powered};
     opModeType _opMode;
-    uint16_t _roadNumber = 3; // TBD set this programatically
+    uint16_t _roadNumber = 3;
     String _locoID;
     String _locoType;
     uint16_t _dccAddress = 3;
@@ -116,14 +120,15 @@ private:
     uint16_t _independentBrake; // percent
     // uint16_t _iBrakeVal = 0;
     uint16_t _trainBrake; // percent
+    uint8_t _emergencyBrake; // on or off
     enum _mode
     {
         MAN_NOTCHING,
         DRIVE_HOLD,
         NORMAL
     };
-    bool _manualNotching; // true if using manual notching TBD this
-    bool _manualNotchingMode = false;
+    // bool _manualNotching; // true if using manual notching TBD this
+    // bool _manualNotchingMode = false;
     uint16_t _manualNotchingLogicFunction;
     uint16_t _notchUpFunction = 26;
     uint16_t _notchDownFunction = 27;
@@ -139,6 +144,11 @@ private:
     uint32_t _startTimestamp;
     long _calibrationTimer;
     const int _calibrationTrapLength = 3;
+    const int _calibrationTrapLength2 = 1;
+    const int _calibrationTrapLength5 = 2;
+    const int _calibrationTrapLength10 = 3;
+    const int _calibrationTrapLength20 = 4;
+    const int _calibrationTrapLength50 = 5;
     float _fpsDccFactorForward2;
     float _fpsDccFactorForward5;
     float _fpsDccFactorForward10;
@@ -172,5 +182,3 @@ private:
     const float MAX_ACCEL = 3.;                // to limit accel on starting movement
     const int TRAINLINE_SET_PSI = 90;
 };
-
-#endif

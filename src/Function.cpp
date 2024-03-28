@@ -15,7 +15,8 @@ void setFunction(int function, bool onOff)
     
     byte2 = 0;
 
-    int roadNum = throttle.getRoadNumber(); //TBD this is lame, do it once somehow, or include in parameter list
+    // int roadNum = throttle.getRoadNumber(); //TBD this is lame, do it once somehow, or include in parameter list
+    int roadNum = throttle.getDccAddress(); 
 
     if ((function > 29) || (function < 0))
         return;
@@ -54,6 +55,7 @@ void setFunction(int function, bool onOff)
 
     strcpy(dummyChars, dummyString.c_str());
     SerialCommand::parse(dummyChars);
+
 }
 
 void startStop(bool start)

@@ -8,6 +8,7 @@ Part of DCC++ BASE STATION for the Arduino
 **********************************************************************/
 
 #include "Config.h"
+#include "devices.h"    //gfh added (not cool)
 
 #ifndef DCCpp_h
 #define DCCpp_h
@@ -18,38 +19,31 @@ Part of DCC++ BASE STATION for the Arduino
 
 #define VERSION "1.2.1+"
 
-#define DCC_SIGNAL_PIN_MAIN 26
-#define DCC_SIGNAL_PIN_MAIN_2 25
-#define DCC_SIGNAL_PIN_PROG 27
+// #define DCC_SIGNAL_PIN_PROG 27  //TBD get rid of this
 
 #define MOTOR_SHIELD_NAME "Some device"
 
-#define SIGNAL_ENABLE_PIN_MAIN 16
-#define SIGNAL_ENABLE_PIN_PROG 17
-
-#define CURRENT_MONITOR_PIN_MAIN 18
-#define CURRENT_MONITOR_PIN_PROG 19
 
 /////////////////////////////////////////////////////////////////////////////////////
 // SELECT COMMUNICATION INTERACE
 /////////////////////////////////////////////////////////////////////////////////////
 
-#if COMM_INTERFACE == 0
+// #if COMM_INTERFACE == 0
 
 #define COMM_TYPE 0
 #define INTERFACE Serial
 
-#elif (COMM_INTERFACE == 1) || (COMM_INTERFACE == 2) || (COMM_INTERFACE == 3)
+// #elif (COMM_INTERFACE == 1) || (COMM_INTERFACE == 2) || (COMM_INTERFACE == 3)
 
-#define COMM_TYPE 1
-#define INTERFACE eServer
-#define SDCARD_CS 4
+// #define COMM_TYPE 1
+// #define INTERFACE eServer
+// #define SDCARD_CS 4
 
-#else
+// #else
 
-#error CANNOT COMPILE - Please select a proper value for COMM_INTERFACE in CONFIG.H file
+// #error CANNOT COMPILE - Please select a proper value for COMM_INTERFACE in CONFIG.H file
 
-#endif
+// #endif
 
 /////////////////////////////////////////////////////////////////////////////////////
 // SET WHETHER TO SHOW PACKETS - DIAGNOSTIC MODE ONLY

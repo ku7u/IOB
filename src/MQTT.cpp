@@ -4,22 +4,29 @@
 #include "MQTT.h"
 #include "PubSubClient.h"
 #include "Throttle.h"
+#include "Adafruit_NeoPixel.h"
+#include "defines.h"
 
 extern PubSubClient client;
 extern Throttle throttle;
+extern Adafruit_NeoPixel strip;
 
 /*****************************************************************************/
 // defines the connection parameters, the callback, the subscriptions and then connects
 void mqttSetup(String mqtt_Server, String iobNode)
 {
+
   char mqtt_server[mqtt_Server.length() + 1]; // converting from string to char array required for client parameter
   strcpy(mqtt_server, mqtt_Server.c_str());
+#ifdef SERIAL_ON
   Serial.print("mqtt_server ");
   Serial.println(mqtt_server);
+#endif
   uint8_t ip[4];
   sscanf(mqtt_server, "%u.%u.%u.%u", &ip[0], &ip[1], &ip[2], &ip[3]);
+  client.setBufferSize(1024); // defaults to 256
   client.setServer(ip, 1883); // 1883 is the default port on mosquitto server
-  // client.setKeepAlive(60);    // this is probaably not necessary, just use the default
+  client.setKeepAlive(60);    // this is probaably not necessary, just use the default
   client.setCallback(callback);
   // connectMQTT(iobNode);
   // setupSubscriptions();
@@ -37,16 +44,19 @@ void connectMQTT(String nodeName)
   // Loop until we're reconnected
   while (!client.connect(mqtt_node))
   {
-    pinMode(2, OUTPUT);
+    // pinMode(2, OUTPUT);
+#ifdef SERIAL_ON
     Serial.println("Failed to connect to mqtt server");
     Serial.print(" Response was ");
     Serial.println(client.state());
     Serial.println("Retrying...");
+#endif
 
     delay(5000);
-    // todo should make a technique to notify op about this, he can't see the serial
   }
+#ifdef SERIAL_ON
   Serial.println("connected to MQTT server");
+#endif
 }
 
 /*****************************************************************************/
@@ -63,7 +73,6 @@ void setupSubscriptions()
   myPrefs.end();
 
   myPrefs.begin("general", true);
-  // String prefix = myPrefs.getString("commandtopic", "cmd/ols/") + myRoadnum + "/";
   String prefix = myPrefs.getString("commandtopic", "cmd/ols/");
   myPrefs.end();
 
@@ -72,10 +81,6 @@ void setupSubscriptions()
   prefix.concat(String(myLocoID + "/#"));
   strcpy(subscription, prefix.c_str());
   client.subscribe(subscription, 1);
-
-  // myPrefs.begin("general", true);
-  // prefix = myPrefs.getString("commandtopic", "cmd/ols/") + "/0/"; // the 0 is used for broadcast messages like report
-  // myPrefs.end();
 
   prefixGlobal.concat(String("0/#"));
   strcpy(subscription, prefixGlobal.c_str());
@@ -91,7 +96,6 @@ void setupSubscriptions()
 // also must get the value sent
 void callback(char *topic, byte *message, unsigned int length)
 {
-
   char messChars[100];
   String topicString = String(topic);
 
@@ -150,13 +154,17 @@ void callback(char *topic, byte *message, unsigned int length)
     throttle.setMuState(messChars);
   else if (partString == "muperformance")
     throttle.setMuPerformance(messChars);
-  else if (partString == "status") 
+  else if (partString == "status")
     throttle.setMuSpeed(messChars);
   else if (partString == "sendstatus")
   {
-    throttle.sendCondition();
+    throttle.reportCondition();
+    throttle.reportStatus(); 
     throttle.setAirGauge();
-    throttle.sendStatus();  // new 10/28
+  }
+  else if (partString == "reportlabels")
+  {
+    throttle.reportFunctionLabels();
   }
   else if (partString == "calibrate")
     throttle.calibrate(msgVal);
@@ -165,4 +173,3 @@ void callback(char *topic, byte *message, unsigned int length)
 
   return;
 }
-

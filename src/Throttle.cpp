@@ -1,5 +1,4 @@
-// #define speeddebug
-
+#include "defines.h"
 #include "Throttle.h"
 #include "SerialCommand.h"
 #include "Function.h"
@@ -10,6 +9,7 @@
 #include "WebSerial.h"
 #include "Fifo.h"
 #include "ArduinoJson.h"
+#include <iostream>
 
 extern PubSubClient client;
 extern Fifo commandFifo;
@@ -32,18 +32,12 @@ Throttle::Throttle(void)
     _trainlineSetPSI = TRAINLINE_SET_PSI;
     _neutral = true;
     // _trainBrake = 0;
-    // _manualNotchingMode = false;
     _lastIntCurrentSpeed = 0;
     _lastTractiveForce = 0;
     _lastIntCurrentPsi = 0;
     _running = false;
     _compressorRunning = false;
     _compressorCountdown = 0;
-
-    // getLocoPrefs();
-    // _locoMass = _locoWeight / 32; // poundals
-
-    // getFunctionPrefs();
 }
 
 void Throttle::init()
@@ -141,6 +135,7 @@ void Throttle::report()
     x.concat(_muState);
     x.concat("\"}");
     client.publish(topicChars, x.c_str());
+
 }
 
 uint32_t Throttle::getTime()
@@ -165,6 +160,11 @@ void Throttle::setRoadNumber(int roadNumber)
 int Throttle::getRoadNumber(void)
 {
     return _roadNumber;
+}
+
+int Throttle::getDccAddress(void)
+{
+    return _dccAddress;
 }
 
 bool Throttle::isForward()
@@ -222,7 +222,7 @@ void Throttle::pmOnOff(bool onOff)
 
     commandFifo.pushCommand(functionPM, onOff);
     commandFifo.pushCommand(functionNotchingEnable, onOff); // TBD can't turn off PM unless this is here WMNS
-    sendStatus();
+    reportStatus();
 }
 
 void Throttle::headlight(int offDimBright)
@@ -373,18 +373,17 @@ void Throttle::setTonnage(uint16_t tonnage)
 
 void Throttle::setIBrake(uint16_t val)
 {
-    _independentBrake = val;
-
-    if (val > 0)
+    if ((val > 0) && (_independentBrake == 0))
     {
         _opMode = braking;
-        commandFifo.pushCommand(functionIndependentBrake, true);
+        commandFifo.pushCommand(functionIndependentBrake, true); // TBD changed to only summon function once
     }
-    else
+    else if (val == 0)
     {
         _opMode = idle;
         commandFifo.pushCommand(functionIndependentBrake, false);
     }
+    _independentBrake = val;
 }
 
 void Throttle::setTBrake(float val)
@@ -408,6 +407,24 @@ void Throttle::setTBrake(float val)
     {
         _trainlinePSI = 0;
         _trainlineSetPSI = 0;
+    }
+}
+
+void Throttle::setEBrake(bool val)
+{
+    if (val)
+    {
+        _trainlinePSI = 0;
+        _emergencyBrake = 1;
+        commandFifo.pushCommand(functionEmergencyBrake, true);
+        _opMode = braking;
+    }
+    else
+    {
+        // TBD how to reset trainline pressure
+        _emergencyBrake = 0;
+        commandFifo.pushCommand(functionEmergencyBrake, false);
+        _opMode = idle;
     }
 }
 
@@ -454,6 +471,7 @@ void Throttle::manualNotch(bool up)
         _opMode = idle;
         setIBrake(0);
         setTBrake(0);
+        setEBrake(false);
     }
     else if (!up && _opMode == powered)
     // notching down
@@ -535,7 +553,7 @@ void Throttle::longPress(bool up)
     }
     else if (!up && _mph > 10 && _opMode == idle)
         // emergency
-        panicStop(); // TBD fix this
+        setEBrake(true);
     else if (!up && _mph <= 10 && ((_opMode == idle) || (_opMode == braking)))
         // quick stop at low speed TBD maybe release brakes also
         panicStop();
@@ -550,6 +568,7 @@ void Throttle::computeVelocity(void)
     float startingForce;
     // float gradeForce;  //TBD
     float independentBrakeForce;
+    float emergencyBrakeForce;
     float trainBrakeForce;
     float accel;
     char dummyChars[31];
@@ -576,7 +595,7 @@ void Throttle::computeVelocity(void)
         // if (effectiveHP < 0)
         //     effectiveHP = 0;
 
-#ifdef speeddebug
+#ifdef SPEED_DEBUG
     Serial.print("_mph  ");
     Serial.println(_mph);
 #endif
@@ -609,7 +628,7 @@ void Throttle::computeVelocity(void)
         startingForce = 0;
         dragForce = (_locoMass * 32 * ROLLING_RESISTANCE_COEFICIENT) + (_tonnage * 2000 * ROLLING_RESISTANCE_COEFICIENT);
     }
-#ifdef speeddebug
+#ifdef SPEED_DEBUG
     Serial.print("_tonnage ");
     Serial.println(_tonnage);
     Serial.print("_locoMass  ");
@@ -625,7 +644,7 @@ void Throttle::computeVelocity(void)
 
     _lastTractiveForce = tractiveForce;
 
-#ifdef speeddebug
+#ifdef SPEED_DEBUG
     Serial.print("tractiveForce ");
     Serial.println(tractiveForce);
 #endif
@@ -633,7 +652,7 @@ void Throttle::computeVelocity(void)
     // there must be some drag effect that varies with speed that is peculiar to locos - this is a guess
     variableLocoDragForce = _locoMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT; // TBD now at zero
 
-#ifdef speeddebug
+#ifdef SPEED_DEBUG
     Serial.print("variableLocoDragForce ");
     Serial.println(variableLocoDragForce);
 #endif
@@ -646,7 +665,9 @@ void Throttle::computeVelocity(void)
     else
         trainBrakeForce = 0;
 
-#ifdef speeddebug
+    emergencyBrakeForce = (_locoMass * 32 + _tonnage * 2000. * .3) * _emergencyBrake;
+
+#ifdef SPEED_DEBUG
     Serial.print("dragForce ");
     Serial.println(dragForce);
 #endif
@@ -654,7 +675,7 @@ void Throttle::computeVelocity(void)
     // independentBrakeForce = _independentBrake / 100. * _locoMass * 32 * factorZ;
     // trainBrakeForce = _trainBrake / 100. * _tonnage * 2000 * .2;
 
-#ifdef speeddebug
+#ifdef SPEED_DEBUG
     Serial.print("independentBrake and ...Force ");
     Serial.print(_independentBrake);
     Serial.print("   ");
@@ -662,22 +683,23 @@ void Throttle::computeVelocity(void)
 #endif
 
     // accel = (tractiveForce - dragForce - independentBrakeForce) / (_locoMass + _tonnage * 2000 / 32);
-    accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - trainBrakeForce) / (_locoMass + (_tonnage * 2000 / 32));
+    // TBD the following may be bogus re emergency brake force, may need to include more logic here
+    accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - trainBrakeForce - emergencyBrakeForce) / (_locoMass + (_tonnage * 2000 / 32));
     if (accel > MAX_ACCEL)
         accel = MAX_ACCEL;
 
-#ifdef speeddebug
+#ifdef SPEED_DEBUG
     Serial.print("accel ");
     Serial.println(accel);
 #endif
 
-    _currentSpeed = _currentSpeed + accel; // accel is feet/sec/sec so if integrated once / sec, accel = vel
+    _currentSpeed = _currentSpeed + accel; // accel is feet/sec/sec so if integrated once / sec, accel = vel, _currentSpeed is feet/sec
     if (_currentSpeed < 0.)
         _currentSpeed = 0;
 
     _odometer = _odometer + abs(_currentSpeed); // TBD on this (seems to work)
 
-#ifdef speeddebug
+#ifdef SPEED_DEBUG
     Serial.print("_currentSpeed ");
     Serial.println(_currentSpeed);
 #endif
@@ -685,7 +707,11 @@ void Throttle::computeVelocity(void)
     // get the appropriate calibrated and interpolated speed compensation value
     intCurrentSpeed = interpolateSpeedFactor(_currentSpeed);
 
-#ifdef speeddebug
+    // prevent calculating a value greater than the max of 126
+    if (intCurrentSpeed > 126)
+        intCurrentSpeed = 126;
+
+#ifdef SPEED_DEBUG
     Serial.print("_currentSpeed factored ");
     Serial.println(intCurrentSpeed);
     Serial.print('\n');
@@ -726,7 +752,7 @@ void Throttle::computeVelocity(void)
     {
         if (_mph == 0)
             zeroWasSent = true;
-        sendStatus();
+        reportStatus();
         if (_independentBrake > 0)
             brakeSqueal(true);
         else
@@ -794,7 +820,7 @@ void Throttle::setAirGauge(void)
         if (_mph == 0)
             // client.publish(topicChars, msgChars);
             // else
-            sendStatus();
+            reportStatus();
     }
 }
 
@@ -863,7 +889,27 @@ void Throttle::calibrate(int speed)
 
     if (_calibrationStage == 2)
     {
-        trapLength = _calibrationTrapLength;
+        switch (abs(speed))
+        {
+        case 2:
+            trapLength = _calibrationTrapLength2;
+            break;
+        case 5:
+            trapLength = _calibrationTrapLength5;
+            break;
+        case 10:
+            trapLength = _calibrationTrapLength10;
+            break;
+        case 20:
+            trapLength = _calibrationTrapLength20;
+            break;
+        case 50:
+            trapLength = _calibrationTrapLength50;
+            break;
+        default:
+            trapLength = 1;
+            break;
+        }
         calibrationPeriod = millis() - _calibrationTimer;
         // compute target time in ms to traverse test section at this speed point
         targetTime = 1000 * trapLength * 87 / (abs(speed) * (5280 / 3600));
@@ -1161,6 +1207,10 @@ void Throttle::setMuSpeed(char *jsonMsg)
 
     uint16_t dccFPS = interpolateSpeedFactor(muFPS); // returns dcc val corresponding to fps, interpolated between cal points
 
+    // prevent computing a value higher than 126
+    if (dccFPS > 126)
+        dccFPS = 126;
+
     char buffer[20];
     char dccCommandChars[30];
     strcpy(dccCommandChars, "t 1 ");
@@ -1179,7 +1229,7 @@ void Throttle::setMuSpeed(char *jsonMsg)
     SerialCommand::parse(dccCommandChars);
 }
 
-void Throttle::sendCondition()
+void Throttle::reportCondition()
 {
     // sends static condition to app whenever app opens throttle fragment
     // this sets the state of various views in the fragment
@@ -1254,9 +1304,10 @@ void Throttle::sendCondition()
     client.publish(topicChars, msgChars);
 }
 
-void Throttle::sendStatus()
+void Throttle::reportStatus()
 {
-    // String topic = _feedbackTopic + _locoID + "/status";
+    // reports various current values back to the app for display there
+
     int intSpeedoSpeed = _mph * 10;
     float speedoSpeed = intSpeedoSpeed / 10.; // to get tenths of mph
 
@@ -1293,6 +1344,49 @@ void Throttle::sendStatus()
     strcat(msgChars, "}");
 
     // client.publish(topic.c_str(), msgChars);
+    client.publish(topicChars, msgChars);
+}
+
+void Throttle::reportFunctionLabels()
+{
+    // reports all of the configured function labels to the app for display there
+    // called whenever sendStatus is requested by the app
+    
+    char topicChars[40];
+    char functionLabel[100];
+    Preferences myPrefs;
+
+    strcpy(topicChars, _feedbackTopic.c_str());
+    strcat(topicChars, _locoID.c_str());
+    strcat(topicChars, "/functionLabels");
+
+    char msgChars[1024];
+    String iString;
+    String labelString;
+
+    strcpy(msgChars, "{");
+    // open the spiff
+    myPrefs.begin("functions", true);
+    for (int i = 0; i < 29; i++)
+    {
+        // convert i to string
+        iString = "f" + String(i);
+        // get the string from spiff
+        labelString = myPrefs.getString(iString.c_str(), "");
+        // // build the string including the i string
+        strcat(msgChars, "\"");
+        strncat(msgChars, iString.c_str(), 3);
+        strcat(msgChars, "\":\"");
+        // concat the label
+        strncat(msgChars, labelString.c_str(), 10);
+        strcat(msgChars, "\"");
+        if (i < 28)
+            strcat(msgChars, ",");
+    }
+    myPrefs.end();
+
+    strcat(msgChars, "}");
+
     client.publish(topicChars, msgChars);
 }
 
@@ -1382,7 +1476,7 @@ void Throttle::brakeSqueal(bool on)
     static bool squealOn;
     bool activate;
 
-    if (((_mph > 1) && (_mph < 10)) && on)
+    if (((_mph > 1) && (_mph < 8)) && on)
         activate = true;
     else
         activate = false;
@@ -1393,8 +1487,11 @@ void Throttle::brakeSqueal(bool on)
     else if (activate && !squealOn)
     {
         // turn on the sound
-        commandFifo.pushCommand(functionBrakeSqueal, true);
-        squealOn = true;
+        if (_independentBrake > 40) // for light braking, no sound
+        {
+            commandFifo.pushCommand(functionBrakeSqueal, true);
+            squealOn = true;
+        }
     }
     else if (!activate && !squealOn)
         return;

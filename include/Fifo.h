@@ -1,5 +1,4 @@
-#ifndef FIFO_H
-#define FIFO_H
+#pragma once
 
 #include <queue>
 using namespace std;
@@ -19,5 +18,3 @@ private:
 
     queue<_functionParms> myQ; // for DCC command throttling
 };
-
-#endif

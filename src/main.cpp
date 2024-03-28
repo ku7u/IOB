@@ -1,5 +1,3 @@
-// version
-#define olsVersion "0.4  (compile date: " + String(__DATE__) + " " + String(__TIME__) + ")"
 
 /* history (version changes on upload to github)
 Version 0.4
@@ -147,39 +145,63 @@ DCC++ BASE STATION in split into multiple modules, each with its own header file
                     (e.g. the states of all defined turnouts) in the EEPROM for recall after power-up
 
 DCC++ BASE STATION is configured through the Config.h file that contains all user-definable parameters
+TBD these pin assignments need to be cleaned up for both WROOM and C3
+  ESP WROOM 32 pin assignments:
+  Pin IO  Usage
+  01      GND
+  02      3V3
+  03      EN
+  10  25  DCC_SIGNAL_PIN_MAIN_2 - other side of H bridge (WROOM only)
+  11  26  DCC_SIGNAL_PIN_MAIN - one side of H bridge (WROOM only)
+  12  27  DCC_SIGNAL_PIN_PROG - prog track (not used)
+  27  16  SIGNAL_ENABLE_PIN_MAIN - turns on the output TBD likely unecessary, will set low signal pins low to turn off
+  28  17  SIGNAL_ENABLE_PIN_PROG - as above, prog track (not used)  TBD likely unecessary
+  30  18  CURRENT_MONITOR_PIN_MAIN - not used
+  31  19  CURRENT_MONITOR_PIN_PROG - not used
+  33  21  LEFT_HED_PIN
+  36  22  RIGHT_HED_PIN
+  38      GND
 
-  ESP32 pin assignments:
-   01  TX0
-   02
-   03  RX0
-   04
-   05
-   12
-   13
-   14
-   15
-   16  SIGNAL_ENABLE_PIN_MAIN - turns on the output TBD likely unecessary, will set low signal pins low to turn off
-   17  SIGNAL_ENABLE_PIN_PROG - as above, prog track (not used)  TBD likely unecessary
-   18  CURRENT_MONITOR_PIN_MAIN
-   19  CURRENT_MONITOR_PIN_PROG
-   21  LEFT_HED_PIN
-   22  RIGHT_HED_PIN
-   23
-   25  DCC_SIGNAL_PIN_MAIN_2 - other side of H bridge
-   26  DCC_SIGNAL_PIN_MAIN - one side of H bridge
-   27  DCC_SIGNAL_PIN_PROG - prog track (not used)
-   32
-   33
-   34  input requires pullup on board
-   35  input requires pullup on board
-   36  input requires pullup on board
-   39  input requires pullup on board
+  ESP32 C3
+  Pin IO  Usage
+  01      GND
+  03      3V3
+  06  03  HED
+  08      EN
+  12  00
+  18  04  HED
+  19  05  DCC_SIGNAL_PIN_MAIN_2 - other side of H bridge (WROOM only)
+  20  06  DCC_SIGNAL_PIN_MAIN - one side of H bridge (WROOM only)
+  ??  27  DCC_SIGNAL_PIN_PROG - prog track (not used)
+  ??  16  SIGNAL_ENABLE_PIN_MAIN - turns on the output TBD likely unecessary, will set low signal pins low to turn off
+  ??  17  SIGNAL_ENABLE_PIN_PROG - as above, prog track (not used)  TBD likely unecessary
+  ??  18  CURRENT_MONITOR_PIN_MAIN - not used
+  ??  19  CURRENT_MONITOR_PIN_PROG - not used
+  30      RXD0
+  31      TXD0
 
-GPIO Pins:
+  ESP32 C3 DK
+  Pin IO  Usage
+  01      5V
+  02      GND
+  03      3V3
+  04  00  HED
+  05  01  HED
+  14  10  NeoPixel LED
+  17  06  DCC_SIGNAL_PIN_MAIN_2 - other side of H bridge (WROOM only)
+  18  07  DCC_SIGNAL_PIN_MAIN - one side of H bridge (WROOM only)
+  ??  27  DCC_SIGNAL_PIN_PROG - prog track (not used)
+  ??  06  SIGNAL_ENABLE_PIN_MAIN - turns on the output TBD likely unecessary, will set low signal pins low to turn off
+  ??  06  SIGNAL_ENABLE_PIN_PROG - as above, prog track (not used)  TBD likely unecessary
+  ??  06  CURRENT_MONITOR_PIN_MAIN - not used
+  ??  06  CURRENT_MONITOR_PIN_PROG - not used
 
-  Motor driver - DRV8801
+
 **********************************************************************/
 
+#include "devices.h" // modify the contents as required to match the hardware
+
+#include "nvs_flash.h"
 #include <Arduino.h>
 #include <iostream>
 // there is a problem in ESPAsyncWebServer and the dorks don't fix it
@@ -190,6 +212,7 @@ GPIO Pins:
 #include "AsyncTCP.h"
 #include "ESPConnect.h"
 #include "AsyncElegantOTA.h"
+// #include "ElegantOTA.h"
 #include "Preferences.h"
 #include "PubSubClient.h"
 #include "WiFi.h"
@@ -210,16 +233,18 @@ GPIO Pins:
 #include "MultiTimer.h"
 #include "time.h"
 #include "ArduinoJson.h"
-
-// #include "WebSerial.h"
+#include "Adafruit_NeoPixel.h"
+#include "defines.h"
 
 using namespace std;
 
-#define LEFT_HED_PIN 21
-#define RIGHT_HED_PIN 22
+#ifdef RGB_BUILTIN
+#undef RGB_BUILTIN
+#endif
+#define RGB_BUILTIN 10
+// #define RGB_BRIGHTNESS 10
 
 Preferences myPrefs;
-// void showConfiguration();
 
 AsyncWebServer server(80);
 
@@ -246,6 +271,15 @@ Throttle throttle;
 
 MagnetReader magReader(LEFT_HED_PIN, RIGHT_HED_PIN);
 
+// neoPixel on C3 mini
+#ifdef ESP32C3DK
+Adafruit_NeoPixel strip(1, 10, NEO_GRB + NEO_KHZ800);
+uint32_t red;
+uint32_t yellow;
+uint32_t green;
+uint32_t blue;
+#endif
+
 // functions
 String headlightFunction;
 
@@ -261,7 +295,7 @@ volatile RegisterList mainRegs(MAX_MAIN_REGISTERS); // create list of registers 
 volatile RegisterList progRegs(2);                  // create a shorter list of only two registers for Program Track Packets
 
 CurrentMonitor mainMonitor(CURRENT_MONITOR_PIN_MAIN, "<p2>"); // create monitor for current on Main Track
-CurrentMonitor progMonitor(CURRENT_MONITOR_PIN_PROG, "<p3>"); // create monitor for current on Program Track
+// CurrentMonitor progMonitor(CURRENT_MONITOR_PIN_PROG, "<p3>"); // create monitor for current on Program Track
 
 /*
 gfh changes to use the ESP timers
@@ -449,7 +483,7 @@ String processorLocoparms(const String &var)
 
   myPrefs.begin("loco", true);
   if (var == "ODOMETER")
-    returnVal = String(myPrefs.getFloat("odometer", 0.)/5280.);
+    returnVal = String(myPrefs.getFloat("odometer", 0.) / 5280.);
   else if (var == "DCCADDRESS")
     returnVal = String(myPrefs.getInt("dccaddress", 3));
   else if (var == "LOCOID")
@@ -525,8 +559,10 @@ String processorFunctions(const String &var)
     returnVal = String(myPrefs.getInt("iBrake", 2));
   else if (var == "TBRAKE")
     returnVal = String(myPrefs.getInt("tBrake", 2));
+  else if (var == "EBRAKE")
+    returnVal = String(myPrefs.getInt("eBrake", -1));
   else if (var == "BRAKESQUEAL")
-    returnVal = String(myPrefs.getInt("brakesqueal", 0));
+    returnVal = String(myPrefs.getInt("brakesqueal", -1));
   else if (var == "PM")
     returnVal = String(myPrefs.getInt("pm", 2));
   else if (var == "COMPRESSOR")
@@ -537,10 +573,95 @@ String processorFunctions(const String &var)
     returnVal = String(myPrefs.getInt("notchUp", 25));
   else if (var == "NOTCHDOWN")
     returnVal = String(myPrefs.getInt("notchDown", 25));
+
+  // following are labels for functions 0-28
+  else if (var == "F0")
+    returnVal = (myPrefs.getString("f0", "undefined"));
+  else if (var == "F1")
+    returnVal = (myPrefs.getString("f1", "undefined"));
+  else if (var == "F2")
+    returnVal = (myPrefs.getString("f2", "undefined"));
+  else if (var == "F3")
+    returnVal = (myPrefs.getString("f3", "undefined"));
+  else if (var == "F4")
+    returnVal = (myPrefs.getString("f4", "undefined"));
+  else if (var == "F5")
+    returnVal = (myPrefs.getString("f5", "undefined"));
+  else if (var == "F6")
+    returnVal = (myPrefs.getString("f6", "undefined"));
+  else if (var == "F7")
+    returnVal = (myPrefs.getString("f7", "undefined"));
+  else if (var == "F8")
+    returnVal = (myPrefs.getString("f8", "undefined"));
+  else if (var == "F9")
+    returnVal = (myPrefs.getString("f9", "undefined"));
+  else if (var == "F10")
+    returnVal = (myPrefs.getString("f10", "undefined"));
+  else if (var == "F11")
+    returnVal = (myPrefs.getString("f11", "undefined"));
+  else if (var == "F12")
+    returnVal = (myPrefs.getString("f12", "undefined"));
+  else if (var == "F13")
+    returnVal = (myPrefs.getString("f13", "undefined"));
+  else if (var == "F14")
+    returnVal = (myPrefs.getString("f14", "undefined"));
+  else if (var == "F15")
+    returnVal = (myPrefs.getString("f15", "undefined"));
+  else if (var == "F16")
+    returnVal = (myPrefs.getString("f16", "undefined"));
+  else if (var == "F17")
+    returnVal = (myPrefs.getString("f17", "undefined"));
+  else if (var == "F18")
+    returnVal = (myPrefs.getString("F18", "undefined"));
+  else if (var == "F19")
+    returnVal = (myPrefs.getString("f19", "undefined"));
+  else if (var == "F20")
+    returnVal = (myPrefs.getString("f20", "undefined"));
+  else if (var == "F21")
+    returnVal = (myPrefs.getString("f21", "undefined"));
+  else if (var == "F22")
+    returnVal = (myPrefs.getString("f22", "undefined"));
+  else if (var == "F23")
+    returnVal = (myPrefs.getString("f23", "undefined"));
+  else if (var == "F24")
+    returnVal = (myPrefs.getString("f24", "undefined"));
+  else if (var == "F25")
+    returnVal = (myPrefs.getString("f25", "undefined"));
+  else if (var == "F26")
+    returnVal = (myPrefs.getString("f26", "undefined"));
+  else if (var == "F27")
+    returnVal = (myPrefs.getString("f27", "undefined"));
+  else if (var == "F28")
+    returnVal = (myPrefs.getString("F28", "undefined"));
   myPrefs.end();
 
   return (returnVal);
 }
+
+/*****************************************************************************/
+// this function converts placeholders in functions.html into active data values
+// String processorFunctionLabels(const String &var)
+// {
+//   // Serial.println(var);
+//   String returnVal;
+//   returnVal = "";
+
+//   myPrefs.begin("labels", true);
+//   if (var == "F0")
+//     returnVal = (myPrefs.getString("f0", "undefined"));
+//   else if (var == "F1")
+//     returnVal = (myPrefs.getString("f1", "undefined"));
+//   else if (var == "F2")
+//     returnVal = (myPrefs.getString("f2", "undefined"));
+//   else if (var == "F3")
+//     returnVal = (myPrefs.getString("f3", "undefined"));
+//   else if (var == "F4")
+//     returnVal = (myPrefs.getString("f4", "undefined"));
+
+//   myPrefs.end();
+
+//   return (returnVal);
+// }
 
 /*****************************************************************************/
 // this function handles data entry from the web pages
@@ -590,7 +711,7 @@ void setupWeb()
       request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork);
     }
 
-   else if (request->hasParam("locoparmsParm"))
+   else if (request->hasParam("locoparmsParm")) 
     {
       myPrefs.begin("loco", false);
       inputMessage = request->getParam("dccaddress")->value();
@@ -665,6 +786,8 @@ void setupWeb()
       myPrefs.putInt("iBrake", inputMessage.toInt());
       inputMessage = request->getParam("tbrake")->value();
       myPrefs.putInt("tBrake", inputMessage.toInt());
+      inputMessage = request->getParam("ebrake")->value();
+      myPrefs.putInt("eBrake", inputMessage.toInt());
       inputMessage = request->getParam("brakesqueal")->value();
       myPrefs.putInt("brakesqueal", inputMessage.toInt());
       inputMessage = request->getParam("pm")->value();
@@ -688,6 +811,71 @@ void setupWeb()
       String cvValue = request->getParam("cvValue")->value();
       throttle.setCV(cv.toInt(), cvValue.toInt());
       request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions);
+    } 
+    else if (request->hasParam("FunctionLabels")) 
+    {
+      myPrefs.begin("functions", false);
+      inputMessage = request->getParam("f0")->value();
+      myPrefs.putString("f0", inputMessage);
+      inputMessage = request->getParam("f1")->value();
+      myPrefs.putString("f1", inputMessage);
+      inputMessage = request->getParam("f2")->value();
+      myPrefs.putString("f2", inputMessage);
+      inputMessage = request->getParam("f3")->value();
+      myPrefs.putString("f3", inputMessage);
+      inputMessage = request->getParam("f4")->value();
+      myPrefs.putString("f4", inputMessage);
+      inputMessage = request->getParam("f5")->value();
+      myPrefs.putString("f5", inputMessage);
+      inputMessage = request->getParam("f6")->value();
+      myPrefs.putString("f6", inputMessage);
+      inputMessage = request->getParam("f7")->value();
+      myPrefs.putString("f7", inputMessage);
+      inputMessage = request->getParam("f8")->value();
+      myPrefs.putString("f8", inputMessage);
+      inputMessage = request->getParam("f9")->value();
+      myPrefs.putString("f9", inputMessage);
+      inputMessage = request->getParam("f10")->value();
+      myPrefs.putString("f10", inputMessage);
+      inputMessage = request->getParam("f11")->value();
+      myPrefs.putString("f11", inputMessage);
+      inputMessage = request->getParam("f12")->value();
+      myPrefs.putString("f12", inputMessage);
+      inputMessage = request->getParam("f13")->value();
+      myPrefs.putString("f13", inputMessage);
+      inputMessage = request->getParam("f14")->value();
+      myPrefs.putString("f14", inputMessage);
+      inputMessage = request->getParam("f15")->value();
+      myPrefs.putString("f15", inputMessage);
+      inputMessage = request->getParam("f16")->value();
+      myPrefs.putString("f16", inputMessage);
+      inputMessage = request->getParam("f17")->value();
+      myPrefs.putString("f17", inputMessage);
+      inputMessage = request->getParam("f18")->value();
+      myPrefs.putString("f18", inputMessage);
+      inputMessage = request->getParam("f19")->value();
+      myPrefs.putString("f19", inputMessage);
+      inputMessage = request->getParam("f20")->value();
+      myPrefs.putString("f20", inputMessage);
+      inputMessage = request->getParam("f21")->value();
+      myPrefs.putString("f21", inputMessage);
+      inputMessage = request->getParam("f22")->value();
+      myPrefs.putString("f22", inputMessage);
+      inputMessage = request->getParam("f23")->value();
+      myPrefs.putString("f23", inputMessage);
+      inputMessage = request->getParam("f24")->value();
+      myPrefs.putString("f24", inputMessage);
+      inputMessage = request->getParam("f25")->value();
+      myPrefs.putString("f25", inputMessage);
+      inputMessage = request->getParam("f26")->value();
+      myPrefs.putString("f26", inputMessage);
+      inputMessage = request->getParam("f27")->value();
+      myPrefs.putString("f27", inputMessage);
+      inputMessage = request->getParam("f28")->value();
+      myPrefs.putString("f28", inputMessage);
+      myPrefs.end();
+      // TBD get all labels
+      request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions);
     } });
 
   // following from codeproject
@@ -703,17 +891,44 @@ void setupMDNS(String locoid)
   String myNode = "OLS" + locoid;
   mdnsURL = myNode + ".local";
   mdnsURL.toLowerCase();
+
+#ifdef SERIAL_ON
   Serial.print("myNode ");
+#endif
+
+#ifdef SERIAL_ON
   Serial.println(myNode.c_str());
+#endif
+
   if (!MDNS.begin(myNode.c_str()))
   {
+#ifdef SERIAL_ON
     Serial.println("Error starting mDNS");
+#endif
+
     return;
   }
 }
 
 /*****************************************************************************/
-// TBD TBD TBD
+#ifdef ESP32C3DK
+void setupNeoPixels(int numLamps)
+{
+  // start neoPixels and set all to blue
+  // neoPixels must be wired in order of devices, first nP is device 1
+  strip.begin();
+  green = strip.gamma32(strip.ColorHSV(0, 200, 30));
+  yellow = strip.gamma32(strip.ColorHSV((65536 / 6), 255, 70)); // a little brighter and yellower
+  red = strip.gamma32(strip.ColorHSV(65536 / 3, 200, 70));
+  blue = strip.gamma32(strip.ColorHSV(65536 * 2 / 3, 200, 70));
+  for (int i = 0; i < numLamps; i++)
+    strip.setPixelColor(i, red);
+  strip.show();
+}
+#endif
+
+/*****************************************************************************/
+// TBD TBD TBD what is this?
 // void report()
 // {
 //   // String x = "{id:" + "GN2178" + ",ip:" + "1234"}";
@@ -722,29 +937,46 @@ void setupMDNS(String locoid)
 // }
 
 /*****************************************************************************/
-void setup() 
+void setup()
 {
-  // static u32_t timer;
-  // nvs_flash_erase();
-  // nvs_flash_init();
+// static u32_t timer;
+// nvs_flash_erase();
+// nvs_flash_init();
+#ifdef ESP32C3DK
+  // strip.begin();
+  // strip.setBrightness(7);
+  // // strip.setPixelColor(0, red); // show LED red before wifi connect
+  //   // strip.setPixelColor(0, strip.Color(0, 80, 0)); // red
 
-  Serial.begin(115200);
+  // strip.show();
+  setupNeoPixels(1);
+#endif
+
+#ifdef SERIAL_ON
+  Serial.begin(115200); // TBD gfh
+  // while(!Serial); // TBD a possible solution to no serial output, didn't work
+  delay(5000); // TBD another possible bonehead solution
+  // see USB build flags in platformio.ini - set to zeroes to make it all work for C3F
+  Serial.println("OLS firmware version " + String(olsVersion));
+#endif
+
   SPIFFS.begin(true); // format on fail
 
   getGeneralPrefs();
-  Serial.println("OLS firmware version: " + String(olsVersion));
 
   // get the road number
   myPrefs.begin("loco", true);
   String locoID = myPrefs.getString("locoid", "new");
   myPrefs.end();
 
-  // throttle.getLocoPrefs();
-  // throttle.getFunctionPrefs();
-
   // use mac address as SSID to assure uniqueness
   String SSID = WiFi.macAddress();
-  Serial.println(SSID);
+#ifdef SERIAL_ON
+  Serial.println("SSID " + SSID);
+#endif
+
+  // testing
+  //  eraseSSID = true;
 
   // force a reconnection to wifi AP
   if (eraseSSID)
@@ -756,15 +988,35 @@ void setup()
   }
 
   String myMac = WiFi.macAddress();
+  ESPConnect.autoConnect(myMac.c_str());
   while (!ESPConnect.isConnected())
   {
+#ifdef SERIAL_ON
     Serial.println("ESPConnect reports not connected");
+#endif
     ESPConnect.autoConnect(myMac.c_str(), "123456789");
     if (ESPConnect.begin(&server))
+    {
+#ifdef SERIAL_ON
       Serial.println("IPAddress: " + WiFi.localIP().toString());
+#endif
+    }
   }
 
+// show yellow LED if connected to wifi
+#ifdef ESP32C3DK
+  // strip.setPixelColor(0, strip.Color(80, 80, 0)); // yellow?
+  strip.setPixelColor(0, yellow);
+  strip.show();
+  // also workaround for pins 20, 21
+  // pinMode(DCC_SIGNAL_PIN_MAIN, OUTPUT);  // TBD this may be necessary
+  // pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT);  // TBD and this
+#endif
+
+  // WiFi.setSleep(false); // trying to avoid latency
+
   AsyncElegantOTA.begin(&server); // Start ElegantOTA
+  // ElegantOTA.begin(&server); // Start ElegantOTA
   server.begin();
 
   setupMDNS(locoID);
@@ -772,6 +1024,12 @@ void setup()
   setupWeb();
 
   SerialCommand::init(&mainRegs, &progRegs, &mainMonitor); // create structure to read and parse commands from serial line
+  mainRegs.loadPacket(1, RegisterList::idlePacket, 2, 0);  // load idle packet into register 1
+  progRegs.loadPacket(1, RegisterList::idlePacket, 2, 0);  // load idle packet into register 1
+
+  // // opposite phases are sent to these two pins controlling one H bridge pair
+  pinMode(DCC_SIGNAL_PIN_MAIN, OUTPUT);
+  pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT);
 
   // timer0 now does not autoreload, timer1 does its work for it at end of cycle and will restart it TBD nope
   pulseTimer0 = timerBegin(0, 80, true);
@@ -784,12 +1042,12 @@ void setup()
   timerAlarmWrite(pulseTimer1, DCC_ZERO_BIT_TOTAL_DURATION_TIMER1, true);
   timerAlarmEnable(pulseTimer1);
 
-  // opposite phases are sent to these two pins controlling one H bridge pair
-  pinMode(DCC_SIGNAL_PIN_MAIN, OUTPUT);
-  pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT);
+  // // opposite phases are sent to these two pins controlling one H bridge pair
+  // pinMode(DCC_SIGNAL_PIN_MAIN, OUTPUT);
+  // pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT);
 
-  mainRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
-  progRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
+  // mainRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
+  // progRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
 
   // throttle.init();
 
@@ -801,12 +1059,14 @@ void setup()
   throttle.getFunctionPrefs();
   throttle.init();
 
-#ifdef speeddebug
-  Serial.println("speeddebug is on");
+#ifdef SPEED_DEBUG
+#ifdef SERIAL_ON
+  Serial.println("SPEED_DEBUG is on");
+#endif
 #endif
 
   // use millis as seed for random generator
-  srand(millis()); // TBD don't think this is in use anymore
+  // srand(millis()); // TBD don't think this is in use anymore
 
   // time is used in throttle object to set trainline psi after extended shutdown
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -815,7 +1075,7 @@ void setup()
 
 /*****************************************************************************/
 void loop()
-{ 
+{
   timer1sec.tick();
   timer200ms.tick();
   // timer150ms.tick();
@@ -823,7 +1083,20 @@ void loop()
   // process the mqtt input
   if (!client.loop())
   {
+// show yellow LED if no connection to MQTT server
+#ifdef ESP32C3DK
+    strip.setPixelColor(0, yellow);
+    // strip.setPixelColor(0, strip.Color(80, 80, 0)); // yellow
+
+    strip.show();
+#endif
     connectMQTT(mqttNode);
+// show green LED if connected to MQTT server
+#ifdef ESP32C3DK
+    // strip.setPixelColor(0, strip.Color(80, 0, 0)); // green
+    strip.setPixelColor(0, green);
+    strip.show();
+#endif
     setupSubscriptions();
   }
 

@@ -1,7 +1,8 @@
 {
     "cmake.configureOnOpen": false,
-    "idf.adapterTargetName": "esp32c3",
+    "idf.adapterTargetName": "esp32c6",
     "idf.openOcdConfigs": [
-        "board/esp32c3-ftdi.cfg"
-    ]
+        "board/esp32h2-bridge.cfg"
+    ],
+    "idf.portWin": "COM7"
 }

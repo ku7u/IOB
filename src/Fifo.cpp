@@ -1,3 +1,4 @@
+#include "Arduino.h"
 #include "Fifo.h"
 #include "Function.h"
 
@@ -19,6 +20,7 @@ void Fifo::pop()
     {
         myParms = myQ.front();
         setFunction(myParms.functionID, myParms.onOff);
+        // Serial.println("pop");
         myQ.pop();
     }
 }
