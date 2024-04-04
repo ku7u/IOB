@@ -576,63 +576,63 @@ String processorFunctions(const String &var)
 
   // following are labels for functions 0-28
   else if (var == "F0")
-    returnVal = (myPrefs.getString("f0", "undefined"));
+    returnVal = (myPrefs.getString("f0", "-"));
   else if (var == "F1")
-    returnVal = (myPrefs.getString("f1", "undefined"));
+    returnVal = (myPrefs.getString("f1", "-"));
   else if (var == "F2")
-    returnVal = (myPrefs.getString("f2", "undefined"));
+    returnVal = (myPrefs.getString("f2", "-"));
   else if (var == "F3")
-    returnVal = (myPrefs.getString("f3", "undefined"));
+    returnVal = (myPrefs.getString("f3", "-"));
   else if (var == "F4")
-    returnVal = (myPrefs.getString("f4", "undefined"));
+    returnVal = (myPrefs.getString("f4", "-"));
   else if (var == "F5")
-    returnVal = (myPrefs.getString("f5", "undefined"));
+    returnVal = (myPrefs.getString("f5", "-"));
   else if (var == "F6")
-    returnVal = (myPrefs.getString("f6", "undefined"));
+    returnVal = (myPrefs.getString("f6", "-"));
   else if (var == "F7")
-    returnVal = (myPrefs.getString("f7", "undefined"));
+    returnVal = (myPrefs.getString("f7", "-"));
   else if (var == "F8")
-    returnVal = (myPrefs.getString("f8", "undefined"));
+    returnVal = (myPrefs.getString("f8", "-"));
   else if (var == "F9")
-    returnVal = (myPrefs.getString("f9", "undefined"));
+    returnVal = (myPrefs.getString("f9", "-"));
   else if (var == "F10")
-    returnVal = (myPrefs.getString("f10", "undefined"));
+    returnVal = (myPrefs.getString("f10", "-"));
   else if (var == "F11")
-    returnVal = (myPrefs.getString("f11", "undefined"));
+    returnVal = (myPrefs.getString("f11", "-"));
   else if (var == "F12")
-    returnVal = (myPrefs.getString("f12", "undefined"));
+    returnVal = (myPrefs.getString("f12", "-"));
   else if (var == "F13")
-    returnVal = (myPrefs.getString("f13", "undefined"));
+    returnVal = (myPrefs.getString("f13", "-"));
   else if (var == "F14")
-    returnVal = (myPrefs.getString("f14", "undefined"));
+    returnVal = (myPrefs.getString("f14", "-"));
   else if (var == "F15")
-    returnVal = (myPrefs.getString("f15", "undefined"));
+    returnVal = (myPrefs.getString("f15", "-"));
   else if (var == "F16")
-    returnVal = (myPrefs.getString("f16", "undefined"));
+    returnVal = (myPrefs.getString("f16", "-"));
   else if (var == "F17")
-    returnVal = (myPrefs.getString("f17", "undefined"));
+    returnVal = (myPrefs.getString("f17", "-"));
   else if (var == "F18")
-    returnVal = (myPrefs.getString("F18", "undefined"));
+    returnVal = (myPrefs.getString("f18", "-"));
   else if (var == "F19")
-    returnVal = (myPrefs.getString("f19", "undefined"));
+    returnVal = (myPrefs.getString("f19", "-"));
   else if (var == "F20")
-    returnVal = (myPrefs.getString("f20", "undefined"));
+    returnVal = (myPrefs.getString("f20", "-"));
   else if (var == "F21")
-    returnVal = (myPrefs.getString("f21", "undefined"));
+    returnVal = (myPrefs.getString("f21", "-"));
   else if (var == "F22")
-    returnVal = (myPrefs.getString("f22", "undefined"));
+    returnVal = (myPrefs.getString("f22", "-"));
   else if (var == "F23")
-    returnVal = (myPrefs.getString("f23", "undefined"));
+    returnVal = (myPrefs.getString("f23", "-"));
   else if (var == "F24")
-    returnVal = (myPrefs.getString("f24", "undefined"));
+    returnVal = (myPrefs.getString("f24", "-"));
   else if (var == "F25")
-    returnVal = (myPrefs.getString("f25", "undefined"));
+    returnVal = (myPrefs.getString("f25", "-"));
   else if (var == "F26")
-    returnVal = (myPrefs.getString("f26", "undefined"));
+    returnVal = (myPrefs.getString("f26", "-"));
   else if (var == "F27")
-    returnVal = (myPrefs.getString("f27", "undefined"));
+    returnVal = (myPrefs.getString("f27", "-"));
   else if (var == "F28")
-    returnVal = (myPrefs.getString("F28", "undefined"));
+    returnVal = (myPrefs.getString("f28", "-"));
   myPrefs.end();
 
   return (returnVal);
@@ -941,7 +941,7 @@ void setup()
 {
 // static u32_t timer;
 // nvs_flash_erase();
-// nvs_flash_init();
+// nvs_flash_init(); 
 #ifdef ESP32C3DK
   // strip.begin();
   // strip.setBrightness(7);

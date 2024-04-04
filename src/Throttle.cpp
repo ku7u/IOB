@@ -69,16 +69,16 @@ void Throttle::getLocoPrefs(void)
 
     myPrefs.begin("calibration", true);
     // _calibrationTrapLength = myPrefs.getInt("traplength", 3);
-    _fpsDccFactorForward2 = myPrefs.getFloat("speed2forward", 2.);
-    _fpsDccFactorForward5 = myPrefs.getFloat("speed5forward", 2.);
-    _fpsDccFactorForward10 = myPrefs.getFloat("speed10forward", 2.);
-    _fpsDccFactorForward20 = myPrefs.getFloat("speed20forward", 2.);
-    _fpsDccFactorForward50 = myPrefs.getFloat("speed50forward", 2.);
-    _fpsDccFactorReverse2 = myPrefs.getFloat("speed2reverse", 2.);
-    _fpsDccFactorReverse5 = myPrefs.getFloat("speed5reverse", 2.);
-    _fpsDccFactorReverse10 = myPrefs.getFloat("speed10reverse", 2.);
-    _fpsDccFactorReverse20 = myPrefs.getFloat("speed20reverse", 2.);
-    _fpsDccFactorReverse50 = myPrefs.getFloat("speed50reverse", 2.);
+    _fpsDccFactorForward2 = myPrefs.getFloat("speed2forward", 1.);
+    _fpsDccFactorForward5 = myPrefs.getFloat("speed5forward", 1.);
+    _fpsDccFactorForward10 = myPrefs.getFloat("speed10forward", 1.);
+    _fpsDccFactorForward20 = myPrefs.getFloat("speed20forward", 1.);
+    _fpsDccFactorForward50 = myPrefs.getFloat("speed50forward", 1.);
+    _fpsDccFactorReverse2 = myPrefs.getFloat("speed2reverse", 1.);
+    _fpsDccFactorReverse5 = myPrefs.getFloat("speed5reverse", 1.);
+    _fpsDccFactorReverse10 = myPrefs.getFloat("speed10reverse", 1.);
+    _fpsDccFactorReverse20 = myPrefs.getFloat("speed20reverse", 1.);
+    _fpsDccFactorReverse50 = myPrefs.getFloat("speed50reverse", 1.);
     myPrefs.end();
 
     myPrefs.begin("general", true);
@@ -98,16 +98,16 @@ void Throttle::getFunctionPrefs(void)
     Preferences myPrefs;
 
     myPrefs.begin("functions");
-    functionPM = myPrefs.getInt("pm", 28);
+    functionPM = myPrefs.getInt("pm", 8);
     functionBell = myPrefs.getInt("bell", 1);
     functionHorn = myPrefs.getInt("horn", 2);
     functionHeadlightBright = myPrefs.getInt("headlightBright", 0);
     functionHeadlightDim = myPrefs.getInt("headlightDim", 6);
     functionRearlightBright = myPrefs.getInt("rearlightBright", 7);
     functionRearlightDim = myPrefs.getInt("rearlightDim", 10);
-    functionNotchingEnable = myPrefs.getInt("notchingEnable", 25);
     functionNotchUp = myPrefs.getInt("notchUp", 26);
     functionNotchDown = myPrefs.getInt("notchDown", 27);
+    functionNotchingEnable = myPrefs.getInt("notchingEnable", 28);
     functionIndependentBrake = myPrefs.getInt("iBrake", 5);
     functionTrainBrake = myPrefs.getInt("tBrake", 4);
     functionEmergencyBrake = myPrefs.getInt("emergencyBrake", 5);
@@ -222,6 +222,8 @@ void Throttle::pmOnOff(bool onOff)
 
     commandFifo.pushCommand(functionPM, onOff);
     commandFifo.pushCommand(functionNotchingEnable, onOff); // TBD can't turn off PM unless this is here WMNS
+    // commandFifo.pushCommand(8, onOff);
+    // commandFifo.pushCommand(28, onOff); // TBD can't turn off PM unless this is here WMNS
     reportStatus();
 }
 
@@ -1392,35 +1394,37 @@ void Throttle::reportFunctionLabels()
 
 uint16_t Throttle::interpolateSpeedFactor(float fps)
 {
+    // provides an interpolated value of calibration factors between stored values
+
     float factorF;
     float factorR;
 
-    uint16_t mphInt = (int)fps;
+    float mph = fps * FPS_TO_MPH_FACTOR;
 
-    if (mphInt <= FPS_AT_MPH_FACTOR2)
+    if (fps <= FPS_AT_MPH_FACTOR2)
     {
         factorF = _fpsDccFactorForward2;
         factorR = _fpsDccFactorReverse2;
     }
-    else if (mphInt <= FPS_AT_MPH_FACTOR5)
+    else if (fps <= FPS_AT_MPH_FACTOR5)
     {
-        factorF = _fpsDccFactorForward2 + ((_fpsDccFactorForward5 - _fpsDccFactorForward2) * (mphInt - 2) / 3);
-        factorR = _fpsDccFactorReverse2 + ((_fpsDccFactorReverse5 - _fpsDccFactorReverse2) * (mphInt - 2) / 3);
+        factorF = _fpsDccFactorForward2 + ((_fpsDccFactorForward5 - _fpsDccFactorForward2) * (mph - 2) / 3);
+        factorR = _fpsDccFactorReverse2 + ((_fpsDccFactorReverse5 - _fpsDccFactorReverse2) * (mph - 2) / 3);
     }
-    else if (mphInt <= FPS_AT_MPH_FACTOR10)
+    else if (fps <= FPS_AT_MPH_FACTOR10)
     {
-        factorF = _fpsDccFactorForward5 + ((_fpsDccFactorForward10 - _fpsDccFactorForward5) * (mphInt - 5) / 5);
-        factorR = _fpsDccFactorReverse5 + ((_fpsDccFactorReverse10 - _fpsDccFactorReverse5) * (mphInt - 5) / 5);
+        factorF = _fpsDccFactorForward5 + ((_fpsDccFactorForward10 - _fpsDccFactorForward5) * (mph - 5) / 5);
+        factorR = _fpsDccFactorReverse5 + ((_fpsDccFactorReverse10 - _fpsDccFactorReverse5) * (mph - 5) / 5);
     }
-    else if (mphInt <= FPS_AT_MPH_FACTOR20)
+    else if (fps <= FPS_AT_MPH_FACTOR20)
     {
-        factorF = _fpsDccFactorForward10 + ((_fpsDccFactorForward20 - _fpsDccFactorForward10) * (mphInt - 10) / 10);
-        factorR = _fpsDccFactorReverse10 + ((_fpsDccFactorReverse20 - _fpsDccFactorReverse10) * (mphInt - 10) / 10);
+        factorF = _fpsDccFactorForward10 + ((_fpsDccFactorForward20 - _fpsDccFactorForward10) * (mph - 10) / 10);
+        factorR = _fpsDccFactorReverse10 + ((_fpsDccFactorReverse20 - _fpsDccFactorReverse10) * (mph - 10) / 10);
     }
-    else if (mphInt <= FPS_AT_MPH_FACTOR50)
+    else if (fps <= FPS_AT_MPH_FACTOR50)
     {
-        factorF = _fpsDccFactorForward20 + ((_fpsDccFactorForward50 - _fpsDccFactorForward20) * (mphInt - 20) / 30);
-        factorR = _fpsDccFactorReverse20 + ((_fpsDccFactorReverse50 - _fpsDccFactorReverse20) * (mphInt - 20) / 30);
+        factorF = _fpsDccFactorForward20 + ((_fpsDccFactorForward50 - _fpsDccFactorForward20) * (mph - 20) / 30);
+        factorR = _fpsDccFactorReverse20 + ((_fpsDccFactorReverse50 - _fpsDccFactorReverse20) * (mph - 20) / 30);
     }
     else
     {
