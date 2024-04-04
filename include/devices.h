@@ -26,10 +26,10 @@ const uint8_t CURRENT_MONITOR_PIN_PROG = 2;
 #endif
 
 #ifdef ESP32C3F
-#define LEFT_HED_PIN 0
-#define RIGHT_HED_PIN 1
-#define DCC_SIGNAL_PIN_MAIN 2
-#define DCC_SIGNAL_PIN_MAIN_2 3
+#define LEFT_HED_PIN 8
+#define RIGHT_HED_PIN 10
+#define DCC_SIGNAL_PIN_MAIN 18
+#define DCC_SIGNAL_PIN_MAIN_2 19
 #define SIGNAL_ENABLE_PIN_MAIN 4 // these 4 are dummies for now, should remove
 #define SIGNAL_ENABLE_PIN_PROG 4
 #define CURRENT_MONITOR_PIN_MAIN 4
