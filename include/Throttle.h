@@ -45,6 +45,7 @@ public:
     bool isForward();
     uint getLastIntCurrentSpeed();
     void setMuState(char *);
+    void setMuStateFromLead(char *);
     // void setMuSpeed(float);
     void setMuSpeed(char *);
     void setMuPerformance(char *);
@@ -168,7 +169,6 @@ private:
     };
 
     const float ROLLING_RESISTANCE_COEFICIENT = .0020;  // was .0015
-    // const float VARIABLE_LOCO_DRAG_COEFICIENT = .0003;
     const float VARIABLE_LOCO_DRAG_COEFICIENT = .000; // was .0003
     const float FPS_TO_MPH_FACTOR = 3600. / 5280;
 
@@ -178,7 +178,12 @@ private:
     const float FPS_AT_MPH_FACTOR20 = 20 * 5280 / 3600.;
     const float FPS_AT_MPH_FACTOR50 = 50 * 5280 / 3600.;
     const float LOCO_FRICTION_COEFICIENT = .1; // similar to friction coefficient for brakes TBD
+    const float TRAIN_BRAKE_FRICTION_COEFICIENT = .1;  // v 0.15 was .2
     const float MAX_TRACTIVE_FORCE = 75000;    // assumed
     const float MAX_ACCEL = 3.;                // to limit accel on starting movement
+    const float MIN_EFFECTIVE_BRAKE_LINE_PRESSURE = 60;
+    const float MIN_EFFECTIVE_EMERGENCY_BRAKE_LINE_PRESSURE = 40; // TBD likely bogus
+    const float EMERGENCY_BRAKE_FACTOR = 1.5;  // to be more effective brake than automatic brake max which is computed to be 1.0
+    const int AVERAGE_CAR_TONNAGE = 75;
     const int TRAINLINE_SET_PSI = 90;
 };

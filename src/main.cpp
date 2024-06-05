@@ -1,10 +1,10 @@
 
-/* history (version changes on upload to github)
-Version 0.4
-Added setCV
-Fixed MU code, demonstrated to work, still needs performance handoff to lead
-Sending current condition back to controlling device needs work
-Observed issue with calibration factors less than 1.0 (loco slows, then reverses at hight speed)
+/* issues  (version changes on upload to github)
+MU code still needs performance handoff to lead
+emergency brake too abrupt with jerking
+
+history
+04/27/24  v0.15 send back car count and tonnage
 */
 
 /**********************************************************************
@@ -199,7 +199,8 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 
 **********************************************************************/
 
-#include "devices.h" // modify the contents as required to match the hardware
+#include "devices.h"     // modify the contents as required to match the hardware
+#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager  gfh
 
 #include "nvs_flash.h"
 #include <Arduino.h>
@@ -260,7 +261,7 @@ const int daylightOffset_sec = 0;
 
 // mqtt
 PubSubClient client(espClient);
-String mqttServer = "192.168.0.109"; // TBD fix this
+String mqttServer = "192.168.99.99"; // TBD fix this
 String mqttNode = "OLSdevice";
 String topicCommandLeftEnd;
 String topicFeedbackLeftEnd;
@@ -286,6 +287,8 @@ String headlightFunction;
 // timers
 MultiTimer timer1sec(1000);
 MultiTimer timer200ms(200);
+// MultiTimer timer250ms(250);
+// MultiTimer timer500ms(500);
 // MultiTimer timer150ms(150);
 
 // NEXT DECLARE GLOBAL OBJECTS TO PROCESS AND STORE DCC PACKETS AND MONITOR TRACK CURRENTS.
@@ -399,8 +402,8 @@ void IRAM_ATTR onTimer1()
       if (mainRegs.currentReg == mainRegs.maxLoadedReg) /*     BUT IF this is last Register loaded */
         mainRegs.currentReg = mainRegs.reg;             /*       first reset currentReg to base Register, THEN */
       mainRegs.currentReg++;                            /*     increment current Register (note this logic causes Register[0] to be skipped when simply cycling through all Registers) */
-    }                                                   /*   END-ELSE */
-  }                                                     /* END-IF: currentReg, activePacket, and currentBit should now be properly set to point to next DCC bit */
+    } /*   END-ELSE */
+  } /* END-IF: currentReg, activePacket, and currentBit should now be properly set to point to next DCC bit */
 
   if (mainRegs.currentReg->activePacket->buf[mainRegs.currentBit / 8] & mainRegs.bitMask[mainRegs.currentBit % 8])
   { /* IF bit is a ONE */
@@ -709,6 +712,7 @@ void setupWeb()
       myPrefs.end();
       eraseSSID = inputParam == "Y";
       request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork);
+      ESP.restart();  // v 0.23
     }
 
    else if (request->hasParam("locoparmsParm")) 
@@ -939,9 +943,13 @@ void setupNeoPixels(int numLamps)
 /*****************************************************************************/
 void setup()
 {
-// static u32_t timer;
-// nvs_flash_erase();
-// nvs_flash_init(); 
+  // static u32_t timer;
+
+#ifdef SPIFF_CLEAN
+  nvs_flash_erase();
+  nvs_flash_init();
+#endif
+
 #ifdef ESP32C3DK
   // strip.begin();
   // strip.setBrightness(7);
@@ -957,6 +965,8 @@ void setup()
   // while(!Serial); // TBD a possible solution to no serial output, didn't work
   delay(5000); // TBD another possible bonehead solution
   // see USB build flags in platformio.ini - set to zeroes to make it all work for C3F
+  // per Espressif note, RTS/CTS must be disabled
+  // so in monitor pgm set those to none and then restart the device, possibly requires hard reset (power cycle)
   Serial.println("OLS firmware version " + String(olsVersion));
 #endif
 
@@ -975,33 +985,33 @@ void setup()
   Serial.println("SSID " + SSID);
 #endif
 
-  // testing
-  //  eraseSSID = true;
+  // WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
+  // it is a good practice to make sure your code sets wifi mode how you want it.
 
+  // put your setup code here, to run once:
+  // Serial.begin(115200);
+
+  // WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
+  WiFiManager wm;
+
+  // Automatically connect using saved credentials,
+  // if connection fails, it starts an access point with the the chip ID as the name,
+  // then goes into a blocking loop awaiting configuration and will return success result
+
+#ifdef SSID_KILL  // v 0.23 ff
   // force a reconnection to wifi AP
+  eraseSSID = true;
+#endif
   if (eraseSSID)
   {
     myPrefs.begin("general", false);
     myPrefs.putBool("erasessid", false);
     myPrefs.end();
-    ESPConnect.erase();
+    wm.resetSettings(); // wipes saved connection settings
   }
 
-  String myMac = WiFi.macAddress();
-  ESPConnect.autoConnect(myMac.c_str());
-  while (!ESPConnect.isConnected())
-  {
-#ifdef SERIAL_ON
-    Serial.println("ESPConnect reports not connected");
-#endif
-    ESPConnect.autoConnect(myMac.c_str(), "123456789");
-    if (ESPConnect.begin(&server))
-    {
-#ifdef SERIAL_ON
-      Serial.println("IPAddress: " + WiFi.localIP().toString());
-#endif
-    }
-  }
+  bool res = wm.autoConnect(); // auto generated AP name from chipid
+
 
 // show yellow LED if connected to wifi
 #ifdef ESP32C3DK
@@ -1049,8 +1059,6 @@ void setup()
   // mainRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
   // progRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
 
-  // throttle.init();
-
   // MQTT
   mqttNode = "OLS" + locoID;
   mqttSetup(mqttServer, mqttNode);
@@ -1078,21 +1086,23 @@ void loop()
 {
   timer1sec.tick();
   timer200ms.tick();
+  // timer250ms.tick();
+  // timer500ms.tick();
   // timer150ms.tick();
 
   // process the mqtt input
   if (!client.loop())
   {
-// show yellow LED if no connection to MQTT server
 #ifdef ESP32C3DK
+    // show yellow LED if no connection to MQTT server
     strip.setPixelColor(0, yellow);
     // strip.setPixelColor(0, strip.Color(80, 80, 0)); // yellow
 
     strip.show();
 #endif
     connectMQTT(mqttNode);
-// show green LED if connected to MQTT server
 #ifdef ESP32C3DK
+    // show green LED if connected to MQTT server
     // strip.setPixelColor(0, strip.Color(80, 0, 0)); // green
     strip.setPixelColor(0, green);
     strip.show();
@@ -1104,6 +1114,7 @@ void loop()
   //   uint milepost = magReader.process(throttle.isForward());
 
   // read and process a command from the fifo every 200 ms to not overwhelm the decoder
+  // if (timer200ms.expired)
   if (timer200ms.expired)
     commandFifo.pop();
 

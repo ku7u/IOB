@@ -110,7 +110,7 @@ void Throttle::getFunctionPrefs(void)
     functionNotchingEnable = myPrefs.getInt("notchingEnable", 28);
     functionIndependentBrake = myPrefs.getInt("iBrake", 5);
     functionTrainBrake = myPrefs.getInt("tBrake", 4);
-    functionEmergencyBrake = myPrefs.getInt("emergencyBrake", 5);
+    functionEmergencyBrake = myPrefs.getInt("eBrake", 0); // TBD set to zero as test, need method for unassigned functions v 0.19
     functionCompressor = myPrefs.getInt("compressor", 20);
     functionBrakeSqueal = myPrefs.getInt("brakesqueal", -1);
     myPrefs.end();
@@ -135,7 +135,6 @@ void Throttle::report()
     x.concat(_muState);
     x.concat("\"}");
     client.publish(topicChars, x.c_str());
-
 }
 
 uint32_t Throttle::getTime()
@@ -185,6 +184,7 @@ void Throttle::pmOnOff(bool onOff)
     Preferences myPrefs;
     uint32_t thisStartupTime;
     uint32_t deltaTime;
+    const uint16_t DOWNTIME = 96;
 
     _running = onOff;
     if (!onOff) // save the mileage
@@ -198,9 +198,13 @@ void Throttle::pmOnOff(bool onOff)
     else
     {
         _opMode = idle;
-        _startTimestamp = millis();
+
+        // in case the brake was left on at last shutdown
+        _independentBrake = 0;
+        _emergencyBrake = 0;
 
         // find the elapsed time since last shutdown
+        _startTimestamp = millis();
         thisStartupTime = getTime();
         myPrefs.begin("loco", false);
         _lastShutdownTime = myPrefs.getULong("lastshuttime", 0);
@@ -210,20 +214,18 @@ void Throttle::pmOnOff(bool onOff)
             deltaTime = thisStartupTime - _lastShutdownTime;
         myPrefs.end();
 
-        // _trainlinePSI = rand() % TRAINLINE_SET_PSI; // random value between 0 and 75, TBD this should depend on how long we have been shut down
-        if (deltaTime > 48 * 3600)
+        if (deltaTime > DOWNTIME * 3600)
             _trainlinePSI = 0;
         else if (deltaTime <= 0)
-            _trainlinePSI = TRAINLINE_SET_PSI;
+            // _trainlinePSI = TRAINLINE_SET_PSI;
+            _trainlinePSI = rand() % TRAINLINE_SET_PSI + 50; // random value between 50 and TRAINLINE_SET_PSI
         else
             // bleeds down to zero after 48 hours
-            _trainlinePSI = (1 - (deltaTime / (48. * 3600))) * TRAINLINE_SET_PSI;
+            _trainlinePSI = (1 - (deltaTime / (DOWNTIME * 3600.))) * TRAINLINE_SET_PSI;
     }
 
     commandFifo.pushCommand(functionPM, onOff);
     commandFifo.pushCommand(functionNotchingEnable, onOff); // TBD can't turn off PM unless this is here WMNS
-    // commandFifo.pushCommand(8, onOff);
-    // commandFifo.pushCommand(28, onOff); // TBD can't turn off PM unless this is here WMNS
     reportStatus();
 }
 
@@ -255,9 +257,11 @@ void Throttle::headlight(int offDimBright)
 
 void Throttle::rearlight(int offDimBright)
 {
+    // TBD TBA if lead loco in consist should not respond to rearlight commands
+
     if (_muActive)
     {
-        if ((_muState == 2)) // no lights for mid consist locos
+        if ((_muState == 2) || (_muState == 1)) // no rear lights for lead or mid consist locos v 0.18
             return;
 
         else if ((_muState == 3) && (_muReversed)) // if reversed the headlight is the rearlight
@@ -349,6 +353,7 @@ void Throttle::setThrottleLever(int throttleLever)
 
 void Throttle::setDirection(int direction)
 {
+    char dummyChars[31];
     _neutral = false;
     _direction = true;
 
@@ -359,18 +364,33 @@ void Throttle::setDirection(int direction)
     else
         _neutral = true;
     // TBD doesn't match ETL but seems to work as is
+
+    // send a speed command with zero speed just to set the current direction correctly in loco
+    String dummyString = "t 1 ";
+    dummyString.concat(String(_dccAddress) + " ");
+    dummyString.concat(String(0) + " "); // zero speed
+
+    if (_direction)
+        dummyString.concat("1");
+    else
+        dummyString.concat("0");
+
+    strcpy(dummyChars, dummyString.c_str());
+    SerialCommand::parse(dummyChars);
 }
 
 void Throttle::setCarCount(uint16_t carcount)
 {
     // _trainlinePSI = 0;
     _carCount = carcount;
-    _tonnage = carcount * 50;
+    _tonnage = carcount * AVERAGE_CAR_TONNAGE;
+    reportCondition(); // v 0.15
 }
 
 void Throttle::setTonnage(uint16_t tonnage)
 {
     _tonnage = tonnage;
+    reportCondition(); // v 0.15
 }
 
 void Throttle::setIBrake(uint16_t val)
@@ -407,6 +427,7 @@ void Throttle::setTBrake(float val)
     }
     else
     {
+        _opMode = idle; // v 0.15 TBD probably not necessary
         _trainlinePSI = 0;
         _trainlineSetPSI = 0;
     }
@@ -417,7 +438,8 @@ void Throttle::setEBrake(bool val)
     if (val)
     {
         _trainlinePSI = 0;
-        _emergencyBrake = 1;
+        _emergencyBrake = 1;     // v 0.13
+        _independentBrake = 100; // v 0.13
         commandFifo.pushCommand(functionEmergencyBrake, true);
         _opMode = braking;
     }
@@ -425,6 +447,7 @@ void Throttle::setEBrake(bool val)
     {
         // TBD how to reset trainline pressure
         _emergencyBrake = 0;
+        _independentBrake = 0; // TBD v 0.13
         commandFifo.pushCommand(functionEmergencyBrake, false);
         _opMode = idle;
     }
@@ -484,7 +507,15 @@ void Throttle::manualNotch(bool up)
         commandFifo.pushCommand(functionNotchDown, false);
         _notch--;
         if (_notch == 0)
+        {
+            // TBD adding next two lines as test to fix the hanging notch 1 issue
+            commandFifo.pushCommand(functionNotchDown, true); // this didn't work
+            commandFifo.pushCommand(functionNotchDown, false);
+            // commandFifo.pushCommand(functionNotchingEnable, false); // this didn't work either
+            // commandFifo.pushCommand(functionNotchingEnable, true);
+
             _opMode = idle;
+        }
     }
     else if (!up && ((_opMode == idle) || (_opMode == braking)))
     // incrementally apply brakes
@@ -517,20 +548,22 @@ void Throttle::longPress(bool up)
 
     if (up && _opMode == braking)
     {
-        // all brakes off
+        // release all brakes
         setIBrake(0);
         setTBrake(0);
+        setEBrake(false);
     }
-    // else if (up && (_opMode == idle || _opMode == powered)) // TBD shouldn't need more than up
-    else if (up && (_opMode == idle)) // TBD shouldn't need more than up
-    // switch direction
+
+    if (up && (_opMode == idle) && (_currentSpeed == 0))
     {
+        // set direction forward if in neutral
         if (_neutral)
         {
             _direction = true;
             _neutral = false;
         }
         else
+            // switch direction
             _direction = !_direction;
 
         // send back new direction as telemetry
@@ -554,7 +587,7 @@ void Throttle::longPress(bool up)
             manualNotch(false);
     }
     else if (!up && _mph > 10 && _opMode == idle)
-        // emergency
+        // apply emergency brake
         setEBrake(true);
     else if (!up && _mph <= 10 && ((_opMode == idle) || (_opMode == braking)))
         // quick stop at low speed TBD maybe release brakes also
@@ -563,7 +596,7 @@ void Throttle::longPress(bool up)
 
 void Throttle::computeVelocity(void)
 {
-    float effectiveHP;
+    float effectiveHP = 0.0;
     float tractiveForce;
     float dragForce;
     float variableLocoDragForce;
@@ -577,9 +610,8 @@ void Throttle::computeVelocity(void)
     uint16_t intCurrentSpeed;
     static bool zeroWasSent = false;
     static uint16_t lastIntCurrentSpeed;
-    // String feedbackPrefix;
 
-    if ((!_running) || (_muActive))
+    if ((!_running) || ((_muActive) && (_muState > 1))) // TBA rename _muActive to _muConsistUnit v 0.21
         return;
 
     setAirGauge();
@@ -591,11 +623,22 @@ void Throttle::computeVelocity(void)
         effectiveHP = 0;
     else if (_notch == 1)
         effectiveHP = _horsepowerAtIdle;
-    else
-        effectiveHP = (_horsepower * (_notch - 1) / 7) - 50;
-
-        // if (effectiveHP < 0)
-        //     effectiveHP = 0;
+    // else
+    //     effectiveHP = (_horsepower * (_notch - 1) / 7) - 50;
+    else if (_notch == 2)
+        effectiveHP = (_horsepower * (_notch) / 20.) - 50;
+    else if (_notch == 3)
+        effectiveHP = (_horsepower * (_notch) / 17.) - 50;
+    else if (_notch == 4)
+        effectiveHP = (_horsepower * (_notch) / 15.) - 50;
+    else if (_notch == 5)
+        effectiveHP = (_horsepower * (_notch) / 10.) - 50;
+    else if (_notch == 6)
+        effectiveHP = (_horsepower * (_notch) / 9.) - 50;
+    else if (_notch == 7)
+        effectiveHP = (_horsepower * (_notch) / 8.) - 50;
+    else if (_notch == 8)
+        effectiveHP = _horsepower - 50;
 
 #ifdef SPEED_DEBUG
     Serial.print("_mph  ");
@@ -608,17 +651,17 @@ void Throttle::computeVelocity(void)
     {
         tractiveForce = effectiveHP * 308 / (_mph * 1); // TBD REALITY_FACTOR goes here to replace the 1
         if (tractiveForce > _tractiveEffort)
-            tractiveForce = _tractiveEffort;
+            tractiveForce = _tractiveEffort; // cap it
     }
 
-    if (tractiveForce > _tractiveEffort)
-        tractiveForce = _tractiveEffort;
+    // if (tractiveForce > _tractiveEffort) // TBD why is this a duplicate? v 0.14
+    //     tractiveForce = _tractiveEffort;
 
     // reduce tractive force by the starting force effect only when starting
     if (_currentSpeed <= 0)
     {
         dragForce = 0;
-        startingForce = 20 * ((_locoMass * 32 / 2000) + _tonnage); // convert from poundals to lbs to tons
+        startingForce = 20 * ((_locoMass * 32 / 2000) + _tonnage); // convert from slugs to lbs to tons
         if (startingForce >= tractiveForce)
             tractiveForce = 0;
         else
@@ -660,33 +703,38 @@ void Throttle::computeVelocity(void)
 #endif
 
     // consider brake forces if any
-    independentBrakeForce = (_independentBrake / 100.) * _locoMass * 32 * LOCO_FRICTION_COEFICIENT;
+    independentBrakeForce = (_independentBrake / 100.) * _locoMass * 32. * LOCO_FRICTION_COEFICIENT;
     // trainBrakeForce = (_trainBrake / 100.) * _tonnage * 2000 * .2;
     if (_trainlineConnected)
-        trainBrakeForce = (TRAINLINE_SET_PSI - _trainlinePSI) / TRAINLINE_SET_PSI * _tonnage * 2000 * .2;
+    {
+        // TBD results not realistic, as observed for emergency
+        // still not right, emergency should be greater than max auto brake
+        // trainBrakeForce = ((max(TRAINLINE_SET_PSI - _trainlinePSI, MIN_EFFECTIVE_BRAKE_LINE_PRESSURE)) / TRAINLINE_SET_PSI) * _tonnage * 2000 * TRAIN_BRAKE_FRICTION_COEFICIENT;             // v 0.11
+        // v 0.15
+        trainBrakeForce = ((TRAINLINE_SET_PSI - max(_trainlinePSI, MIN_EFFECTIVE_BRAKE_LINE_PRESSURE)) / (TRAINLINE_SET_PSI - MIN_EFFECTIVE_BRAKE_LINE_PRESSURE)) * _tonnage * 2000 * TRAIN_BRAKE_FRICTION_COEFICIENT; // v 0.11
+        // emergencyBrakeForce = ((MIN_EFFECTIVE_EMERGENCY_BRAKE_LINE_PRESSURE / TRAINLINE_SET_PSI) * (_locoMass * 32 + _tonnage * 2000.) * TRAIN_BRAKE_FRICTION_COEFICIENT) * _emergencyBrake; // v 0.11 was .2
+        emergencyBrakeForce = (EMERGENCY_BRAKE_FACTOR * (_locoMass * 32. + _tonnage * 2000.) * TRAIN_BRAKE_FRICTION_COEFICIENT) * _emergencyBrake; // v 0.11 was .2
+    }
     else
+    {
         trainBrakeForce = 0;
-
-    emergencyBrakeForce = (_locoMass * 32 + _tonnage * 2000. * .3) * _emergencyBrake;
-
+        emergencyBrakeForce = 0; // TBD
+    }
 #ifdef SPEED_DEBUG
     Serial.print("dragForce ");
     Serial.println(dragForce);
-#endif
-
-    // independentBrakeForce = _independentBrake / 100. * _locoMass * 32 * factorZ;
-    // trainBrakeForce = _trainBrake / 100. * _tonnage * 2000 * .2;
-
-#ifdef SPEED_DEBUG
     Serial.print("independentBrake and ...Force ");
     Serial.print(_independentBrake);
     Serial.print("   ");
     Serial.println(independentBrakeForce);
 #endif
 
-    // accel = (tractiveForce - dragForce - independentBrakeForce) / (_locoMass + _tonnage * 2000 / 32);
     // TBD the following may be bogus re emergency brake force, may need to include more logic here
-    accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - trainBrakeForce - emergencyBrakeForce) / (_locoMass + (_tonnage * 2000 / 32));
+    if (_emergencyBrake == 1) // v 0.13
+        accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - emergencyBrakeForce) / (_locoMass + (_tonnage * 2000 / 32));
+    else
+        accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - trainBrakeForce) / (_locoMass + (_tonnage * 2000 / 32));
+
     if (accel > MAX_ACCEL)
         accel = MAX_ACCEL;
 
@@ -701,11 +749,6 @@ void Throttle::computeVelocity(void)
 
     _odometer = _odometer + abs(_currentSpeed); // TBD on this (seems to work)
 
-#ifdef SPEED_DEBUG
-    Serial.print("_currentSpeed ");
-    Serial.println(_currentSpeed);
-#endif
-
     // get the appropriate calibrated and interpolated speed compensation value
     intCurrentSpeed = interpolateSpeedFactor(_currentSpeed);
 
@@ -714,6 +757,8 @@ void Throttle::computeVelocity(void)
         intCurrentSpeed = 126;
 
 #ifdef SPEED_DEBUG
+    Serial.print("_currentSpeed ");
+    Serial.println(_currentSpeed);
     Serial.print("_currentSpeed factored ");
     Serial.println(intCurrentSpeed);
     Serial.print('\n');
@@ -1002,6 +1047,12 @@ void Throttle::calibrate(int speed)
 
 void Throttle::setMuState(char *jsonMsg)
 {
+    // from MU fragment on app select trailing locos
+    // when selected send mustate command to trailing unit for direction, position, lead loco id
+    // in response trailing unit replies with condition topic including HP and mass of loco
+    // send startup command to trailing unit, just in case not running and also to ease operator loading
+    // TBD lead unit must keep track of the trailers and display those on throttle
+
     // messages causing change of mu state will be sent to this loco address and are processed here
     // mu states:
     //  0 - not mued so leave consist and inform lead if was mid or trailing
@@ -1023,6 +1074,8 @@ void Throttle::setMuState(char *jsonMsg)
     int commandedState = doc["muState"]; // this is the new _muState
     String value = doc["reversed"];
     _muReversed = value.toInt();
+    const char *mull;   // v 0.22
+    mull = doc["leadID"];   // v 0.22
 
     switch (commandedState)
     {
@@ -1035,9 +1088,39 @@ void Throttle::setMuState(char *jsonMsg)
             _muState = 0;
         }
         else if ((_muState == 2) || (_muState == 3))
-        // if was mu mid or trailing then send negative hp and mass values to lead and exit the consist
-        {
-            // TBD send negative hp, mass and tractive effort to lead now
+        // if was mu mid or trailing then send negative hp and mass values to lead and exit the consist v 0.21
+        {   // v 0.22 all of this block
+            // const char *mull;
+            // mull = doc["leadID"];
+            _muLeadLoco = String(mull);
+            // TBD send my id, mass, hp and tractive effort to lead now
+            char topicChars[100];
+            strcpy(topicChars, _commandTopic.c_str());
+            strcat(topicChars, _muLeadLoco.c_str());
+            strcat(topicChars, "/muperformance");
+
+            char msgChars[100]; // myID, locomass, hp, tractive effort
+            char buffer[50];
+
+            strcpy(msgChars, "{\"id\":\"");
+            strcat(msgChars, _locoID.c_str());
+
+            strcat(msgChars, "\",\"mass\":\"");
+            itoa(_locoMass * -1, buffer, 10);
+            strcat(msgChars, buffer);
+
+            strcat(msgChars, "\",\"hp\":\"");
+            itoa(_horsepower * -1, buffer, 10);
+            strcat(msgChars, buffer);
+
+            strcat(msgChars, "\",\"te\":\"");
+            String teString = String(_tractiveEffort * -1); // TBD this is double so itoa may not work
+            strcat(msgChars, teString.c_str());
+
+            strcat(msgChars, "\"}");
+
+            // send the parameters to lead loco to affect its performance
+            client.publish(topicChars, msgChars);
 
             // unsubscribe from lead loco messages
             muSubscribe();
@@ -1056,20 +1139,20 @@ void Throttle::setMuState(char *jsonMsg)
             return;
         // TBD mu setup
         _muState = commandedState;
-        // _muActive = true;
+        _muActive = true; // v .21
 
         break;
 
+    // case 2 falls through into 3
     case 2:                // mid
-                           // case 2 falls through into 3
     case 3:                // trailing
         if (_muState != 0) // only allowed if coming from not mued
             return;
 
         _muState = commandedState;
         _muActive = true;
-        const char *mull;
-        mull = doc["leadID"];
+        // const char *mull;    v 0.22
+        // mull = doc["leadID"];
         _muLeadLoco = String(mull);
         // TBD send my id, mass, hp and tractive effort to lead now
         char topicChars[100];
@@ -1132,7 +1215,8 @@ void Throttle::muSubscribe()
         client.unsubscribe(subscription);
 
     // subscribe to lead loco messages for headlight
-    strcpy(subscription, _feedbackTopic.c_str());
+    // strcpy(subscription, _feedbackTopic.c_str());
+    strcpy(subscription, _commandTopic.c_str()); // v 0.17
     strcat(subscription, _muLeadLoco.c_str());
     strcat(subscription, "/headlight");
 
@@ -1141,8 +1225,9 @@ void Throttle::muSubscribe()
     else
         client.unsubscribe(subscription);
 
-    // subscribe to lead loco messages for rearklight
-    strcpy(subscription, _feedbackTopic.c_str());
+    // subscribe to lead loco messages for rearlight
+    // strcpy(subscription, _feedbackTopic.c_str());
+    strcpy(subscription, _commandTopic.c_str()); // v 0.17
     strcat(subscription, _muLeadLoco.c_str());
     strcat(subscription, "/rearlight");
 
@@ -1156,12 +1241,54 @@ void Throttle::muSubscribe()
 void Throttle::setMuPerformance(char *jsonMsg)
 {
     // TBD
-    // Serial.println(jsonMsg);
+    // v 0.20 complete
+
+    // set muState to 1 if adding trailers
+    // set muState to 0 if depleting trailers (how to determine - check accumulated locomass against this loco mass)
+    // do nothing else
+
+    // add positive mass and HP to lead loco parameters
+    // subtract negative mass and HP
+    // check for zero or negative mass or HP
+
+    Preferences myPrefs;
+    StaticJsonDocument<100> doc;
+
+    // Deserialize the JSON document
+    DeserializationError error = deserializeJson(doc, jsonMsg);
+    if (error)
+        return;
+
+    int mass = doc["mass"];
+    int hp = doc["hp"];
+    String locoID = doc["id"];
+
+
+    if (mass > 0) // TBD TBA must add trailingMass, etc. check if that goes to 0
+    {
+        _muActive = true;
+        _muState = 1;
+    }
+    else
+    {
+        _muActive = false;
+        _muState = 0;
+    }
+
+    // start the mued loco (may already be running)
+        char topicChars[100];
+        strcpy(topicChars, _commandTopic.c_str());
+        strcat(topicChars, locoID.c_str());
+        strcat(topicChars, "/startstop");
+        char msgChars[10] = "1";
+        client.publish(topicChars, msgChars);
 }
 
 void Throttle::setMuSpeed(char *jsonMsg)
 {
-    if ((!_muActive) || (!_running)) // TBD this is a workaround that can't be left in the code
+    // receive speed messages from lead unit, set this unit's speed to match
+
+    if ((!_muActive) || (!_running)) // TBD this is a workaround that can't be left in the code why?
         return;
 
     static bool alternateSeconds = false;
@@ -1237,9 +1364,11 @@ void Throttle::reportCondition()
     // this sets the state of various views in the fragment
 
     char topicChars[40];
-    char msgChars[100];
+    char msgChars[200]; // v 0.16
     char charPsi[10];
-    char charCc[4]; // car count
+    char charCc[4];        // car count
+    char charCarCount[10]; // v 0.15
+    char charTonnage[10];
 
     // build the topic string
     strcpy(topicChars, _feedbackTopic.c_str());
@@ -1301,6 +1430,14 @@ void Throttle::reportCondition()
         strcat(msgChars, _muLeadLoco.c_str());
     }
 
+    strcat(msgChars, ",\"cars\":"); // v 0.15
+    dtostrf(_carCount, 3, 0, charCarCount);
+    strcat(msgChars, charCarCount);
+
+    strcat(msgChars, ",\"tons\":"); // v 0.15
+    dtostrf(_tonnage, 5, 0, charTonnage);
+    strcat(msgChars, charTonnage);
+
     strcat(msgChars, "}");
 
     client.publish(topicChars, msgChars);
@@ -1353,9 +1490,8 @@ void Throttle::reportFunctionLabels()
 {
     // reports all of the configured function labels to the app for display there
     // called whenever sendStatus is requested by the app
-    
+
     char topicChars[40];
-    char functionLabel[100];
     Preferences myPrefs;
 
     strcpy(topicChars, _feedbackTopic.c_str());
