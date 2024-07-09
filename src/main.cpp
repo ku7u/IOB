@@ -1,5 +1,5 @@
 
-/* issues  (version changes on upload to github)
+/* issues  (version changes on upload to github) 
 MU code still needs performance handoff to lead
 emergency brake too abrupt with jerking
 
@@ -1039,7 +1039,7 @@ void setup()
 
   // // opposite phases are sent to these two pins controlling one H bridge pair
   pinMode(DCC_SIGNAL_PIN_MAIN, OUTPUT);
-  pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT);
+  pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT); 
 
   // timer0 now does not autoreload, timer1 does its work for it at end of cycle and will restart it TBD nope
   pulseTimer0 = timerBegin(0, 80, true);
@@ -1086,9 +1086,6 @@ void loop()
 {
   timer1sec.tick();
   timer200ms.tick();
-  // timer250ms.tick();
-  // timer500ms.tick();
-  // timer150ms.tick();
 
   // process the mqtt input
   if (!client.loop())

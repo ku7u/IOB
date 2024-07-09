@@ -8,8 +8,10 @@
 #include "PubSubClient.h"
 #include "WebSerial.h"
 #include "Fifo.h"
-#include "ArduinoJson.h"
+// #include "ArduinoJson.h"
 #include <iostream>
+
+// using std::vector;
 
 extern PubSubClient client;
 extern Fifo commandFifo;
@@ -67,6 +69,14 @@ void Throttle::getLocoPrefs(void)
     _muReversed = myPrefs.getBool("mureversed", false);
     myPrefs.end();
 
+    myPrefs.begin("consist", false); // v0.26 ff
+    // convert the saved json consist string to json document of loco data objects
+    String muString;
+    // myPrefs.clear();
+    muString = myPrefs.getString("consist", "{}").c_str(); // seed the pref with "{}"
+    DeserializationError error = deserializeJson(muDoc, muString.c_str());
+    myPrefs.end();
+
     myPrefs.begin("calibration", true);
     // _calibrationTrapLength = myPrefs.getInt("traplength", 3);
     _fpsDccFactorForward2 = myPrefs.getFloat("speed2forward", 1.);
@@ -82,15 +92,19 @@ void Throttle::getLocoPrefs(void)
     myPrefs.end();
 
     myPrefs.begin("general", true);
-    // _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/") + String(_roadNumber) + "/";
-    // _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/") + _locoID + "/";
     _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/");
     _commandTopic = myPrefs.getString("commandtopic", "cmd/ols/");
     myPrefs.end();
 
     _locoMass = _locoWeight / 32; // slugs
 
-    muSubscribe();
+    if (_muState > 1) // v0.26 TBD this does not work here
+        muSubscribe(true);
+    else
+    {
+        sumMuPerformanceValues(); // v0.26
+        muSubscribe(false);
+    }
 }
 
 void Throttle::getFunctionPrefs(void)
@@ -120,20 +134,21 @@ void Throttle::report()
 // respond to a broadcast message that requests who is online
 // send locoID, ip address, loco type
 {
-    char topicChars[30];
+    char topicChars[100]; // v0.26 was 30
     strcpy(topicChars, _feedbackTopic.c_str());
     strcat(topicChars, "report");
 
-    // String locoType = "GP18";              // TBD fix this
     String x = "{\"id\":\"";
     x.concat(_locoID);
     x.concat("\",\"ip\":\"");
     x.concat(WiFi.localIP().toString());
     x.concat("\",\"type\":\"");
     x.concat(_locoType);
-    x.concat("\",\"mu\":\"");
+    // x.concat("\",\"mu\":\"");    v0.26 removing quotes around _muState
+    x.concat("\",\"mu\":");
     x.concat(_muState);
-    x.concat("\"}");
+    // x.concat("\"}");
+    x.concat("}");
     client.publish(topicChars, x.c_str());
 }
 
@@ -227,6 +242,25 @@ void Throttle::pmOnOff(bool onOff)
     commandFifo.pushCommand(functionPM, onOff);
     commandFifo.pushCommand(functionNotchingEnable, onOff); // TBD can't turn off PM unless this is here WMNS
     reportStatus();
+
+    // TBD TBA add code here to start/stop all mued locos, or might just leave this as an operator task, like real world
+
+    // query for any consisted locos, clear muDoc first then rebuild with data received from consist v0.26
+    // clear muDoc
+    muDoc.clear(); // then why bother saving it in preferences TBD the trailers have to save state
+
+    // query the locos
+    if (onOff && (_muState < 2)) // only on startup and only if the lead unit unit
+    {
+        char topicChars[100];
+        char msgChars[100];
+
+        strcpy(topicChars, _commandTopic.c_str());
+        strcat(topicChars, "0"); // broadcast to all
+        strcat(topicChars, "/muReport");
+        strcpy(msgChars, _locoID.c_str());
+        client.publish(topicChars, msgChars);
+    }
 }
 
 void Throttle::headlight(int offDimBright)
@@ -543,7 +577,7 @@ void Throttle::manualNotch(bool up)
 void Throttle::longPress(bool up)
 // long press on the volume up or down buttons in Android app
 {
-    if (_opMode == off)
+    if ((_opMode == off) || (_muState > 1)) // if mued nothing to do here v0.26
         return;
 
     if (up && _opMode == braking)
@@ -596,6 +630,10 @@ void Throttle::longPress(bool up)
 
 void Throttle::computeVelocity(void)
 {
+    uint16_t consistHorsepower = 0; // v0.26 ff
+    uint16_t consistMass = 0;
+    uint32_t consistTractiveEffort = 0;
+
     float effectiveHP = 0.0;
     float tractiveForce;
     float dragForce;
@@ -616,6 +654,12 @@ void Throttle::computeVelocity(void)
 
     setAirGauge();
 
+    // v0.26 will replace references to hp, mass and te with mu versions throughout this subroutine
+    consistHorsepower = _horsepower + _muHorsepower; // v0.26 ff
+    consistMass = _locoMass + _muLocoMass;
+    consistTractiveEffort = _tractiveEffort + _muTractiveEffort;
+    _horsepowerAtIdle = consistHorsepower / 100;
+
     if (_neutral)
         return; // if in neutral don't waste time in here
 
@@ -626,42 +670,50 @@ void Throttle::computeVelocity(void)
     // else
     //     effectiveHP = (_horsepower * (_notch - 1) / 7) - 50;
     else if (_notch == 2)
-        effectiveHP = (_horsepower * (_notch) / 20.) - 50;
+        // effectiveHP = (_horsepower * (_notch) / 20.) - 50;
+        effectiveHP = (consistHorsepower * (_notch) / 20.) - 50;
     else if (_notch == 3)
-        effectiveHP = (_horsepower * (_notch) / 17.) - 50;
+        // effectiveHP = (_horsepower * (_notch) / 17.) - 50;
+        effectiveHP = (consistHorsepower * (_notch) / 17.) - 50;
     else if (_notch == 4)
-        effectiveHP = (_horsepower * (_notch) / 15.) - 50;
+        // effectiveHP = (_horsepower * (_notch) / 15.) - 50;
+        effectiveHP = (consistHorsepower * (_notch) / 15.) - 50;
     else if (_notch == 5)
-        effectiveHP = (_horsepower * (_notch) / 10.) - 50;
+        // effectiveHP = (_horsepower * (_notch) / 10.) - 50;
+        effectiveHP = (consistHorsepower * (_notch) / 10.) - 50;
     else if (_notch == 6)
-        effectiveHP = (_horsepower * (_notch) / 9.) - 50;
+        // effectiveHP = (_horsepower * (_notch) / 9.) - 50;
+        effectiveHP = (consistHorsepower * (_notch) / 9.) - 50;
     else if (_notch == 7)
-        effectiveHP = (_horsepower * (_notch) / 8.) - 50;
+        // effectiveHP = (_horsepower * (_notch) / 8.) - 50;
+        effectiveHP = (consistHorsepower * (_notch) / 8.) - 50;
     else if (_notch == 8)
-        effectiveHP = _horsepower - 50;
+        // effectiveHP = _horsepower - 50;
+        effectiveHP = consistHorsepower - 50;
 
 #ifdef SPEED_DEBUG
     Serial.print("_mph  ");
     Serial.println(_mph);
 #endif
 
+    // compute the tractive force
     if (_mph <= 0)
         tractiveForce = effectiveHP * 308;
     else
     {
         tractiveForce = effectiveHP * 308 / (_mph * 1); // TBD REALITY_FACTOR goes here to replace the 1
-        if (tractiveForce > _tractiveEffort)
-            tractiveForce = _tractiveEffort; // cap it
+        // if (tractiveForce > _tractiveEffort)
+        //     tractiveForce = _tractiveEffort; // cap it
+        if (tractiveForce > consistTractiveEffort)
+            tractiveForce = consistTractiveEffort; // cap it
     }
-
-    // if (tractiveForce > _tractiveEffort) // TBD why is this a duplicate? v 0.14
-    //     tractiveForce = _tractiveEffort;
 
     // reduce tractive force by the starting force effect only when starting
     if (_currentSpeed <= 0)
     {
         dragForce = 0;
-        startingForce = 20 * ((_locoMass * 32 / 2000) + _tonnage); // convert from slugs to lbs to tons
+        // startingForce = 20 * ((_locoMass * 32 / 2000) + _tonnage); // convert from slugs to lbs to tons
+        startingForce = 20 * ((consistMass * 32 / 2000) + _tonnage); // convert from slugs to lbs to tons
         if (startingForce >= tractiveForce)
             tractiveForce = 0;
         else
@@ -671,7 +723,8 @@ void Throttle::computeVelocity(void)
     // compute the moving drag force for any rolling stock
     {
         startingForce = 0;
-        dragForce = (_locoMass * 32 * ROLLING_RESISTANCE_COEFICIENT) + (_tonnage * 2000 * ROLLING_RESISTANCE_COEFICIENT);
+        // dragForce = (_locoMass * 32 * ROLLING_RESISTANCE_COEFICIENT) + (_tonnage * 2000 * ROLLING_RESISTANCE_COEFICIENT);
+        dragForce = (consistMass * 32 * ROLLING_RESISTANCE_COEFICIENT) + (_tonnage * 2000 * ROLLING_RESISTANCE_COEFICIENT);
     }
 #ifdef SPEED_DEBUG
     Serial.print("_tonnage ");
@@ -694,8 +747,10 @@ void Throttle::computeVelocity(void)
     Serial.println(tractiveForce);
 #endif
 
+    // compute the drag forces
     // there must be some drag effect that varies with speed that is peculiar to locos - this is a guess
-    variableLocoDragForce = _locoMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT; // TBD now at zero
+    // variableLocoDragForce = _locoMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT; // TBD now at zero
+    variableLocoDragForce = consistMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT; // TBD now at zero
 
 #ifdef SPEED_DEBUG
     Serial.print("variableLocoDragForce ");
@@ -703,8 +758,9 @@ void Throttle::computeVelocity(void)
 #endif
 
     // consider brake forces if any
-    independentBrakeForce = (_independentBrake / 100.) * _locoMass * 32. * LOCO_FRICTION_COEFICIENT;
-    // trainBrakeForce = (_trainBrake / 100.) * _tonnage * 2000 * .2;
+    // independentBrakeForce = (_independentBrake / 100.) * _locoMass * 32. * LOCO_FRICTION_COEFICIENT;
+    independentBrakeForce = (_independentBrake / 100.) * consistMass * 32. * LOCO_FRICTION_COEFICIENT;
+
     if (_trainlineConnected)
     {
         // TBD results not realistic, as observed for emergency
@@ -712,8 +768,10 @@ void Throttle::computeVelocity(void)
         // trainBrakeForce = ((max(TRAINLINE_SET_PSI - _trainlinePSI, MIN_EFFECTIVE_BRAKE_LINE_PRESSURE)) / TRAINLINE_SET_PSI) * _tonnage * 2000 * TRAIN_BRAKE_FRICTION_COEFICIENT;             // v 0.11
         // v 0.15
         trainBrakeForce = ((TRAINLINE_SET_PSI - max(_trainlinePSI, MIN_EFFECTIVE_BRAKE_LINE_PRESSURE)) / (TRAINLINE_SET_PSI - MIN_EFFECTIVE_BRAKE_LINE_PRESSURE)) * _tonnage * 2000 * TRAIN_BRAKE_FRICTION_COEFICIENT; // v 0.11
+
         // emergencyBrakeForce = ((MIN_EFFECTIVE_EMERGENCY_BRAKE_LINE_PRESSURE / TRAINLINE_SET_PSI) * (_locoMass * 32 + _tonnage * 2000.) * TRAIN_BRAKE_FRICTION_COEFICIENT) * _emergencyBrake; // v 0.11 was .2
-        emergencyBrakeForce = (EMERGENCY_BRAKE_FACTOR * (_locoMass * 32. + _tonnage * 2000.) * TRAIN_BRAKE_FRICTION_COEFICIENT) * _emergencyBrake; // v 0.11 was .2
+        // emergencyBrakeForce = (EMERGENCY_BRAKE_FACTOR * (_locoMass * 32. + _tonnage * 2000.) * TRAIN_BRAKE_FRICTION_COEFICIENT) * _emergencyBrake; // v 0.11 was .2
+        emergencyBrakeForce = EMERGENCY_BRAKE_FACTOR * _tonnage * 2000. * TRAIN_BRAKE_FRICTION_COEFICIENT * _emergencyBrake; // v 0.25
     }
     else
     {
@@ -731,9 +789,11 @@ void Throttle::computeVelocity(void)
 
     // TBD the following may be bogus re emergency brake force, may need to include more logic here
     if (_emergencyBrake == 1) // v 0.13
-        accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - emergencyBrakeForce) / (_locoMass + (_tonnage * 2000 / 32));
+        // accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - emergencyBrakeForce) / (_locoMass + (_tonnage * 2000 / 32));
+        accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - emergencyBrakeForce) / (consistMass + (_tonnage * 2000 / 32));
     else
-        accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - trainBrakeForce) / (_locoMass + (_tonnage * 2000 / 32));
+        // accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - trainBrakeForce) / (_locoMass + (_tonnage * 2000 / 32));
+        accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - trainBrakeForce) / (consistMass + (_tonnage * 2000 / 32));
 
     if (accel > MAX_ACCEL)
         accel = MAX_ACCEL;
@@ -743,10 +803,12 @@ void Throttle::computeVelocity(void)
     Serial.println(accel);
 #endif
 
+    // integrate acceleration to get speed, here in fps, ultimately required by decoder
     _currentSpeed = _currentSpeed + accel; // accel is feet/sec/sec so if integrated once / sec, accel = vel, _currentSpeed is feet/sec
     if (_currentSpeed < 0.)
         _currentSpeed = 0;
 
+    // integrate speed to obtain distance in feet, converted to miles when sent later
     _odometer = _odometer + abs(_currentSpeed); // TBD on this (seems to work)
 
     // get the appropriate calibrated and interpolated speed compensation value
@@ -1048,15 +1110,17 @@ void Throttle::calibrate(int speed)
 void Throttle::setMuState(char *jsonMsg)
 {
     // from MU fragment on app select trailing locos
+    // command is sent only to the selected trailing loco
+
     // when selected send mustate command to trailing unit for direction, position, lead loco id
     // in response trailing unit replies with condition topic including HP and mass of loco
-    // send startup command to trailing unit, just in case not running and also to ease operator loading
-    // TBD lead unit must keep track of the trailers and display those on throttle
+    // lead unit will then send startup command to trailing unit, just in case not running and also to ease operator loading
+    // lead unit will keep track of the trailers and display those on throttle
 
     // messages causing change of mu state will be sent to this loco address and are processed here
     // mu states:
     //  0 - not mued so leave consist and inform lead if was mid or trailing
-    //  1 - mued as lead, look for incoming hp and mass values from locos in consist
+    //  1 - mued as lead, look for incoming hp and mass values from locos in consist NOPE
     //  2 - mued as mid, send hp and mass values to lead
     //  3 - mued as trailing, send hp and mass values to lead
 
@@ -1064,7 +1128,7 @@ void Throttle::setMuState(char *jsonMsg)
     // {muState:"", leadID:"", reversed:""}
 
     Preferences myPrefs;
-    StaticJsonDocument<100> doc;
+    JsonDocument doc;
 
     // Deserialize the JSON document
     DeserializationError error = deserializeJson(doc, jsonMsg);
@@ -1074,26 +1138,19 @@ void Throttle::setMuState(char *jsonMsg)
     int commandedState = doc["muState"]; // this is the new _muState
     String value = doc["reversed"];
     _muReversed = value.toInt();
-    const char *mull;   // v 0.22
-    mull = doc["leadID"];   // v 0.22
+    const char *mull;     // v 0.22
+    mull = doc["leadID"]; // v 0.22
 
     switch (commandedState)
     {
     case 0: // not mued
         _muActive = false;
-        if (_muState == 1)
-        // if was mu lead then retrieve original hp and mass and exit the consist
-        {
-            // getLocoPrefs();
+
+        if ((_muState == 2) || (_muState == 3))
+        { // v 0.22 all of this block
             _muState = 0;
-        }
-        else if ((_muState == 2) || (_muState == 3))
-        // if was mu mid or trailing then send negative hp and mass values to lead and exit the consist v 0.21
-        {   // v 0.22 all of this block
-            // const char *mull;
-            // mull = doc["leadID"];
             _muLeadLoco = String(mull);
-            // TBD send my id, mass, hp and tractive effort to lead now
+            // send my zero muState to lead now cuz I'm outta here
             char topicChars[100];
             strcpy(topicChars, _commandTopic.c_str());
             strcat(topicChars, _muLeadLoco.c_str());
@@ -1104,26 +1161,18 @@ void Throttle::setMuState(char *jsonMsg)
 
             strcpy(msgChars, "{\"id\":\"");
             strcat(msgChars, _locoID.c_str());
+            strcat(msgChars, "\"");
 
-            strcat(msgChars, "\",\"mass\":\"");
-            itoa(_locoMass * -1, buffer, 10);
+            strcat(msgChars, ",\"st\":"); // mustate  v0.26 ff
+            itoa(_muState, buffer, 10);   // v0.26
             strcat(msgChars, buffer);
-
-            strcat(msgChars, "\",\"hp\":\"");
-            itoa(_horsepower * -1, buffer, 10);
-            strcat(msgChars, buffer);
-
-            strcat(msgChars, "\",\"te\":\"");
-            String teString = String(_tractiveEffort * -1); // TBD this is double so itoa may not work
-            strcat(msgChars, teString.c_str());
-
-            strcat(msgChars, "\"}");
+            strcat(msgChars, "}");
 
             // send the parameters to lead loco to affect its performance
             client.publish(topicChars, msgChars);
 
             // unsubscribe from lead loco messages
-            muSubscribe();
+            muSubscribe(false);
         }
 
         _muState = commandedState;
@@ -1134,27 +1183,55 @@ void Throttle::setMuState(char *jsonMsg)
         myPrefs.end();
         break;
 
-    case 1:                // lead
-        if (_muState != 0) // only allowed if coming from not mued
-            return;
-        // TBD mu setup
-        _muState = commandedState;
-        _muActive = true; // v .21
-
-        break;
-
     // case 2 falls through into 3
-    case 2:                // mid
-    case 3:                // trailing
-        if (_muState != 0) // only allowed if coming from not mued
-            return;
+    case 2: // mid
+    case 3: // trailing
+        // if (_muState != 0) // only allowed if coming from not mued  TBD this is questionable v0.26 commented this
+        //     return;
 
         _muState = commandedState;
         _muActive = true;
         // const char *mull;    v 0.22
         // mull = doc["leadID"];
         _muLeadLoco = String(mull);
-        // TBD send my id, mass, hp and tractive effort to lead now
+        // send my id, mass, hp and tractive effort to lead now
+        muReport(_muLeadLoco.c_str());
+
+        // save the mustates in Preferences
+        myPrefs.begin("loco"); // v0.26 ff
+        myPrefs.putBool("muactive", _muActive);
+        myPrefs.putUInt("mustate", _muState);
+        myPrefs.putString("muleadloco", _muLeadLoco);
+        myPrefs.putBool("mureversed", _muReversed);
+        myPrefs.end();
+
+        // subscribe to lead loco messages for speed, direction and notch
+        muSubscribe(true);
+
+        break;
+    }
+
+    /*     myPrefs.begin("loco");
+        myPrefs.putBool("muactive", _muActive);
+        myPrefs.putUInt("mustate", commandedState);
+        myPrefs.putString("muleadloco", _muLeadLoco);
+        myPrefs.putBool("mureversed", _muReversed);
+        myPrefs.end(); */
+
+    getLocoPrefs();
+
+} // setMuState
+
+void Throttle::muReport(const char *leadLoco) // v0.26
+{
+    // this technique synchronizes lead and mu units on lead startup
+    // all locos that think they are mued to a lead loco will respond to the muReport message if the locoID in that message equals their lead
+    // the lead will build a roster of all candidates received
+    // all received candidates will be included in loco speed status messages
+    // a candidate will only respond to speed status messages that include its id, and will change its mu status to not mued if missing
+
+    if ((strcmp(_muLeadLoco.c_str(), leadLoco) == 0) && (_muActive) && (_muState > 1))
+    {
         char topicChars[100];
         strcpy(topicChars, _commandTopic.c_str());
         strcat(topicChars, _muLeadLoco.c_str());
@@ -1166,50 +1243,45 @@ void Throttle::setMuState(char *jsonMsg)
         strcpy(msgChars, "{\"id\":\"");
         strcat(msgChars, _locoID.c_str());
 
-        strcat(msgChars, "\",\"mass\":\"");
+        strcat(msgChars, "\",\"mass\":");
         itoa(_locoMass, buffer, 10);
         strcat(msgChars, buffer);
 
-        strcat(msgChars, "\",\"hp\":\"");
+        strcat(msgChars, ",\"hp\":");
         itoa(_horsepower, buffer, 10);
         strcat(msgChars, buffer);
 
-        strcat(msgChars, "\",\"te\":\"");
-        String teString = String(_tractiveEffort); // TBD this is double so itoa may not work
-        strcat(msgChars, teString.c_str());
+        strcat(msgChars, ",\"te\":");
+        itoa(_tractiveEffort, buffer, 10); // v0.26
+        strcat(msgChars, buffer);
 
-        strcat(msgChars, "\"}");
+        strcat(msgChars, ",\"st\":"); // mustate  v0.26 ff
+        itoa(_muState, buffer, 10);   // v0.26
+        strcat(msgChars, buffer);
+
+        strcat(msgChars, "}");
 
         // send the parameters to lead loco to affect its performance
         client.publish(topicChars, msgChars);
 
-        // subscribe to lead loco messages for speed, direction and notch
-        muSubscribe();
-
-        break;
+        // subscribe to the lead messages
+        muSubscribe(true);
     }
+}
 
-    myPrefs.begin("loco");
-    myPrefs.putBool("muactive", _muActive);
-    myPrefs.putUInt("mustate", commandedState);
-    myPrefs.putString("muleadloco", _muLeadLoco);
-    myPrefs.putBool("mureversed", _muReversed);
-    myPrefs.end();
-
-    getLocoPrefs();
-
-} // setMuState
-
-void Throttle::muSubscribe()
+void Throttle::muSubscribe(bool subUnsub)
 {
+    // v026 changed all of this to handle the parameter
 
     // subscribe to lead loco messages for speed, direction and notch
+    // subUnsub true to subscribe, false to unsubscribe
     char subscription[100];
+
     strcpy(subscription, _feedbackTopic.c_str());
     strcat(subscription, _muLeadLoco.c_str());
     strcat(subscription, "/status");
 
-    if (_muActive)
+    if (subUnsub)
         client.subscribe(subscription, 1);
     else
         client.unsubscribe(subscription);
@@ -1220,7 +1292,7 @@ void Throttle::muSubscribe()
     strcat(subscription, _muLeadLoco.c_str());
     strcat(subscription, "/headlight");
 
-    if (_muActive)
+    if (subUnsub)
         client.subscribe(subscription, 1);
     else
         client.unsubscribe(subscription);
@@ -1231,7 +1303,7 @@ void Throttle::muSubscribe()
     strcat(subscription, _muLeadLoco.c_str());
     strcat(subscription, "/rearlight");
 
-    if (_muActive)
+    if (subUnsub)
         client.subscribe(subscription, 1);
     else
         client.unsubscribe(subscription);
@@ -1244,76 +1316,151 @@ void Throttle::setMuPerformance(char *jsonMsg)
     // v 0.20 complete
 
     // set muState to 1 if adding trailers
-    // set muState to 0 if depleting trailers (how to determine - check accumulated locomass against this loco mass)
+    // set muState to 0 if depleting trailers
+    // lead unit keeps track of the consist in muDoc and stores in Preferences for future use
+    // also saves trailers hp, mass and tractive effort to be added to lead unit parameters
     // do nothing else
 
-    // add positive mass and HP to lead loco parameters
-    // subtract negative mass and HP
-    // check for zero or negative mass or HP
+    // v 0.26 using saved json doc
+    // if coming in here, mustate = 1 then add to the existing json doc
+    // else clear the existing and start a new one although the existing should already be clear
+
+    // TBD maybe add a reset feature in here
+    // if the locoID is mine, then reset muDoc to {}
 
     Preferences myPrefs;
-    StaticJsonDocument<100> doc;
+    JsonDocument doc;
+    String consistString;
 
-    // Deserialize the JSON document
+    // Deserialize the JSON document coming from candidate
     DeserializationError error = deserializeJson(doc, jsonMsg);
+#ifdef MQTT_DEBUG_ON
     if (error)
-        return;
+        reportMqttDebugString("DeserializationError", error.c_str());
+#endif
 
+    String locoID = doc["id"];
     int mass = doc["mass"];
     int hp = doc["hp"];
-    String locoID = doc["id"];
+    uint32_t te = doc["te"]; // tractive effort v0.26
+    int st = doc["st"];      // muState v0.26
 
+    char topicChars[100]; // v 0.24 all of this startstop stuff
+    strcpy(topicChars, _commandTopic.c_str());
+    strcat(topicChars, locoID.c_str());
+    strcat(topicChars, "/startstop");
 
-    if (mass > 0) // TBD TBA must add trailingMass, etc. check if that goes to 0
+    // determine if removing (st==0) or adding (st!=0) a candidate
+    if (st == 0) // TBD remove this loco from the json doc, etc.
     {
-        _muActive = true;
-        _muState = 1;
+        // look for this candidate in muDoc and remove it
+        JsonObject root = muDoc.as<JsonObject>(); // undocumented as to need for this
+        root.remove(locoID);
+
+        if (muDoc.size() == 0)
+        {
+            // if no more loco ids in muDoc then reset _muActive and _muState
+            _muActive = false;
+            _muState = 0;
+        }
+
+        serializeJson(muDoc, consistString);
+
+        // save it in Preferences
+        myPrefs.begin("consist"); // v0.26 ff
+        myPrefs.putString("consist", consistString);
+        myPrefs.end();
+
+        myPrefs.begin("loco"); // v0.26 ff
+        myPrefs.putBool("muactive", _muActive);
+        myPrefs.putUInt("mustate", _muState);
+        myPrefs.end();
+
+        // turn off PM on the mued loco
+        client.publish(topicChars, "0");
+
+        sumMuPerformanceValues();
     }
     else
     {
-        _muActive = false;
-        _muState = 0;
-    }
+        _muState = 1; // we are the lead
+        _muActive = true;
 
-    // start the mued loco (may already be running)
-        char topicChars[100];
-        strcpy(topicChars, _commandTopic.c_str());
-        strcat(topicChars, locoID.c_str());
-        strcat(topicChars, "/startstop");
-        char msgChars[10] = "1";
-        client.publish(topicChars, msgChars);
+        // start PM on the mued loco (may already be running, doesn't matter)
+        // if lead is not running then don't start
+        // separate logic in startup proc to start mued locos TBD
+        if (_running)
+            client.publish(topicChars, "1");
+
+        // v 0.26 ff
+        // TBD before we do the following, try to find existing id for this candidate in muDoc
+        // if found, replace it or maybe do nothing, although we may be updating performance characteristics (seems unlikely)
+        // look for this candidate in muDoc and remove it
+        if (!muDoc.containsKey(locoID))
+        {
+            JsonObject candidate = muDoc[locoID].to<JsonObject>();
+            // else
+            // JsonObject candidate = muDoc[locoID].as<JsonObject>(); would this work to update an existing?
+            candidate["hp"] = hp;
+            candidate["mass"] = mass;
+            candidate["te"] = te;
+
+            // save the serialized and changed muDoc in Preferences
+            serializeJson(muDoc, consistString);
+            myPrefs.begin("consist"); // v0.26 ff
+            myPrefs.putString("consist", consistString);
+            myPrefs.end();
+
+            // save the mustates in Preferences
+            myPrefs.begin("loco"); // v0.26 ff
+            myPrefs.putBool("muactive", _muActive);
+            myPrefs.putUInt("mustate", _muState);
+            myPrefs.end();
+
+            sumMuPerformanceValues();
+        }
+    }
 }
 
 void Throttle::setMuSpeed(char *jsonMsg)
 {
     // receive speed messages from lead unit, set this unit's speed to match
 
-    if ((!_muActive) || (!_running)) // TBD this is a workaround that can't be left in the code why?
+#ifdef MQTT_DEBUG_ON
+    reportMqttDebugString("in setMUSpeed", jsonMsg);
+#endif
+
+    if ((!_muActive) || (!_running)) // TBD this is a workaround that can't be left in the code why? because we may not be running
         return;
 
-    static bool alternateSeconds = false;
-    StaticJsonDocument<100> doc;
+    // static bool alternateSeconds = false;
+    JsonDocument doc;
 
     // switch this each 1 sec cycle, it will be used to add or subtract 0.5 mph to commanded speed
     // this (theoretically) will defeat the back emf algorithm in the decoder to eliminate tug-of-war effect
-    alternateSeconds = !alternateSeconds;
+    // alternateSeconds = !alternateSeconds;
 
     // Deserialize the JSON document
     DeserializationError error = deserializeJson(doc, jsonMsg);
     if (error)
+    {
+#ifdef MQTT_DEBUG_ON
+        reportMqttDebugString("errorInJson", jsonMsg);
+#endif
         return;
+    }
 
     // retrieve mph value
     float muMPH = doc["mph"];
 
     // wiggle the value to outsmart BEMF
-    if (muMPH > .5)
-    {
-        if (alternateSeconds)
-            muMPH += .5;
-        else
-            muMPH -= .5;
-    }
+    // if (muMPH > .5)
+    // {
+    //     if (alternateSeconds)
+    //         muMPH += .25; // v0.26 was .5 both places
+    //     else
+    //         muMPH -= .25;
+    // }
 
     // retrieve direction, 1=fwd, 0=rev
     bool direction = doc["dir"];
@@ -1446,11 +1593,12 @@ void Throttle::reportCondition()
 void Throttle::reportStatus()
 {
     // reports various current values back to the app for display there
+    // the mqtt msg is in json format
 
     int intSpeedoSpeed = _mph * 10;
     float speedoSpeed = intSpeedoSpeed / 10.; // to get tenths of mph
 
-    char topicChars[40];
+    char topicChars[100]; // v 0.25
     strcpy(topicChars, _feedbackTopic.c_str());
     strcat(topicChars, _locoID.c_str());
     strcat(topicChars, "/status");
@@ -1480,9 +1628,66 @@ void Throttle::reportStatus()
     dtostrf(_trainlinePSI, 2, 0, charPsi);
     strcat(msgChars, charPsi);
 
-    strcat(msgChars, "}");
+    // add trailing loco IDs if lead loco in consist v 0.26 ff
+    // JSON document muDoc was populated by setMuPerformance
+    if (_muState == 1) // check if mued as lead
+    {
+        // build a string of the consisted loco IDs as derived from muDoc
+        // add them to the json string
+        JsonObject root = muDoc.as<JsonObject>();
+        uint8_t counter = 0;
 
-    // client.publish(topic.c_str(), msgChars);
+        strcat(msgChars, ",\"consist\":\"");
+
+        // https://arduinojson.org/v7/api/jsonobject/begin_end/
+        for (JsonPair kv : root)
+        {
+            if (counter > 0)
+                strcat(msgChars, ",");
+            counter++;
+
+            // strcat(msgChars, "\"");
+            strcat(msgChars, kv.key().c_str());
+            // strcat(msgChars, "\"");
+        }
+        strcat(msgChars, "\"");
+    }
+
+    strcat(msgChars, "}");
+    client.publish(topicChars, msgChars);
+}
+
+void Throttle::reportMqttDebug(String parameter, float value) // v 0.25
+{
+    // report debug messages via mqtt
+    char topicChars[100];
+    strcpy(topicChars, _feedbackTopic.c_str());
+    strcat(topicChars, _locoID.c_str());
+    strcat(topicChars, "/debug/");
+    strcat(topicChars, parameter.c_str());
+
+    char msgChars[40];
+    char charValue[20];
+
+    dtostrf(value, 8, 2, charValue);
+    strcpy(msgChars, charValue);
+
+    client.publish(topicChars, msgChars);
+}
+
+void Throttle::reportMqttDebugString(String parameter, String data) // v 0.25
+{
+    // report debug messages via mqtt
+    char topicChars[200];
+    strcpy(topicChars, _feedbackTopic.c_str());
+    strcat(topicChars, _locoID.c_str());
+    strcat(topicChars, "/debug/");
+    strcat(topicChars, parameter.c_str());
+
+    char msgChars[400];
+
+    strcpy(msgChars, data.c_str());
+
     client.publish(topicChars, msgChars);
 }
 
@@ -1598,7 +1803,7 @@ void Throttle::setCV(int cv, int value)
 
 void Throttle::setFunction(char *jsonMsg)
 {
-    StaticJsonDocument<100> doc;
+    JsonDocument doc;
 
     // Deserialize the JSON document
     DeserializationError error = deserializeJson(doc, jsonMsg);
@@ -1643,4 +1848,42 @@ void Throttle::brakeSqueal(bool on)
     }
 
     return;
+}
+
+void Throttle::sumMuPerformanceValues() // v0.26
+{
+    // ref: https://arduinojson.org/v7/api/jsonobject/begin_end/
+
+    _muHorsepower = 0;
+    _muLocoMass = 0;
+    _muTractiveEffort = 0;
+
+    if (_muState == 0)
+    {
+#ifdef MQTT_DEBUG_ON
+        reportMqttDebug("combinedHP", (float)_muHorsepower);
+#endif
+        return;
+    }
+
+    JsonObject root = muDoc.as<JsonObject>();
+
+    for (JsonPair kv : root)
+    {
+        // the object attached to each key (locoID) contains the parms we are after
+        JsonObject obj = kv.value().as<JsonObject>();
+        JsonVariant variant = obj["hp"].as<JsonVariant>();
+        uint16_t value = variant.as<uint16_t>();
+        _muHorsepower += value;
+        variant = obj["mass"].as<JsonVariant>();
+        value = variant.as<uint16_t>();
+        _muLocoMass += value;
+        variant = obj["te"].as<JsonVariant>();
+        uint32_t value32 = variant.as<uint32_t>();
+        _muTractiveEffort = _muTractiveEffort + value32;
+    }
+
+#ifdef MQTT_DEBUG_ON
+    reportMqttDebug("combinedHP", (float)_muHorsepower);
+#endif
 }

@@ -62,7 +62,7 @@ void connectMQTT(String nodeName)
 /*****************************************************************************/
 void setupSubscriptions()
 {
-  // subscribe to 'IOB/roadnum/command/#'
+  // subscribe to 'cmd/ols/roadnum/command/#'
 
   char subscription[100];
   Preferences myPrefs;
@@ -86,7 +86,6 @@ void setupSubscriptions()
   strcpy(subscription, prefixGlobal.c_str());
   client.subscribe(subscription, 1);
 
-  throttle.muSubscribe();
 }
 
 /*****************************************************************************/
@@ -154,6 +153,8 @@ void callback(char *topic, byte *message, unsigned int length)
     throttle.setMuState(messChars);
   else if (partString == "muperformance")
     throttle.setMuPerformance(messChars);
+  else if (partString == "muReport")
+    throttle.muReport(messChars);
   else if (partString == "status")
     throttle.setMuSpeed(messChars);
   else if (partString == "sendstatus")

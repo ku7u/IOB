@@ -1,14 +1,12 @@
-// #ifndef THROTTLE_H
-// #define THROTTLE_H
 #pragma once
 
 #include <stdint.h>
 #include "Arduino.h"
+#include "ArduinoJson.h"
 
 class Throttle
 {
 public:
-    // Throttle(int roadNumber);
     Throttle(void);
 
     void init(void);
@@ -21,17 +19,13 @@ public:
     void horn(bool onOff);
     void headlight(int offDimBright);
     void rearlight(int offDimBright);
-    // void startPM(void);
-    // void stopPM(void);
     void setDirection(int direction);
     void setThrottleLever(int throttleLever);
     void setCarCount(uint16_t carcount);
     void setTonnage(uint16_t tonnage);
-    // void setHorsepower(int HP);
     // void setGrade(int grade);
     void manualNotch(bool up);
     void longPress(bool up);
-    // void compute(void);
     void computeVelocity(void);
     void setIBrake(uint16_t val);
     void setTBrake(float val);
@@ -46,13 +40,16 @@ public:
     uint getLastIntCurrentSpeed();
     void setMuState(char *);
     void setMuStateFromLead(char *);
-    // void setMuSpeed(float);
     void setMuSpeed(char *);
+    void queryMuTrailer(void);
     void setMuPerformance(char *);
-    void muSubscribe();
+    void muSubscribe(bool);
+    void muReport(const char *);
     void reportCondition(void);
     void reportStatus(void);
     void reportFunctionLabels(void);
+    void reportMqttDebug(String, float);
+    void reportMqttDebugString(String, String);
     void setCV(int, int);
     void setFunction(char *);
 
@@ -76,21 +73,27 @@ private:
     uint32_t getTime(void);
     void brakeSqueal(bool);
     void setEBrake(bool);
+    void sumMuPerformanceValues(void);
 
-    enum opModeType {off, idle, braking, powered};
+    enum opModeType
+    {
+        off,
+        idle,
+        braking,
+        powered
+    };
     opModeType _opMode;
     uint16_t _roadNumber = 3;
     String _locoID;
     String _locoType;
     uint16_t _dccAddress = 3;
-    uint8_t _muState;
-    // const char * _muLeadLoco;
+    uint16_t _muState; // v0.26 was uint8_t
     String _muLeadLoco;
     bool _muTrailingUnit; // false = mid, true = trailing unit
-    bool _muReversed; // true if running reversed in consist
-    bool _muActive; // false = not MUed
+    bool _muReversed;     // true if running reversed in consist
+    bool _muActive;       // false = not MUed
+
     bool _running = false;
-    // bool _hornState = false;
     uint _headlight;
     uint _rearlight;
     bool _bell;
@@ -109,27 +112,26 @@ private:
     float _speedoCalFactor = .250; // calibrate speedometer
     int _calibrationStage = 0;
     float _divisor;
-    uint16_t _horsepower; // HP
+    uint16_t _horsepower;   // HP
+    uint16_t _muHorsepower; // total HP of mued locos, excluding lead
     uint16_t _horsepowerAtIdle;
     uint16_t _carCount;
-    uint32_t _tonnage = 0; // tons
-    uint32_t _locoWeight;
-    // long _locoMass; // slugs
-    uint16_t _locoMass; // slugs
+    uint32_t _tonnage = 0; // train tons excluding locos
+    uint32_t _locoWeight;  // pounds
+    uint16_t _locoMass;    // slugs
+    uint16_t _muLocoMass;  // total mass of mued locos, excluding lead
     uint32_t _tractiveEffort;
+    uint32_t _muTractiveEffort; // total te of mued locos, excluding lead
     float _lastTractiveForce;
     uint16_t _independentBrake; // percent
-    // uint16_t _iBrakeVal = 0;
-    uint16_t _trainBrake; // percent
+    uint16_t _trainBrake;    // percent
     uint8_t _emergencyBrake; // on or off
-    enum _mode
-    {
-        MAN_NOTCHING,
-        DRIVE_HOLD,
-        NORMAL
-    };
-    // bool _manualNotching; // true if using manual notching TBD this
-    // bool _manualNotchingMode = false;
+    // enum _mode
+    // {
+    //     MAN_NOTCHING,
+    //     DRIVE_HOLD,
+    //     NORMAL
+    // };
     uint16_t _manualNotchingLogicFunction;
     uint16_t _notchUpFunction = 26;
     uint16_t _notchDownFunction = 27;
@@ -162,28 +164,31 @@ private:
     float _fpsDccFactorReverse50;
     String _feedbackTopic;
     String _commandTopic;
-    struct functionParms
-    {
-        int functionID;
-        bool onOff;
-    };
+    // struct functionParms
+    // {
+    //     int functionID;
+    //     bool onOff;
+    // };
 
-    const float ROLLING_RESISTANCE_COEFICIENT = .0020;  // was .0015
-    const float VARIABLE_LOCO_DRAG_COEFICIENT = .000; // was .0003
+    JsonDocument muDoc; // holds state of consist v 0.26
+    // {"GN123":{"hp":123, "lm":123, "te":123}, {...}, ...}   an object of objects, locoID as key
+
+    const float ROLLING_RESISTANCE_COEFICIENT = .0020; // was .0015
+    const float VARIABLE_LOCO_DRAG_COEFICIENT = .000;  // was .0003
+    const float LOCO_FRICTION_COEFICIENT = .1;         // similar to friction coefficient for brakes TBD
+    const float TRAIN_BRAKE_FRICTION_COEFICIENT = .1;  // v 0.15 was .2
+
     const float FPS_TO_MPH_FACTOR = 3600. / 5280;
-
     const float FPS_AT_MPH_FACTOR2 = 2 * 5280 / 3600.;
     const float FPS_AT_MPH_FACTOR5 = 5 * 5280 / 3600.;
     const float FPS_AT_MPH_FACTOR10 = 10 * 5280 / 3600.;
     const float FPS_AT_MPH_FACTOR20 = 20 * 5280 / 3600.;
     const float FPS_AT_MPH_FACTOR50 = 50 * 5280 / 3600.;
-    const float LOCO_FRICTION_COEFICIENT = .1; // similar to friction coefficient for brakes TBD
-    const float TRAIN_BRAKE_FRICTION_COEFICIENT = .1;  // v 0.15 was .2
-    const float MAX_TRACTIVE_FORCE = 75000;    // assumed
-    const float MAX_ACCEL = 3.;                // to limit accel on starting movement
+    const float MAX_TRACTIVE_FORCE = 75000; // assumed
+    const float MAX_ACCEL = 3.;             // to limit accel on starting movement
+    const int TRAINLINE_SET_PSI = 90;
     const float MIN_EFFECTIVE_BRAKE_LINE_PRESSURE = 60;
     const float MIN_EFFECTIVE_EMERGENCY_BRAKE_LINE_PRESSURE = 40; // TBD likely bogus
-    const float EMERGENCY_BRAKE_FACTOR = 1.5;  // to be more effective brake than automatic brake max which is computed to be 1.0
+    const float EMERGENCY_BRAKE_FACTOR = 1.5;                     // to be more effective brake than automatic brake max which is computed to be 1.0
     const int AVERAGE_CAR_TONNAGE = 75;
-    const int TRAINLINE_SET_PSI = 90;
 };
