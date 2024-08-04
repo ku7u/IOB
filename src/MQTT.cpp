@@ -12,7 +12,7 @@ extern Throttle throttle;
 extern Adafruit_NeoPixel strip;
 
 /*****************************************************************************/
-// defines the connection parameters, the callback, the subscriptions and then connects
+// defines the connection parameters, the callback, and the subscriptions 
 void mqttSetup(String mqtt_Server, String iobNode)
 {
 
@@ -26,7 +26,7 @@ void mqttSetup(String mqtt_Server, String iobNode)
   sscanf(mqtt_server, "%u.%u.%u.%u", &ip[0], &ip[1], &ip[2], &ip[3]);
   client.setBufferSize(1024); // defaults to 256
   client.setServer(ip, 1883); // 1883 is the default port on mosquitto server
-  client.setKeepAlive(60);    // this is probaably not necessary, just use the default
+  // client.setKeepAlive(60);    // this is probaably not necessary, just use the default  v263
   client.setCallback(callback);
   // connectMQTT(iobNode);
   // setupSubscriptions();
@@ -42,7 +42,7 @@ void connectMQTT(String nodeName)
   strcpy(mqtt_node, nodeName.c_str());
 
   // Loop until we're reconnected
-  while (!client.connect(mqtt_node))
+  while (!client.connect(mqtt_node))  
   {
     // pinMode(2, OUTPUT);
 #ifdef SERIAL_ON
@@ -64,7 +64,7 @@ void setupSubscriptions()
 {
   // subscribe to 'cmd/ols/roadnum/command/#'
 
-  char subscription[100];
+  char subscription[200];
   Preferences myPrefs;
 
   myPrefs.begin("loco", true);
@@ -80,11 +80,13 @@ void setupSubscriptions()
 
   prefix.concat(String(myLocoID + "/#"));
   strcpy(subscription, prefix.c_str());
-  client.subscribe(subscription, 1);
+  // client.subscribe(subscription, 1);
+  client.subscribe(subscription, 0);  // TBD testing QOS effect 7/12/24
 
   prefixGlobal.concat(String("0/#"));
   strcpy(subscription, prefixGlobal.c_str());
-  client.subscribe(subscription, 1);
+  // client.subscribe(subscription, 1);
+  client.subscribe(subscription, 0);  // TBD testing QOS effect 7/12/24
 
 }
 
@@ -95,7 +97,7 @@ void setupSubscriptions()
 // also must get the value sent
 void callback(char *topic, byte *message, unsigned int length)
 {
-  char messChars[100];
+  char messChars[200];
   String topicString = String(topic);
 
   String partString = topicString.substring(topicString.indexOf('/') + 1); // gets rid of first field (cmd)
@@ -138,13 +140,13 @@ void callback(char *topic, byte *message, unsigned int length)
     throttle.setDirection(msgVal);
   else if (partString == "brake")
   {
-    throttle.setIBrake(msgVal);
+    throttle.setLBrake(msgVal);
     // throttle.setTBrake(msgVal);  TBD setTbrake must be changed such that msgVal relates to a psi reduction, and sensitive to airline connect status
   }
   else if (partString == "ibrake")
-    throttle.setIBrake(msgVal);
+    throttle.setLBrake(msgVal);
   else if (partString == "tbrake")
-    throttle.setTBrake(msgVal);
+    throttle.setABrake(msgVal);
   else if (partString == "trainline")
     throttle.trainline(msgVal);
   else if (partString == "carcount")
@@ -161,7 +163,6 @@ void callback(char *topic, byte *message, unsigned int length)
   {
     throttle.reportCondition();
     throttle.reportStatus(); 
-    throttle.setAirGauge();
   }
   else if (partString == "reportlabels")
   {

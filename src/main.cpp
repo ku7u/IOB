@@ -1,5 +1,5 @@
 
-/* issues  (version changes on upload to github) 
+/* issues  (version changes on upload to github)
 MU code still needs performance handoff to lead
 emergency brake too abrupt with jerking
 
@@ -236,6 +236,7 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include "ArduinoJson.h"
 #include "Adafruit_NeoPixel.h"
 #include "defines.h"
+#include "BrakeSystem.h"
 
 using namespace std;
 
@@ -267,6 +268,7 @@ String topicCommandLeftEnd;
 String topicFeedbackLeftEnd;
 
 Fifo commandFifo;
+BrakeSystem bs;
 
 Throttle throttle;
 
@@ -284,7 +286,7 @@ uint32_t blue;
 // functions
 String headlightFunction;
 
-// timers
+// timers 
 MultiTimer timer1sec(1000);
 MultiTimer timer200ms(200);
 // MultiTimer timer250ms(250);
@@ -998,7 +1000,7 @@ void setup()
   // if connection fails, it starts an access point with the the chip ID as the name,
   // then goes into a blocking loop awaiting configuration and will return success result
 
-#ifdef SSID_KILL  // v 0.23 ff
+#ifdef SSID_KILL // v 0.23 ff
   // force a reconnection to wifi AP
   eraseSSID = true;
 #endif
@@ -1011,7 +1013,6 @@ void setup()
   }
 
   bool res = wm.autoConnect(); // auto generated AP name from chipid
-
 
 // show yellow LED if connected to wifi
 #ifdef ESP32C3DK
@@ -1039,7 +1040,7 @@ void setup()
 
   // // opposite phases are sent to these two pins controlling one H bridge pair
   pinMode(DCC_SIGNAL_PIN_MAIN, OUTPUT);
-  pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT); 
+  pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT);
 
   // timer0 now does not autoreload, timer1 does its work for it at end of cycle and will restart it TBD nope
   pulseTimer0 = timerBegin(0, 80, true);
@@ -1079,6 +1080,12 @@ void setup()
   // time is used in throttle object to set trainline psi after extended shutdown
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
+  // MQTT
+  // mqttNode = "OLS" + locoID;
+  // mqttSetup(mqttServer, mqttNode);
+  connectMQTT(mqttNode);
+  setupSubscriptions(); 
+
 } // end setup
 
 /*****************************************************************************/
@@ -1088,24 +1095,25 @@ void loop()
   timer200ms.tick();
 
   // process the mqtt input
-  if (!client.loop())
-  {
-#ifdef ESP32C3DK
-    // show yellow LED if no connection to MQTT server
-    strip.setPixelColor(0, yellow);
-    // strip.setPixelColor(0, strip.Color(80, 80, 0)); // yellow
+  client.loop();
+  /*   if (!client.loop())
+    {
+  #ifdef ESP32C3DK
+      // show yellow LED if no connection to MQTT server
+      strip.setPixelColor(0, yellow);
+      // strip.setPixelColor(0, strip.Color(80, 80, 0)); // yellow
 
-    strip.show();
-#endif
-    connectMQTT(mqttNode);
-#ifdef ESP32C3DK
-    // show green LED if connected to MQTT server
-    // strip.setPixelColor(0, strip.Color(80, 0, 0)); // green
-    strip.setPixelColor(0, green);
-    strip.show();
-#endif
-    setupSubscriptions();
-  }
+      strip.show();
+  #endif
+      connectMQTT(mqttNode);
+  #ifdef ESP32C3DK
+      // show green LED if connected to MQTT server
+      // strip.setPixelColor(0, strip.Color(80, 0, 0)); // green
+      strip.setPixelColor(0, green);
+      strip.show();
+  #endif
+      setupSubscriptions();
+    } */
 
   // if (magReader.check(throttle.getLastIntCurrentSpeed())) // check for waypoints by reading magnets embedded in track
   //   uint milepost = magReader.process(throttle.isForward());

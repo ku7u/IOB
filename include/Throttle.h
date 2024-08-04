@@ -27,11 +27,13 @@ public:
     void manualNotch(bool up);
     void longPress(bool up);
     void computeVelocity(void);
-    void setIBrake(uint16_t val);
-    void setTBrake(float val);
+    void setLBrake(bool);    // loco (independent) brake using BrakeSystem
+    // void setIBrake(uint16_t val);
+    void setABrake(bool);   // automatic (train) brake using BrakeSystem
+    // void setTBrake(float val);
     void trainline(bool connect);
     void panicStop(void);
-    void setAirGauge(void);
+    // void setAirGauge(void);
     int getRoadNumber(void);
     int getDccAddress(void);
     void calibrate(int speed);
@@ -52,6 +54,7 @@ public:
     void reportMqttDebugString(String, String);
     void setCV(int, int);
     void setFunction(char *);
+    bool isRunning(void);
 
     int functionPM;
     int functionBell;
@@ -66,7 +69,7 @@ public:
     int functionIndependentBrake;
     int functionTrainBrake;
     int functionEmergencyBrake;
-    int functionCompressor;
+    int functionCompressor = 0;
     int functionBrakeSqueal;
 
 private:
@@ -81,8 +84,8 @@ private:
         idle,
         braking,
         powered
-    };
-    opModeType _opMode;
+    } _opMode;
+    // opModeType _opMode;
     uint16_t _roadNumber = 3;
     String _locoID;
     String _locoType;
@@ -123,8 +126,8 @@ private:
     uint32_t _tractiveEffort;
     uint32_t _muTractiveEffort; // total te of mued locos, excluding lead
     float _lastTractiveForce;
-    uint16_t _independentBrake; // percent
-    uint16_t _trainBrake;    // percent
+    float _independentBrake; // percent
+    float _trainBrake;    // percent
     uint8_t _emergencyBrake; // on or off
     // enum _mode
     // {
@@ -173,10 +176,11 @@ private:
     JsonDocument muDoc; // holds state of consist v 0.26
     // {"GN123":{"hp":123, "lm":123, "te":123}, {...}, ...}   an object of objects, locoID as key
 
+    const int TOPIC_CHAR_SIZE = 200;
     const float ROLLING_RESISTANCE_COEFICIENT = .0020; // was .0015
     const float VARIABLE_LOCO_DRAG_COEFICIENT = .000;  // was .0003
     const float LOCO_FRICTION_COEFICIENT = .1;         // similar to friction coefficient for brakes TBD
-    const float TRAIN_BRAKE_FRICTION_COEFICIENT = .1;  // v 0.15 was .2
+    const float TRAIN_BRAKE_FRICTION_COEFICIENT = .05;  // v027D was .1
 
     const float FPS_TO_MPH_FACTOR = 3600. / 5280;
     const float FPS_AT_MPH_FACTOR2 = 2 * 5280 / 3600.;
