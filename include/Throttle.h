@@ -23,13 +23,14 @@ public:
     void setThrottleLever(int throttleLever);
     void setCarCount(uint16_t carcount);
     void setTonnage(uint16_t tonnage);
+    void setTrainData(char *);
     // void setGrade(int grade);
     void manualNotch(bool up);
     void longPress(bool up);
     void computeVelocity(void);
-    void setLBrake(bool);    // loco (independent) brake using BrakeSystem
+    void setLBrake(bool); // loco (independent) brake using BrakeSystem
     // void setIBrake(uint16_t val);
-    void setABrake(bool);   // automatic (train) brake using BrakeSystem
+    void setABrake(bool); // automatic (train) brake using BrakeSystem
     // void setTBrake(float val);
     void trainline(bool connect);
     void panicStop(void);
@@ -85,7 +86,6 @@ private:
         braking,
         powered
     } _opMode;
-    // opModeType _opMode;
     uint16_t _roadNumber = 3;
     String _locoID;
     String _locoType;
@@ -127,14 +127,9 @@ private:
     uint32_t _muTractiveEffort; // total te of mued locos, excluding lead
     float _lastTractiveForce;
     float _independentBrake; // percent
-    float _trainBrake;    // percent
+    float _trainBrake;       // percent
     uint8_t _emergencyBrake; // on or off
-    // enum _mode
-    // {
-    //     MAN_NOTCHING,
-    //     DRIVE_HOLD,
-    //     NORMAL
-    // };
+
     uint16_t _manualNotchingLogicFunction;
     uint16_t _notchUpFunction = 26;
     uint16_t _notchDownFunction = 27;
@@ -167,20 +162,16 @@ private:
     float _fpsDccFactorReverse50;
     String _feedbackTopic;
     String _commandTopic;
-    // struct functionParms
-    // {
-    //     int functionID;
-    //     bool onOff;
-    // };
 
     JsonDocument muDoc; // holds state of consist v 0.26
     // {"GN123":{"hp":123, "lm":123, "te":123}, {...}, ...}   an object of objects, locoID as key
+    // hp=horsepower, lm=loco mass (tons?), te=tractive effort (lbf)
 
     const int TOPIC_CHAR_SIZE = 200;
     const float ROLLING_RESISTANCE_COEFICIENT = .0020; // was .0015
     const float VARIABLE_LOCO_DRAG_COEFICIENT = .000;  // was .0003
     const float LOCO_FRICTION_COEFICIENT = .1;         // similar to friction coefficient for brakes TBD
-    const float TRAIN_BRAKE_FRICTION_COEFICIENT = .05;  // v027D was .1
+    const float TRAIN_BRAKE_FRICTION_COEFICIENT = .05; // v027D was .1
 
     const float FPS_TO_MPH_FACTOR = 3600. / 5280;
     const float FPS_AT_MPH_FACTOR2 = 2 * 5280 / 3600.;
@@ -188,11 +179,11 @@ private:
     const float FPS_AT_MPH_FACTOR10 = 10 * 5280 / 3600.;
     const float FPS_AT_MPH_FACTOR20 = 20 * 5280 / 3600.;
     const float FPS_AT_MPH_FACTOR50 = 50 * 5280 / 3600.;
-    const float MAX_TRACTIVE_FORCE = 75000; // assumed
-    const float MAX_ACCEL = 3.;             // to limit accel on starting movement
-    const int TRAINLINE_SET_PSI = 90;
-    const float MIN_EFFECTIVE_BRAKE_LINE_PRESSURE = 60;
-    const float MIN_EFFECTIVE_EMERGENCY_BRAKE_LINE_PRESSURE = 40; // TBD likely bogus
+    const float MAX_TRACTIVE_FORCE = 75000;                       // assumed
+    const float MAX_ACCEL = 3.;                                   // to limit accel on starting movement
+    const int TRAINLINE_SET_PSI = 90;                             // TBD now in BrakeSystem?
+    const float MIN_EFFECTIVE_BRAKE_LINE_PRESSURE = 60;           // TBD now in BrakeSystem?
+    const float MIN_EFFECTIVE_EMERGENCY_BRAKE_LINE_PRESSURE = 40; // TBD now in BrakeSystem? could be bogus
     const float EMERGENCY_BRAKE_FACTOR = 1.5;                     // to be more effective brake than automatic brake max which is computed to be 1.0
     const int AVERAGE_CAR_TONNAGE = 75;
 };

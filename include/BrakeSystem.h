@@ -20,6 +20,9 @@ public:
     void applyHandbrake(void);
     void release(void);
     void setPMRunning(bool complete);    // send this command to tell BS that PM has gone through startup sequence, start the compressor
+    bool locoBrakeOn(void);
+    bool trainBrakeOn(void);
+    bool emergencyBrakeOn(void);
 
 private:
     // https://en.wikipedia.org/wiki/Railway_air_brake
@@ -46,4 +49,8 @@ private:
     uint16_t _trainMass; // tons
     bool _handbrake;
     bool _startupComplete;
+    bool _locoBrakeOn;
+    bool _trainBrakeOn;
+    bool _emergencyBrakeOn;
+    bool _handBrakeOn;
 };

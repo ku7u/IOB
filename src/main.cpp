@@ -211,9 +211,9 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include <ESPmDNS.h>
 #include "ESPAsyncWebServer.h"
 #include "AsyncTCP.h"
-#include "ESPConnect.h"
-#include "AsyncElegantOTA.h"
-// #include "ElegantOTA.h"
+// #include "ESPConnect.h"   // TBD need for this?
+// #include "AsyncElegantOTA.h"
+#include "ElegantOTA.h"
 #include "Preferences.h"
 #include "PubSubClient.h"
 #include "WiFi.h"
@@ -223,13 +223,14 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include "RBot.h"
 #include "Function.h"
 #include "PacketRegister.h"
-#include "CurrentMonitor.h"
+// #include "CurrentMonitor.h"  //TBD remove current monitor
 #include "Sensor.h"
 #include "SerialCommand.h"
 #include "Config.h"
 #include "Comm.h"
 #include "Throttle.h"
 #include "Location.h"
+#include "Train.h"
 #include "Fifo.h"
 #include "MultiTimer.h"
 #include "time.h"
@@ -271,6 +272,7 @@ Fifo commandFifo;
 BrakeSystem bs;
 
 Throttle throttle;
+Train train;
 
 MagnetReader magReader(LEFT_HED_PIN, RIGHT_HED_PIN);
 
@@ -286,7 +288,7 @@ uint32_t blue;
 // functions
 String headlightFunction;
 
-// timers 
+// timers
 MultiTimer timer1sec(1000);
 MultiTimer timer200ms(200);
 // MultiTimer timer250ms(250);
@@ -299,7 +301,7 @@ MultiTimer timer200ms(200);
 volatile RegisterList mainRegs(MAX_MAIN_REGISTERS); // create list of registers for MAX_MAIN_REGISTER Main Track Packets
 volatile RegisterList progRegs(2);                  // create a shorter list of only two registers for Program Track Packets
 
-CurrentMonitor mainMonitor(CURRENT_MONITOR_PIN_MAIN, "<p2>"); // create monitor for current on Main Track
+// CurrentMonitor mainMonitor(CURRENT_MONITOR_PIN_MAIN, "<p2>"); // create monitor for current on Main Track   //TBD remove current monitor
 // CurrentMonitor progMonitor(CURRENT_MONITOR_PIN_PROG, "<p3>"); // create monitor for current on Program Track
 
 /*
@@ -892,8 +894,8 @@ void setupWeb()
 // configure mDNS - allows access via URL "ols<locoID>.local"
 void setupMDNS(String locoid)
 {
-  // start mDNS, works on Win10, 11, Linux, Mac - supposed to work on Android but doesn't
-  // the web pages will be available at http://"WCBOD" + SSID.local and at IP address
+  // start mDNS, works on Win10, 11, Linux, Mac - supposed to work on Android but doesn't always
+  // the web pages will be available at http://"OLS" + "locoID".local and at IP address
   String myNode = "OLS" + locoid;
   mdnsURL = myNode + ".local";
   mdnsURL.toLowerCase();
@@ -929,24 +931,15 @@ void setupNeoPixels(int numLamps)
   blue = strip.gamma32(strip.ColorHSV(65536 * 2 / 3, 200, 70));
   for (int i = 0; i < numLamps; i++)
     strip.setPixelColor(i, red);
-  strip.show();
+  strip.show(); 
 }
 #endif
 
 /*****************************************************************************/
-// TBD TBD TBD what is this?
-// void report()
-// {
-//   // String x = "{id:" + "GN2178" + ",ip:" + "1234"}";
-//   String x = "{id:GN4321,ip:192.168.0.132}";
-//   client.publish("tlm/ols/16/report", x.c_str());
-// }
-
-/*****************************************************************************/
 void setup()
 {
-  // static u32_t timer;
-
+  // runs once 
+  
 #ifdef SPIFF_CLEAN
   nvs_flash_erase();
   nvs_flash_init();
@@ -964,8 +957,6 @@ void setup()
 
 #ifdef SERIAL_ON
   Serial.begin(115200); // TBD gfh
-  // while(!Serial); // TBD a possible solution to no serial output, didn't work
-  delay(5000); // TBD another possible bonehead solution
   // see USB build flags in platformio.ini - set to zeroes to make it all work for C3F
   // per Espressif note, RTS/CTS must be disabled
   // so in monitor pgm set those to none and then restart the device, possibly requires hard reset (power cycle)
@@ -1024,19 +1015,21 @@ void setup()
   // pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT);  // TBD and this
 #endif
 
-  // WiFi.setSleep(false); // trying to avoid latency
+  WiFi.setSleep(false);        // trying to avoid latency  TBD v0282
+  WiFi.setAutoReconnect(true); // TBD v0282 could lead to stuck device https://esp32.com/viewtopic.php?f=19&t=39116
 
-  AsyncElegantOTA.begin(&server); // Start ElegantOTA
-  // ElegantOTA.begin(&server); // Start ElegantOTA
+  // AsyncElegantOTA.begin(&server); // Start ElegantOTA
+  ElegantOTA.begin(&server); // Start ElegantOTA
   server.begin();
 
   setupMDNS(locoID);
 
   setupWeb();
 
-  SerialCommand::init(&mainRegs, &progRegs, &mainMonitor); // create structure to read and parse commands from serial line
-  mainRegs.loadPacket(1, RegisterList::idlePacket, 2, 0);  // load idle packet into register 1
-  progRegs.loadPacket(1, RegisterList::idlePacket, 2, 0);  // load idle packet into register 1
+  // SerialCommand::init(&mainRegs, &progRegs, &mainMonitor); // create structure to read and parse commands from serial line
+  SerialCommand::init(&mainRegs, &progRegs);              // create structure to read and parse commands from serial line TBD remove current monitor
+  mainRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
+  progRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
 
   // // opposite phases are sent to these two pins controlling one H bridge pair
   pinMode(DCC_SIGNAL_PIN_MAIN, OUTPUT);
@@ -1053,12 +1046,6 @@ void setup()
   timerAlarmWrite(pulseTimer1, DCC_ZERO_BIT_TOTAL_DURATION_TIMER1, true);
   timerAlarmEnable(pulseTimer1);
 
-  // // opposite phases are sent to these two pins controlling one H bridge pair
-  // pinMode(DCC_SIGNAL_PIN_MAIN, OUTPUT);
-  // pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT);
-
-  // mainRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
-  // progRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
 
   // MQTT
   mqttNode = "OLS" + locoID;
@@ -1081,10 +1068,8 @@ void setup()
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
   // MQTT
-  // mqttNode = "OLS" + locoID;
-  // mqttSetup(mqttServer, mqttNode);
   connectMQTT(mqttNode);
-  setupSubscriptions(); 
+  setupSubscriptions();
 
 } // end setup
 
@@ -1096,7 +1081,7 @@ void loop()
 
   // process the mqtt input
   client.loop();
-  /*   if (!client.loop())
+  /*   if (!client.loop()) I took this out for a reason, caused some issue on reconnection?
     {
   #ifdef ESP32C3DK
       // show yellow LED if no connection to MQTT server
@@ -1116,7 +1101,8 @@ void loop()
     } */
 
   // if (magReader.check(throttle.getLastIntCurrentSpeed())) // check for waypoints by reading magnets embedded in track
-  //   uint milepost = magReader.process(throttle.isForward());
+  //   uint milepost = magReader.process(throttle.isForward()); waddawedo with 'milepost'?
+  // maybe set milepost in throttle so it can update POL with odometer calcs
 
   // read and process a command from the fifo every 200 ms to not overwhelm the decoder
   // if (timer200ms.expired)
@@ -1126,10 +1112,15 @@ void loop()
   // process the dynamics once per second
   if (timer1sec.expired)
   {
-    // long  myStart = millis();
+// #ifdef SERIAL_ON
+//     long myStart = millis();
+// #endif
     throttle.computeVelocity();
-    // long myDuration = millis() - myStart;
-    // Serial.print("Duration ");Serial.println(myDuration);
+// #ifdef SERIAL_ON
+//     long myDuration = millis() - myStart;
+//     Serial.print("Duration ");
+//     Serial.println(myDuration);
+// #endif
   }
 
 } // end loop

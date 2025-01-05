@@ -1,5 +1,4 @@
-#ifndef LOCATION_H
-#define LOCATION_H
+#pragma once
 
 #include "Arduino.h"
 
@@ -25,5 +24,3 @@ struct MagnetReader
     bool check(uint);
     uint process(bool);
 };
-
-#endif

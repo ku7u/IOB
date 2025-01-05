@@ -26,15 +26,16 @@ Part of DCC++ BASE STATION for the Arduino
 char SerialCommand::commandString[MAX_COMMAND_LENGTH + 1];
 volatile RegisterList *SerialCommand::mRegs;
 volatile RegisterList *SerialCommand::pRegs;
-CurrentMonitor *SerialCommand::mMonitor;
+// CurrentMonitor *SerialCommand::mMonitor; //TBD remove current monitor
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void SerialCommand::init(volatile RegisterList *_mRegs, volatile RegisterList *_pRegs, CurrentMonitor *_mMonitor)
+// void SerialCommand::init(volatile RegisterList *_mRegs, volatile RegisterList *_pRegs, CurrentMonitor *_mMonitor)
+void SerialCommand::init(volatile RegisterList *_mRegs, volatile RegisterList *_pRegs)  // TBD remove current monitor
 {
   mRegs = _mRegs;
   pRegs = _pRegs;
-  mMonitor = _mMonitor;
+  // mMonitor = _mMonitor;  TBD remove current monitor
   sprintf(commandString, "");
 } // SerialCommand:SerialCommand
 

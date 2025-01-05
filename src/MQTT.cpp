@@ -68,7 +68,7 @@ void setupSubscriptions()
   Preferences myPrefs;
 
   myPrefs.begin("loco", true);
-  String myRoadnum = String(myPrefs.getInt("roadnum", 3));
+  String myRoadnum = String(myPrefs.getInt("roadnum", 3));  // TBD? what is this
   String myLocoID = myPrefs.getString("locoid", "none");
   myPrefs.end();
 
@@ -88,6 +88,12 @@ void setupSubscriptions()
   // client.subscribe(subscription, 1);
   client.subscribe(subscription, 0);  // TBD testing QOS effect 7/12/24
 
+  // setup subscription to trackserver
+  String trackserverTopic = "da/ts/"; // TBD must be variable
+  trackserverTopic.concat(String(myLocoID + "/#"));
+  strcpy(subscription, trackserverTopic.c_str());
+  client.subscribe(subscription, 0);  
+
 }
 
 /*****************************************************************************/
@@ -100,13 +106,19 @@ void callback(char *topic, byte *message, unsigned int length)
   char messChars[200];
   String topicString = String(topic);
 
-  String partString = topicString.substring(topicString.indexOf('/') + 1); // gets rid of first field (cmd)
-  partString = partString.substring(partString.indexOf('/') + 1);          // gets rid of second field (ols)
-  partString = partString.substring(partString.indexOf('/') + 1);          // gets rid of third field (roadnum)
-  // the above scheme also works for mu messaging
+  // the scheme below also works for mu messaging
   // we only see cmd messages addressed to us or tlm messages sourced from our lead
   // if mid or trailing we will see messages like tlm/ols/leadID/status but only from leadID as subscribed
   // so can ignore first three fields as above and search for 'status'
+
+  // similarly the scheme is forced to work for traindata coming from track server
+  // we subscribe to messages like da/ts/[our loco ID]/traindata
+  // search for traindata
+
+  // TBD this method of parsing is lame and prone to future errors, relies on a three part topic leadin
+  String partString = topicString.substring(topicString.indexOf('/') + 1); // gets rid of first field (cmd) or (da)
+  partString = partString.substring(partString.indexOf('/') + 1);          // gets rid of second field (ols) or (ts)
+  partString = partString.substring(partString.indexOf('/') + 1);          // gets rid of third field (roadnum)
 
   for (int i = 0; i < length; i++)
     messChars[i] = (char)message[i];
@@ -116,6 +128,8 @@ void callback(char *topic, byte *message, unsigned int length)
 
   if (partString == "report")
     throttle.report();
+
+  // basic throttle ops
   else if (partString == "startstop")
     throttle.pmOnOff(msgVal);
   else if (partString == "stop")
@@ -151,14 +165,6 @@ void callback(char *topic, byte *message, unsigned int length)
     throttle.trainline(msgVal);
   else if (partString == "carcount")
     throttle.setCarCount(msgVal);
-  else if (partString == "setmustate")
-    throttle.setMuState(messChars);
-  else if (partString == "muperformance")
-    throttle.setMuPerformance(messChars);
-  else if (partString == "muReport")
-    throttle.muReport(messChars);
-  else if (partString == "status")
-    throttle.setMuSpeed(messChars);
   else if (partString == "sendstatus")
   {
     throttle.reportCondition();
@@ -173,5 +179,18 @@ void callback(char *topic, byte *message, unsigned int length)
   else if (partString == "function")
     throttle.setFunction(messChars);
 
+  // following is mu stuff
+  else if (partString == "setmustate")
+    throttle.setMuState(messChars);
+  else if (partString == "muperformance")
+    throttle.setMuPerformance(messChars);
+  else if (partString == "muReport")
+    throttle.muReport(messChars);
+  else if (partString == "status")
+    throttle.setMuSpeed(messChars);
+
+  // following from track server
+  else if (partString == "traindata")
+    throttle.setTrainData(messChars);
   return;
 }

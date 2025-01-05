@@ -1,5 +1,4 @@
-#ifndef FUNCTION_H
-#define FUNCTION_H
+#pragma once
 
 // #include "Arduino.h"
 // #include "Throttle.h"
@@ -23,5 +22,3 @@ extern uint16_t functionEmergencyBrake;
 
 void setFunction(int function, bool onOff);
 void startStop(bool start);
-
-#endif

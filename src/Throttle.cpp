@@ -1,7 +1,7 @@
 #include <iostream>
+#include "WiFi.h"
 #include "Arduino.h"
 #include "PubSubClient.h"
-#include "WebSerial.h" // TBD need for this?
 #include "defines.h"
 #include "Throttle.h"
 #include "SerialCommand.h"
@@ -10,8 +10,6 @@
 #include "Preferences.h"
 #include "Fifo.h"
 #include "BrakeSystem.h"
-
-// using std::vector;
 
 extern PubSubClient client;
 extern Fifo commandFifo;
@@ -457,70 +455,54 @@ void Throttle::setTonnage(uint16_t tonnage)
     reportCondition(); // v 0.15
 }
 
+void Throttle::setTrainData(char *traindata)
+{
+    JsonDocument doc;
+
+    // Deserialize the JSON document coming from candidate
+    // DeserializationError error = deserializeJson(doc, jsonMsg);
+    deserializeJson(doc, traindata);
+
+    int length = doc["length"];
+    int tonnage = doc["tonnage"];
+
+    setTonnage(tonnage);
+}
+
 void Throttle::setLBrake(bool applying)
 {
     if (applying)
-    {
-        _independentBrake = bs.applyLocoBrake(true); // notches independent brake up one
         _opMode = braking;
-        if (_independentBrake == 0)
-            commandFifo.pushCommand(functionIndependentBrake, true);
-    }
     else
-    {
-        _independentBrake = bs.applyLocoBrake(false); // release
         _opMode = idle;
-        commandFifo.pushCommand(functionIndependentBrake, false);
-    }
+
+    commandFifo.pushCommand(functionIndependentBrake, applying);
+    _independentBrake = bs.applyLocoBrake(applying);
 }
 
 void Throttle::setABrake(bool applying)
 {
     if (applying)
-    {
         _opMode = braking;
-        if (_trainBrake == 0)
-            commandFifo.pushCommand(functionTrainBrake, true);
-
-        _trainBrake = bs.applyTrainBrake(true); // notches independent brake up one
-#ifdef MQTT_DEBUG_ON
-        reportMqttDebug("trainBrake in setABrake ", _trainBrake);
-#endif
-    }
     else
-    {
-        _trainBrake = bs.applyTrainBrake(false); // release
         _opMode = idle;
-        commandFifo.pushCommand(functionTrainBrake, false);
-    }
+
+    _trainBrake = bs.applyTrainBrake(applying);
+    commandFifo.pushCommand(functionTrainBrake, applying);
 }
 
-void Throttle::setEBrake(bool val)
+void Throttle::setEBrake(bool applying)
 {
-    if (val)
-    {
-        // _trainlinePSI = 0;
-        // _emergencyBrake = 1;     // v 0.13
-        bs.applyEmmergency(true);
-        _trainBrake = bs.getEffectiveTrainBrake();
-        _independentBrake = bs.getEffectiveLocoBrake();
-        // _independentBrake = 100; // v 0.13
-        commandFifo.pushCommand(functionEmergencyBrake, true);
+    if (applying)
         _opMode = braking;
-    }
     else
-    {
-        // TBD how to reset trainline pressure
-        // _emergencyBrake = 0;
-        // _independentBrake = 0; // TBD v 0.13
-
-        bs.applyEmmergency(false);
-        _trainBrake = bs.getEffectiveTrainBrake();
-        _independentBrake = bs.getEffectiveLocoBrake();
-
-        commandFifo.pushCommand(functionEmergencyBrake, false);
         _opMode = idle;
-    }
+    // TBD how to reset trainline pressure
+
+    bs.applyEmmergency(applying);
+    _trainBrake = bs.getEffectiveTrainBrake();
+    _independentBrake = bs.getEffectiveLocoBrake();
+    commandFifo.pushCommand(functionEmergencyBrake, applying);
 }
 
 void Throttle::trainline(bool connect)
@@ -548,7 +530,7 @@ void Throttle::manualNotch(bool up)
         return;
 
     now = millis();
-    if ((now - _startTimestamp) < 6000) // wait for decoder to prime itself
+    if ((now - _startTimestamp) < 10000) // wait for decoder to prime itself v029A
         return;
 
     if (up && _opMode != braking)
@@ -565,9 +547,12 @@ void Throttle::manualNotch(bool up)
     // release the brakes
     {
         _opMode = idle;
-        setEBrake(false);
-        setABrake(false);
-        setLBrake(false);
+        if (bs.emergencyBrakeOn())
+            setEBrake(false);
+        if (bs.trainBrakeOn())
+            setABrake(false);
+        if (bs.locoBrakeOn())
+            setLBrake(false);
     }
     else if (!up && _opMode == powered)
     // notching down
@@ -580,16 +565,19 @@ void Throttle::manualNotch(bool up)
         _notch--;
         if (_notch == 0)
         {
+            _opMode = idle;
             // TBD adding next two lines as test to fix the hanging notch 1 issue
             commandFifo.pushCommand(functionNotchDown, true); // this didn't work
             commandFifo.pushCommand(functionNotchDown, false);
-            _opMode = idle;
         }
     }
     else if (!up && ((_opMode == idle) || (_opMode == braking)))
     // incrementally apply brakes
     {
         setLBrake(true);
+#ifdef SERIAL_ON
+        Serial.println("after setLBrake");
+#endif
         if (_trainlineConnected)
             setABrake(true);
         return; // so that notch is not redundantly returned to throttle
@@ -623,10 +611,12 @@ void Throttle::longPress(bool up)
     if (up && _opMode == braking)
     {
         // release all brakes
-
-        setLBrake(false);
-        setABrake(false);
-        setEBrake(false);
+        if (bs.emergencyBrakeOn())
+            setEBrake(false);
+        if (bs.trainBrakeOn())
+            setABrake(false);
+        if (bs.locoBrakeOn())
+            setLBrake(false);
     }
 
     if (up && (_opMode == idle) && (_currentSpeed == 0))
@@ -698,19 +688,21 @@ void Throttle::computeVelocity(void)
         bs.setPMRunning(false);
     }
 
-    if ((!_running) || ((_muActive) && (_muState > 1)))
-        return;
+    // if ((!_running) || ((_muActive) && (_muState > 1)))
+    //     return;
 
     if (startupCounter < 15)
         startupCounter++;
     else if (startupCounter == 15)
-        {
-            bs.setPMRunning(true);
-            startupCounter++;
-        }
+    {
+        bs.setPMRunning(true);
+        startupCounter++;
+    }
 
-    // setAirGauge();
     bool compressorRunning = bs.cycle(true); // v027
+    if ((!_running) || ((_muActive) && (_muState > 1)))
+        return;
+
     _trainlinePSI = bs.getTrainlinePSI();
     _trainBrake = bs.getEffectiveTrainBrake();
     _independentBrake = bs.getEffectiveLocoBrake();
@@ -1414,6 +1406,9 @@ void Throttle::setMuSpeed(char *jsonMsg)
 {
     // receive speed messages from lead unit, set this unit's speed to match
 
+    static bool lastBrake;
+    float lastOdo;     // odometer update
+
     if ((!_muActive) || (!_running)) // TBD this is a workaround that can't be left in the code why? because we may not be running
         return;
 
@@ -1433,7 +1428,7 @@ void Throttle::setMuSpeed(char *jsonMsg)
     float muMPH = doc["mph"];
 
     // first check to determine if lead thinks we should be in consist
-    // my locoID should be in the consist string
+    // my locoID should be in the consist string, if it isn't we give up the consist spot
     String consistString = doc["consist"];
     if ((consistString.indexOf(_locoID) == -1) && (muMPH > 0)) // need to qualify for speed > 0 to avoid disconnecting because of preliminary status msgs
     {
@@ -1452,6 +1447,7 @@ void Throttle::setMuSpeed(char *jsonMsg)
     }
 
     // wiggle the value to outsmart BEMF
+    // TBD in testing, this did not seem to be necessary using LokSound5 with BEMF in use
     // if (muMPH > .5)
     // {
     //     if (alternateSeconds)
@@ -1466,16 +1462,26 @@ void Throttle::setMuSpeed(char *jsonMsg)
     if (_muReversed) // true if running reversed in consist
         direction = !direction;
 
-    _direction = direction; // TBD this is sloppy, but possibly prototypical
+    _direction = direction;
 
     // retrieve notch in order to alter PM sound
     u16_t notch = doc["notch"];
-
     while (_notch != notch)
-    {
         manualNotch(_notch < notch); // if true notch up, else down until equal
+
+    bool brk = doc["brk"];
+    if (brk != lastBrake)
+        commandFifo.pushCommand(functionIndependentBrake, brk);
+    lastBrake = brk;
+
+    float odo = doc["odo"];     // TBD not working v0285
+    if (odo != lastOdo)
+    {
+        _odometer+= .01;
+        lastOdo = odo;
     }
 
+    // control this loco's speed
     // convert mph to fps
     float muFPS = muMPH / FPS_TO_MPH_FACTOR;
 
@@ -1553,9 +1559,9 @@ void Throttle::reportCondition()
     strcat(msgChars, charBl);
 
     // car count    TBD this and 'cars' below one is superfluous
-    strcat(msgChars, ",\"cc\":"); // new 11/8
-    dtostrf(_carCount, 2, 0, charCc);
-    strcat(msgChars, charCc);
+    // strcat(msgChars, ",\"cc\":"); // new 11/8
+    // dtostrf(_carCount, 2, 0, charCc);
+    // strcat(msgChars, charCc);
 
     // trainline
     strcat(msgChars, ",\"psi\":"); // new 10/29
@@ -1575,7 +1581,7 @@ void Throttle::reportCondition()
     }
 
     // trainline connection status
-    strcat(msgChars, ",\"tl\":"); // v 0.15
+    strcat(msgChars, ",\"tl\":");                               // v 0.15
     const char charTl[2] = {char(_trainlineConnected + 48), 0}; // 48 = ascii zero
     strcat(msgChars, charTl);
 
@@ -1624,6 +1630,10 @@ void Throttle::reportStatus()
     strcat(msgChars, ",\"notch\":");
     const char charNotch[2] = {char(_notch + 48), 0}; // 48 = ascii zero
     strcat(msgChars, charNotch);
+
+    strcat(msgChars, ",\"brk\":");                              // depicts loco brake on or off
+    const char charBrake[2] = {char(bs.locoBrakeOn() + 48), 0}; // 48 = ascii zero
+    strcat(msgChars, charBrake);
 
     strcat(msgChars, ",\"odo\":");
     dtostrf((_odometer / 5280), 4, 2, charOdo);

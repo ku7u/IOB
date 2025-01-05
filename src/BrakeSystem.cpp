@@ -80,11 +80,11 @@ bool BrakeSystem::cycle(bool pmRunning)
     if ((_trainlineSetPSI > _trainlinePSI))
     {
         if (_carCount < 5)
-            _trainlinePSI += 10;
+            _trainlinePSI += 20;
         else if (_carCount < 10)
-            _trainlinePSI += 5;
+            _trainlinePSI += 10;
         else
-            _trainlinePSI += 2;
+            _trainlinePSI += 5;
 
         if (_trainlinePSI > TRAINLINE_MAX_PSI)
             _trainlinePSI = TRAINLINE_MAX_PSI;
@@ -102,9 +102,13 @@ float BrakeSystem::applyLocoBrake(bool applying)
     static uint16_t leverPosition;
 
     if (applying)
+    {
+        _locoBrakeOn = true;
         leverPosition += PER_NOTCH;
+    }
     else
     {
+        _locoBrakeOn = false;
         leverPosition = 0;
         _effectiveLocoBrake = 0;
         return 0;
@@ -145,10 +149,12 @@ float BrakeSystem::applyTrainBrake(bool applying)
 
     if (applying)
     {
+        _trainBrakeOn = true;
         leverPosition += PER_NOTCH;
     }
     else
     {
+        _trainBrakeOn = false;
         _trainlineSetPSI = TRAINLINE_MAX_PSI;
         leverPosition = 0;
         _effectiveTrainBrake = 0;
@@ -177,6 +183,7 @@ void BrakeSystem::applyEmmergency(bool applying)
     // pipe pressure goes to zero immediately
     if (applying)
     {
+        _emergencyBrakeOn = true;
         _trainlineSetPSI = 0;
         _trainlinePSI = 0;
         _trainBrakeApplied = true;
@@ -189,6 +196,7 @@ void BrakeSystem::applyEmmergency(bool applying)
     // _effectiveTrainBrake should increase from zero with pipe pressure
     else
     {
+        _emergencyBrakeOn = false;
         // _effectiveLocoBrake = 0;
         // _effectiveTrainBrake = 100;
         _trainBrakeApplied = false;
@@ -205,17 +213,35 @@ void BrakeSystem::connectAirLine(bool connecting, uint16_t carCount)
     // reduce the trainline pressure proportional to carcount
     _trainlinePSI -= _carCount * 2;
     if (_trainlinePSI < 0)
-        _trainlinePSI = 0; // TBD this is probably trouble due to using uint16_t, should be int
+        _trainlinePSI = 0; 
 }
 
 void BrakeSystem::release(void)
 
 {
-    // TBD
+    // TBD probably not used
+    applyEmmergency(false);
+    applyLocoBrake(false);
+    applyTrainBrake(false);
     _trainlineSetPSI = TRAINLINE_MAX_PSI;
 }
 
 void BrakeSystem::setPMRunning(bool complete)
 {
     _startupComplete = complete;
+}
+
+bool BrakeSystem::locoBrakeOn(void)
+{
+    return _locoBrakeOn;
+}
+
+bool BrakeSystem::trainBrakeOn(void)
+{
+    return _trainBrakeOn;
+}
+
+bool BrakeSystem::emergencyBrakeOn(void)
+{
+    return _emergencyBrakeOn;
 }

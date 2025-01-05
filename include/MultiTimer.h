@@ -1,5 +1,4 @@
-#ifndef MULTITIMER_H
-#define MULTITIMER_H
+#pragma once
 
 #include "Arduino.h"
 
@@ -16,7 +15,3 @@ class MultiTimer
   	unsigned long _startMillis;
     unsigned long _interval = 0;
 };
-
-
-
-#endif
