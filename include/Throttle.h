@@ -13,6 +13,7 @@ public:
     void getFunctionPrefs(void);
     void getLocoPrefs(void);
     void report(void);
+    void udpReport(void);
     void setRoadNumber(int roadNumber);
     void pmOnOff(bool onOff);
     void bell(bool onOff);
@@ -26,6 +27,7 @@ public:
     void setTrainData(char *);
     // void setGrade(int grade);
     void manualNotch(bool up);
+    void reportNotch(void);
     void longPress(bool up);
     void computeVelocity(void);
     void setLBrake(bool); // loco (independent) brake using BrakeSystem
@@ -56,6 +58,7 @@ public:
     void setCV(int, int);
     void setFunction(char *);
     bool isRunning(void);
+    void setWaypoint(uint8_t, bool); // waypoint ID, direction E=true
 
     int functionPM;
     int functionBell;
@@ -124,6 +127,7 @@ private:
     uint16_t _locoMass;    // slugs
     uint16_t _muLocoMass;  // total mass of mued locos, excluding lead
     uint32_t _tractiveEffort;
+    uint16_t _topSpeed;         // fps gfh add 020525
     uint32_t _muTractiveEffort; // total te of mued locos, excluding lead
     float _lastTractiveForce;
     float _independentBrake; // percent
@@ -169,8 +173,8 @@ private:
 
     const int TOPIC_CHAR_SIZE = 200;
     const float ROLLING_RESISTANCE_COEFICIENT = .0020; // was .0015
-    const float VARIABLE_LOCO_DRAG_COEFICIENT = .000;  // was .0003
-    const float LOCO_FRICTION_COEFICIENT = .1;         // similar to friction coefficient for brakes TBD
+    const float VARIABLE_LOCO_DRAG_COEFICIENT = .0004;  // gfh 020825 was 0.0006 / 021725 was 0005
+    const float LOCO_FRICTION_COEFICIENT = .2;         // similar to friction coefficient for brakes gfh 020725 was .1
     const float TRAIN_BRAKE_FRICTION_COEFICIENT = .05; // v027D was .1
 
     const float FPS_TO_MPH_FACTOR = 3600. / 5280;

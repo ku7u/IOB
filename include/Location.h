@@ -7,6 +7,8 @@ struct MagnetReader
 {
     MagnetReader(int x, int y);
 
+    const uint MAX_BITS = 4;    // number of bits in the location code = number of magnets on sync side
+
     enum sampleState {clear, started };
     sampleState detectState;
     bool errorState;

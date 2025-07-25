@@ -47,18 +47,15 @@
     </table>
     <hr>
     <br>
-    <p>To disconnect from the current WiFi access point (AP) to allow reconnecting to a new AP, enter a 'Y' in the input box below. A reboot is required afterward.</p>
-    <form action="/get">
-      <input type="hidden" name="EraseParm" value="0">
-      <table>
-        <tr>
-          <td>Force reconnect?</td>
-          <td><input type="text" name="erasessid" value="%ERASESSID%" size="2" style=text-align:center></td>
-        </tr>
-      </table>
-      <br>
-      <input type="submit" value="Submit"> <input type="reset">
-    </form>
+
+    <h2>AP Selection</h2>
+    <p>To select a WiFi access point click the button below. You will be taken to a page where an existing AP can be selected.</p>
+
+    <a href="apselect.html">
+      <button>Select AP</button>
+    </a>
+    
+
     <hr>
     <br>
     <p>Assign the following MQTT related network parameters associated with this loco. The topics should not be modified in most cases.</p>

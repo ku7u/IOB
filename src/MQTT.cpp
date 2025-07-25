@@ -11,6 +11,8 @@ extern PubSubClient client;
 extern Throttle throttle;
 extern Adafruit_NeoPixel strip;
 
+
+
 /*****************************************************************************/
 // defines the connection parameters, the callback, and the subscriptions 
 void mqttSetup(String mqtt_Server, String iobNode)
@@ -26,7 +28,7 @@ void mqttSetup(String mqtt_Server, String iobNode)
   sscanf(mqtt_server, "%u.%u.%u.%u", &ip[0], &ip[1], &ip[2], &ip[3]);
   client.setBufferSize(1024); // defaults to 256
   client.setServer(ip, 1883); // 1883 is the default port on mosquitto server
-  // client.setKeepAlive(60);    // this is probaably not necessary, just use the default  v263
+  client.setKeepAlive(60);    // observed disconnects when using the default which may be 30 seconds
   client.setCallback(callback);
   // connectMQTT(iobNode);
   // setupSubscriptions();

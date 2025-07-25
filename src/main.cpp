@@ -199,11 +199,12 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 
 **********************************************************************/
 
-#include "devices.h"     // modify the contents as required to match the hardware
-#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager  gfh
+#include "devices.h" // modify the contents as required to match the hardware
+// #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager  gfh
 
 #include "nvs_flash.h"
 #include <Arduino.h>
+#include "ArduinoJson.h"
 #include <iostream>
 // there is a problem in ESPAsyncWebServer and the dorks don't fix it
 // I forced the platform version in platformio.ini per recommendation in following
@@ -217,6 +218,7 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include "Preferences.h"
 #include "PubSubClient.h"
 #include "WiFi.h"
+#include <WiFiUdp.h> // UDP
 #include "MQTT.h"
 #include "FS.h"
 #include "SPIFFS.h"
@@ -238,6 +240,9 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include "Adafruit_NeoPixel.h"
 #include "defines.h"
 #include "BrakeSystem.h"
+#include "UartReader.h"
+#include "HardwareSerial.h"
+#include "WiFiConfigurator.h"
 
 using namespace std;
 
@@ -249,12 +254,23 @@ using namespace std;
 
 Preferences myPrefs;
 
-AsyncWebServer server(80);
-
 // wifi
 WiFiClient espClient;
-bool eraseSSID = false;
+// bool eraseSSID = false;
 String mdnsURL;
+AsyncWebServer server(80);
+WiFiConfigurator wifiConfig(server);
+// unsigned long softAPTimeout = 300000; // 5 minutes
+// unsigned long softAPStartTime ;
+
+// udp
+WiFiUDP udp;
+WiFiUDP udpCommand;
+WiFiUDP udpTelemetry;
+WiFiUDP udpRollcall;
+const int ROLLCALL_PORT = 50001;  // Port this ESP32 listens on for rollcall
+const int COMMAND_PORT = 50002;   // commands to me use this
+const int TELEMETRY_PORT = 50003; // speed, etc. telementry from lead loco in consist
 
 // time
 const char *ntpServer = "pool.ntp.org";
@@ -270,10 +286,12 @@ String topicFeedbackLeftEnd;
 
 Fifo commandFifo;
 BrakeSystem bs;
+UartReader uartReader;
 
 Throttle throttle;
 Train train;
 
+// position on layout
 MagnetReader magReader(LEFT_HED_PIN, RIGHT_HED_PIN);
 
 // neoPixel on C3 mini
@@ -291,9 +309,7 @@ String headlightFunction;
 // timers
 MultiTimer timer1sec(1000);
 MultiTimer timer200ms(200);
-// MultiTimer timer250ms(250);
-// MultiTimer timer500ms(500);
-// MultiTimer timer150ms(150);
+MultiTimer timer60000ms(60000);
 
 // NEXT DECLARE GLOBAL OBJECTS TO PROCESS AND STORE DCC PACKETS AND MONITOR TRACK CURRENTS.
 // NOTE REGISTER LISTS MUST BE DECLARED WITH "VOLATILE" QUALIFIER TO ENSURE THEY ARE PROPERLY UPDATED BY INTERRUPT ROUTINES
@@ -433,7 +449,7 @@ void getGeneralPrefs()
   mqttServer = myPrefs.getString("mqttserver", "192.168.99.99");
   topicCommandLeftEnd = myPrefs.getString("commandtopic", "cmd/ols/");
   topicFeedbackLeftEnd = myPrefs.getString("feedbacktopic", "tlm/ols/");
-  eraseSSID = myPrefs.getBool("erasessid", false);
+  // eraseSSID = myPrefs.getBool("erasessid", false);
 
   myPrefs.end();
 }
@@ -442,6 +458,7 @@ void getGeneralPrefs()
 // this function converts placeholders in index.html into active data values
 String processorIndex(const String &var)
 {
+  Serial.println("Processor var: " + var); // Debug
   if (var == "version")
     return olsVersion;
 
@@ -452,6 +469,8 @@ String processorIndex(const String &var)
 // this function converts placeholders in network.html into active data values
 String processorNetwork(const String &var)
 {
+  Serial.print("Template variable: ");
+  Serial.println(var);
   if (var == "IP")
     return WiFi.localIP().toString();
   else if (var == "SSID")
@@ -467,15 +486,14 @@ String processorNetwork(const String &var)
   else if (var == "MQTTSERVERIPADR")
     return mqttServer;
   else if (var == "TOPICCOMMANDLEFTEND")
-    return topicCommandLeftEnd;
-  else if (var == "TOPICFEEDBACKLEFTEND")
-    return topicFeedbackLeftEnd;
-  else if (var == "ERASESSID")
   {
-    if (eraseSSID)
-      return "Y";
-    else
-      return "N";
+    topicCommandLeftEnd.replace("%", "");
+    return topicCommandLeftEnd;
+  }
+  else if (var == "TOPICFEEDBACKLEFTEND")
+  {
+    topicFeedbackLeftEnd.replace("%", "");
+    return topicFeedbackLeftEnd;
   }
 
   return String(); // in case nothing matched
@@ -686,8 +704,8 @@ void setupWeb()
             { request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork); });
   server.on("/calibration.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/calibration.html", "text/html", false, processorCalibrationparms); });
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(SPIFFS, "/stylesheet.css", "text/css", false); });
+  // server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+  //           { request->send(SPIFFS, "/stylesheet.css", "text/css", false); });
 
   server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -714,7 +732,7 @@ void setupWeb()
       inputParam = request->getParam("erasessid")->value();
       myPrefs.putBool("erasessid", inputParam == "Y");
       myPrefs.end();
-      eraseSSID = inputParam == "Y";
+      // eraseSSID = inputParam == "Y";
       request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork);
       ESP.restart();  // v 0.23
     }
@@ -919,6 +937,84 @@ void setupMDNS(String locoid)
 }
 
 /*****************************************************************************/
+void processUdpRollcall()
+{
+  // String msg = "{ID=" + locoID + " + ";IP=" + WiFi.localIP().toString() +};
+  char buf[128];
+  int len = udpRollcall.read(buf, sizeof(buf) - 1);
+  if (len > 0)
+  {
+    // Add jitter to reduce interference of the response messages
+    delay(random(10, 200));
+
+    buf[len] = 0;
+    String msg = String(buf);
+    Serial.println("udp broadcast received: " + msg);
+
+    // Build JSON response
+    StaticJsonDocument<200> doc;
+    myPrefs.begin("loco");
+    doc["locoID"] = myPrefs.getString("locoid", "none");
+    doc["ip"] = WiFi.localIP().toString();
+    doc["type"] = myPrefs.getString("locotype", "none");
+    myPrefs.end();
+
+    char jsonBuf[200];
+    serializeJson(doc, jsonBuf);
+
+    // Reply via unicast
+    IPAddress senderIP = udpRollcall.remoteIP();
+    int senderPort = udpRollcall.remotePort();
+
+    udpRollcall.beginPacket(senderIP, senderPort);
+    udpRollcall.write((uint8_t *)jsonBuf, strlen(jsonBuf));
+    udpRollcall.endPacket();
+
+    Serial.println("Sent unicast response to: " + senderIP.toString());
+  }
+}
+
+/*****************************************************************************/
+void processUdpCommand()
+{
+  // call something in the throttle object
+
+  char buf[128];
+  int len = udpCommand.read(buf, sizeof(buf) - 1);
+  if (len > 0)
+  {
+    buf[len] = 0;
+    String msg = String(buf);
+    Serial.println("udp broadcast received: " + msg);
+  }
+
+  // Parse the JSON
+  StaticJsonDocument<256> doc;
+  DeserializationError error = deserializeJson(doc, buf);
+
+  if (error)
+  {
+    Serial.print("JSON parse failed: ");
+    Serial.println(error.c_str());
+    return;
+  }
+
+  // Extract fields
+  const char *topic = doc["topic"];
+  const char *value = doc["value"];
+
+  Serial.println("Parsed values:");
+  Serial.printf("  topic: %s\n", topic);
+  Serial.printf("  value: %s\n", value);
+
+  if (topic == "startstop")
+    throttle.pmOnOff(value);
+
+  else if (topic == "horn")
+    throttle.horn(value);
+}
+
+/*****************************************************************************/
 #ifdef ESP32C3DK
 void setupNeoPixels(int numLamps)
 {
@@ -931,19 +1027,20 @@ void setupNeoPixels(int numLamps)
   blue = strip.gamma32(strip.ColorHSV(65536 * 2 / 3, 200, 70));
   for (int i = 0; i < numLamps; i++)
     strip.setPixelColor(i, red);
-  strip.show(); 
+  strip.show();
 }
 #endif
 
 /*****************************************************************************/
 void setup()
 {
-  // runs once 
-  
+  // runs once
+
 #ifdef SPIFF_CLEAN
   nvs_flash_erase();
-  nvs_flash_init();
 #endif
+
+  nvs_flash_init();
 
 #ifdef ESP32C3DK
   // strip.begin();
@@ -955,12 +1052,30 @@ void setup()
   setupNeoPixels(1);
 #endif
 
+#ifdef ESP32CF
+  // don't leave unused pins floating
+  // TBD
+#endif
+
+#ifdef ESP8685_05
+  // don't leave unused pins floating
+  pinMode(5, INPUT_PULLDOWN);
+  pinMode(6, INPUT_PULLDOWN);
+  pinMode(7, INPUT_PULLDOWN);
+  pinMode(9, INPUT_PULLDOWN);
+#endif
+
 #ifdef SERIAL_ON
   Serial.begin(115200); // TBD gfh
   // see USB build flags in platformio.ini - set to zeroes to make it all work for C3F
   // per Espressif note, RTS/CTS must be disabled
   // so in monitor pgm set those to none and then restart the device, possibly requires hard reset (power cycle)
   Serial.println("OLS firmware version " + String(olsVersion));
+#endif
+
+#ifdef SERIAL_POL // position on layout reader
+  Serial1.begin(9600, SERIAL_8N1, HW_SERIAL_PIN);
+  pinMode(HW_SERIAL_PIN, INPUT_PULLDOWN);
 #endif
 
   SPIFFS.begin(true); // format on fail
@@ -978,32 +1093,31 @@ void setup()
   Serial.println("SSID " + SSID);
 #endif
 
-  // WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
   // it is a good practice to make sure your code sets wifi mode how you want it.
-
-  // put your setup code here, to run once:
-  // Serial.begin(115200);
+  // WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
 
   // WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
-  WiFiManager wm;
+  // WiFiManager wm;
+  // wifiConfig.begin(locoID.c_str());
+  wifiConfig.begin();
 
   // Automatically connect using saved credentials,
   // if connection fails, it starts an access point with the the chip ID as the name,
   // then goes into a blocking loop awaiting configuration and will return success result
 
-#ifdef SSID_KILL // v 0.23 ff
-  // force a reconnection to wifi AP
-  eraseSSID = true;
-#endif
-  if (eraseSSID)
-  {
-    myPrefs.begin("general", false);
-    myPrefs.putBool("erasessid", false);
-    myPrefs.end();
-    wm.resetSettings(); // wipes saved connection settings
-  }
-
-  bool res = wm.autoConnect(); // auto generated AP name from chipid
+  /* #ifdef SSID_KILL // v 0.23 ff
+    // force a reconnection to wifi AP
+    eraseSSID = true;
+  #endif
+    if (eraseSSID)
+    {
+      myPrefs.begin("general", false);
+      myPrefs.putBool("erasessid", false);
+      myPrefs.end();
+      wm.resetSettings(); // wipes saved connection settings
+    }
+  */
+  // bool res = wm.autoConnect(); // auto generated AP name from chipid
 
 // show yellow LED if connected to wifi
 #ifdef ESP32C3DK
@@ -1017,6 +1131,10 @@ void setup()
 
   WiFi.setSleep(false);        // trying to avoid latency  TBD v0282
   WiFi.setAutoReconnect(true); // TBD v0282 could lead to stuck device https://esp32.com/viewtopic.php?f=19&t=39116
+
+  udpCommand.begin(COMMAND_PORT);     // udp
+  udpTelemetry.begin(TELEMETRY_PORT); // udp
+  udpRollcall.begin(ROLLCALL_PORT);   // udp
 
   // AsyncElegantOTA.begin(&server); // Start ElegantOTA
   ElegantOTA.begin(&server); // Start ElegantOTA
@@ -1046,7 +1164,6 @@ void setup()
   timerAlarmWrite(pulseTimer1, DCC_ZERO_BIT_TOTAL_DURATION_TIMER1, true);
   timerAlarmEnable(pulseTimer1);
 
-
   // MQTT
   mqttNode = "OLS" + locoID;
   mqttSetup(mqttServer, mqttNode);
@@ -1071,6 +1188,9 @@ void setup()
   connectMQTT(mqttNode);
   setupSubscriptions();
 
+  pinMode(LEFT_HED_PIN, INPUT_PULLDOWN); // TBD
+  // pinMode(20, INPUT_PULLDOWN);
+
 } // end setup
 
 /*****************************************************************************/
@@ -1078,31 +1198,67 @@ void loop()
 {
   timer1sec.tick();
   timer200ms.tick();
+  timer60000ms.tick();
+
+  // times out the softAP
+  wifiConfig.loop();
+
+  // following for udp testing
+
+  if (udpRollcall.parsePacket())
+    // respond to rollcall with a unicast message containing loco data
+    processUdpRollcall();
+
+  if (udpCommand.parsePacket())
+    // these are commands from the app
+    processUdpCommand();
+
+  if (udpTelemetry.parsePacket())
+  {
+    // handle telemetry packet, these are speed reports from lead loco in consist
+    // call something in the throttle object
+  }
 
   // process the mqtt input
-  client.loop();
-  /*   if (!client.loop()) I took this out for a reason, caused some issue on reconnection?
-    {
-  #ifdef ESP32C3DK
-      // show yellow LED if no connection to MQTT server
-      strip.setPixelColor(0, yellow);
-      // strip.setPixelColor(0, strip.Color(80, 80, 0)); // yellow
+  // client.loop();
 
-      strip.show();
-  #endif
-      connectMQTT(mqttNode);
-  #ifdef ESP32C3DK
-      // show green LED if connected to MQTT server
-      // strip.setPixelColor(0, strip.Color(80, 0, 0)); // green
-      strip.setPixelColor(0, green);
-      strip.show();
-  #endif
-      setupSubscriptions();
-    } */
+  // if (timer60000ms.expired)
+  // {
+  //   // memory testing
+  //   int freeHeap = ESP.getFreeHeap();
+  //   String myFreeHeap = String(freeHeap);
+  //   unsigned long maxAllocHeap = ESP.getMaxAllocHeap();
+  //   String myMaxAllocHeap = String(maxAllocHeap);
+  //   throttle.reportMqttDebugString(myFreeHeap, "freeHeap");
+  //   throttle.reportMqttDebugString(myMaxAllocHeap, "maxAllocHeap");
+  // }
+
+  if (!client.loop()) // I took this out for a reason, caused some issue on reconnection?
+  {
+#ifdef ESP32C3DK
+    // show yellow LED if no connection to MQTT server
+    strip.setPixelColor(0, yellow);
+    // strip.setPixelColor(0, strip.Color(80, 80, 0)); // yellow
+
+    strip.show();
+#endif
+    // connectMQTT(mqttNode);
+#ifdef ESP32C3DK
+    // show green LED if connected to MQTT server
+    // strip.setPixelColor(0, strip.Color(80, 0, 0)); // green
+    strip.setPixelColor(0, green);
+    strip.show();
+#endif
+    setupSubscriptions();
+  }
 
   // if (magReader.check(throttle.getLastIntCurrentSpeed())) // check for waypoints by reading magnets embedded in track
   //   uint milepost = magReader.process(throttle.isForward()); waddawedo with 'milepost'?
   // maybe set milepost in throttle so it can update POL with odometer calcs
+
+#ifdef SERIAL_POL // also turn on serial above per this switch
+  uartReader.check();
+#endif
 
   // read and process a command from the fifo every 200 ms to not overwhelm the decoder
   // if (timer200ms.expired)
@@ -1112,15 +1268,15 @@ void loop()
   // process the dynamics once per second
   if (timer1sec.expired)
   {
-// #ifdef SERIAL_ON
-//     long myStart = millis();
-// #endif
+    // #ifdef SERIAL_ON
+    //     long myStart = millis();
+    // #endif
     throttle.computeVelocity();
-// #ifdef SERIAL_ON
-//     long myDuration = millis() - myStart;
-//     Serial.print("Duration ");
-//     Serial.println(myDuration);
-// #endif
+    // #ifdef SERIAL_ON
+    //     long myDuration = millis() - myStart;
+    //     Serial.print("Duration ");
+    //     Serial.println(myDuration);
+    // #endif
   }
 
 } // end loop

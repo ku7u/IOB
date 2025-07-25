@@ -1,6 +1,15 @@
+/*
+This routine reads a position on layout from magnets embedded in the ties
+Magnets are embedded in ties on left and right side of tie, near rail
+Eastbound there are magnets on left side on every tie, these are the sync magnets
+Eastbound the magnets on right side are the data, binary encoded, first tie is bit zero
+OLS determines which direction the loco is headed so as to differentiate sync from data and big vs little endian
+*/
+
 #include "Location.h"
 
 MagnetReader::MagnetReader(int leftPin, int rightPin)
+// constructor
 {
     this->leftPin = leftPin;
     this->rightPin = rightPin;
@@ -12,11 +21,12 @@ bool MagnetReader::check(uint currentSpeed)
 {
     bool finished = false;
 
+    // currentSpeed is FPS
     if (currentSpeed == 0)
         // not moving so nothing to do here
         return false;
 
-    uint maxInterMagnetInterval = 4 * 1000 / currentSpeed;  // interval (ms) between magnets at speed TBD the hard coded footage 
+    uint maxInterMagnetInterval = 4 * 1000 / currentSpeed;  // interval (ms) between magnets at speed TBD the hard coded footage (4)
 
     // TBD have to determine if has been a long time since last somestates was true, reset if so
     // had already detected at least one digit but not seeing any others
@@ -68,7 +78,7 @@ bool MagnetReader::check(uint currentSpeed)
         detectState = clear;
         someStates = 0;
         bothStates = 0;
-        if (digitState == 4)
+        if (digitState == MAX_BITS)
         {
             finished = true;
             digitState = 0;
@@ -85,8 +95,8 @@ bool MagnetReader::check(uint currentSpeed)
 uint MagnetReader::process(bool isForward)
 {
     uint codeValue;
-    if ((digitValue[0] && 1) && (digitValue[1] && 1) && (digitValue[2] && 1) && (digitValue[3] && 1))
-        // right side was the sync side or it doesn't matter because both sides save all ones
+    if ((digitValue[0] && 1) && (digitValue[1] && 1) && (digitValue[2] && 1) && (digitValue[3] && 1))  // TBD TBD TBD this sucks, doesn't allow for MAX_BITS
+        // right side was the sync side or it doesn't matter because both sides saw all ones
         // take values from second digit, first digit is sync
         if (isForward)
             // we are heading west, endian is big so switch it
@@ -105,7 +115,7 @@ uint MagnetReader::process(bool isForward)
             // we are backing west, endian is big so switch it
             codeValue = (digitValue[3] && 1) + ((digitValue[2] && 1) * 2) + ((digitValue[1] && 1) * 4) + ((digitValue[0] && 1) * 8);
 
-    // TBD now what? have to figure which endian it is and maybe switch ends
+    // TBD now what? have to figure which endian it is and maybe switch ends (still relevent?)
 
     return codeValue;
 }

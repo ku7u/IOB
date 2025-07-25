@@ -17,17 +17,29 @@
 // #define olsVersion "0.263 mu functionality " + String(__DATE__) + " " + String(__TIME__) + ")"   // success
 // #define olsVersion "0.27D BrakeSystem " + String(__DATE__) + " " + String(__TIME__) + ")"    // success
 // #define olsVersion "0.284 Activate brake sounds in mu " + String(__DATE__) + " " + String(__TIME__) + ")"   // success
-#define olsVersion "0.29A Add Train " + String(__DATE__) + " " + String(__TIME__) + ")" 
+// #define olsVersion "0.29A Add Train " + String(__DATE__) + " " + String(__TIME__) + ")" 
+// #define olsVersion "0.30 Begin POL adds " + String(__DATE__) + " " + String(__TIME__) + ")" 
+// #define olsVersion "0.31 Add top speed " + String(__DATE__) + " " + String(__TIME__) + ")" 
+// #define olsVersion "0.32 Speed coefficients loco drag (C3F) " + String(__DATE__) + " " + String(__TIME__) + ")" 
+// #define olsVersion "0.33 Speed coefficients loco drag (C3F) " + String(__DATE__) + " " + String(__TIME__) + ")" 
+// #define olsVersion "0.33 memory debug " + String(__DATE__) + " " + String(__TIME__) + ")" 
+// #define olsVersion "0.34 mqtt keepalive to 60 from default " + String(__DATE__) + " " + String(__TIME__) + ")" 
+// #define olsVersion "0.35 mqtt keepalive to 60 from default and check mqtt conn in main loop" + String(__DATE__) + " " + String(__TIME__) + ")" 
+#define olsVersion "0.36 t/s death on braking" + String(__DATE__) + " " + String(__TIME__) + ")" 
 
-// change following depending on processor
+// change following depending on processor 
 // #define ESP32C3
 // #define ESP32C3DK   // like a Waveshare device (obsolete TBR)
-// #define ESP32WROOM
-// #define ESP32C3F        // sparkleiot device and others presumably
-#define ESP8685_05   // esp8685-wroom-05
+#define ESP32WROOM
+// #define ESP32C3F        // sparkleiot device and others presumably 
+// #define ESP8685_05   // esp8685-wroom-05
 
+// one or the other or neither, not both
 // enable serial for testing, turn off otherwise
 #define SERIAL_ON
+
+// enable serial input for position on layout uart
+#define SERIAL_POL
 
 // enable MQTT debugging
 // #define MQTT_DEBUG_ON

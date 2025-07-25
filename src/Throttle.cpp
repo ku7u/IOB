@@ -10,10 +10,12 @@
 #include "Preferences.h"
 #include "Fifo.h"
 #include "BrakeSystem.h"
-
+#include <WiFiUdp.h> // UDP
 extern PubSubClient client;
 extern Fifo commandFifo;
 extern BrakeSystem bs;
+extern WiFiUDP udp; // UDP
+extern const int TELEMETRY_PORT;
 
 // Constructor
 Throttle::Throttle(void)
@@ -60,6 +62,7 @@ void Throttle::getLocoPrefs(void)
     _horsepower = myPrefs.getInt("horsepower", 1500);
     _locoWeight = myPrefs.getULong("locoweight", 250000);
     _tractiveEffort = myPrefs.getLong("tractiveeffort", 70000);
+    _topSpeed = myPrefs.getInt("topspeed", 60 * 5280 / 3600); // default to 60 mph or 88 fps gfh add 020525
     _odometer = myPrefs.getFloat("odometer", 0.0);
     _muActive = myPrefs.getBool("muactive", false);
     _muState = myPrefs.getUInt("mustate", 0);
@@ -152,6 +155,27 @@ void Throttle::report()
     client.publish(topicChars, x.c_str());
 }
 
+void Throttle::udpReport()      // UDP
+// roster rollcall sent as udp broadcast in response to udp broadcast rollcall query from app
+{
+    // String x = "{\"id\":\"";
+    String x = "{\"t\":\"report\",\"id\":\"";
+    x.concat(_locoID);
+    x.concat("\",\"ip\":\"");
+    x.concat(WiFi.localIP().toString());
+    x.concat("\",\"type\":\"");
+    x.concat(_locoType);
+    // x.concat("\",\"mu\":\"");    v0.26 removing quotes around _muState
+    x.concat("\",\"mu\":");
+    x.concat(_muState);
+    // x.concat("\"}");
+    x.concat("}");
+
+    udp.beginPacket(IPAddress(255, 255, 255, 255), TELEMETRY_PORT);
+    udp.write((const uint8_t*)x.c_str(), x.length());
+    udp.endPacket();
+}
+
 uint32_t Throttle::getTime()
 // try to get GMT and return as unix time variable
 {
@@ -197,6 +221,10 @@ bool Throttle::isRunning()
 uint Throttle::getLastIntCurrentSpeed()
 {
     return _lastIntCurrentSpeed;
+}
+
+void Throttle::setWaypoint(uint8_t waypoint, bool eastbound)
+{
 }
 
 void Throttle::pmOnOff(bool onOff)
@@ -477,6 +505,10 @@ void Throttle::setLBrake(bool applying)
         _opMode = idle;
 
     commandFifo.pushCommand(functionIndependentBrake, applying);
+#ifdef MQTT_DEBUG_ON
+    reportMqttDebug("locoBrake ", applying);
+#endif
+
     _independentBrake = bs.applyLocoBrake(applying);
 }
 
@@ -567,17 +599,18 @@ void Throttle::manualNotch(bool up)
         {
             _opMode = idle;
             // TBD adding next two lines as test to fix the hanging notch 1 issue
-            commandFifo.pushCommand(functionNotchDown, true); // this didn't work
-            commandFifo.pushCommand(functionNotchDown, false);
+            // not an issue anymore, so delete these 012325 gfh
+            // commandFifo.pushCommand(functionNotchDown, true); // this didn't work
+            // commandFifo.pushCommand(functionNotchDown, false);
         }
     }
     else if (!up && ((_opMode == idle) || (_opMode == braking)))
     // incrementally apply brakes
     {
         setLBrake(true);
-#ifdef SERIAL_ON
-        Serial.println("after setLBrake");
-#endif
+        // #ifdef SERIAL_ON
+        //         Serial.println("after setLBrake");
+        // #endif
         if (_trainlineConnected)
             setABrake(true);
         return; // so that notch is not redundantly returned to throttle
@@ -588,18 +621,23 @@ void Throttle::manualNotch(bool up)
 
     if (_muState < 2) // trailers in consist should not report notch
     {
-        char topicChars[TOPIC_CHAR_SIZE];
-        strcpy(topicChars, _feedbackTopic.c_str());
-        strcat(topicChars, _locoID.c_str());
-        strcat(topicChars, "/notch");
-
-        char buffer[10];
-        itoa(_notch, buffer, 10);
-        char msgChars[20];
-        strcpy(msgChars, buffer);
-
-        client.publish(topicChars, msgChars);
+        reportNotch();
     }
+}
+
+void Throttle::reportNotch()
+{
+    char topicChars[TOPIC_CHAR_SIZE];
+    strcpy(topicChars, _feedbackTopic.c_str());
+    strcat(topicChars, _locoID.c_str());
+    strcat(topicChars, "/notch");
+
+    char buffer[10];
+    itoa(_notch, buffer, 10);
+    char msgChars[20];
+    strcpy(msgChars, buffer);
+
+    client.publish(topicChars, msgChars);
 }
 
 void Throttle::longPress(bool up)
@@ -610,6 +648,9 @@ void Throttle::longPress(bool up)
 
     if (up && _opMode == braking)
     {
+        // force notch report to elicit haptic on throttle indicating idle
+        reportNotch();
+
         // release all brakes
         if (bs.emergencyBrakeOn())
             setEBrake(false);
@@ -621,6 +662,9 @@ void Throttle::longPress(bool up)
 
     if (up && (_opMode == idle) && (_currentSpeed == 0))
     {
+        // force notch report to elicit haptic on throttle indicating idle
+        reportNotch();
+
         // set direction forward if in neutral
         if (_neutral)
         {
@@ -708,7 +752,7 @@ void Throttle::computeVelocity(void)
     _independentBrake = bs.getEffectiveLocoBrake();
 
 #ifdef MQTT_DEBUG_ON
-    reportMqttDebug("trainBrake ", _trainBrake);
+    // reportMqttDebug("trainBrake ", _trainBrake);
 #endif
 
     if (_trainlinePSI != lastTrainlinePSI)
@@ -780,7 +824,6 @@ void Throttle::computeVelocity(void)
     // compute the moving drag force for any rolling stock
     {
         startingForce = 0;
-        // dragForce = (_locoMass * 32 * ROLLING_RESISTANCE_COEFICIENT) + (_tonnage * 2000 * ROLLING_RESISTANCE_COEFICIENT);
         dragForce = (consistMass * 32 * ROLLING_RESISTANCE_COEFICIENT) + (_tonnage * 2000 * ROLLING_RESISTANCE_COEFICIENT);
     }
 #ifdef SPEED_DEBUG
@@ -806,7 +849,7 @@ void Throttle::computeVelocity(void)
 
     // compute the drag forces
     // there must be some drag effect that varies with speed that is peculiar to locos - this is a guess
-    variableLocoDragForce = consistMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT; // TBD now at zero
+    variableLocoDragForce = consistMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT;
 
 #ifdef SPEED_DEBUG
     Serial.print("variableLocoDragForce ");
@@ -852,9 +895,13 @@ void Throttle::computeVelocity(void)
 #endif
 
     // integrate acceleration to get speed, here in fps, ultimately required by decoder
+    // gfh mod for topSpeed 020525
+    float lastCurrentSpeed = _currentSpeed;
     _currentSpeed = _currentSpeed + accel; // accel is feet/sec/sec so if integrated once / sec, accel = vel, _currentSpeed is feet/sec
     if (_currentSpeed < 0.)
         _currentSpeed = 0;
+    else if (_currentSpeed > _topSpeed)
+        _currentSpeed = lastCurrentSpeed;
 
     // integrate speed to obtain distance in feet, converted to miles when sent later
     // d = velocity x time but since here v is ft/sec, time is 1 (sec) so d = v x 1
@@ -1407,7 +1454,7 @@ void Throttle::setMuSpeed(char *jsonMsg)
     // receive speed messages from lead unit, set this unit's speed to match
 
     static bool lastBrake;
-    float lastOdo;     // odometer update
+    float lastOdo; // odometer update
 
     if ((!_muActive) || (!_running)) // TBD this is a workaround that can't be left in the code why? because we may not be running
         return;
@@ -1474,10 +1521,10 @@ void Throttle::setMuSpeed(char *jsonMsg)
         commandFifo.pushCommand(functionIndependentBrake, brk);
     lastBrake = brk;
 
-    float odo = doc["odo"];     // TBD not working v0285
+    float odo = doc["odo"]; // TBD not working v0285
     if (odo != lastOdo)
     {
-        _odometer+= .01;
+        _odometer += .01;
         lastOdo = odo;
     }
 
