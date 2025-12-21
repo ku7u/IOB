@@ -11,14 +11,31 @@
 #include "Fifo.h"
 #include "BrakeSystem.h"
 #include <WiFiUdp.h> // UDP
+#include <optional>
+
+#ifdef USING_MQTT
 extern PubSubClient client;
+// #elif defined(USING_UDP)
+// #include "TelemetryHandler.h" already in .h
+#endif
+
 extern Fifo commandFifo;
 extern BrakeSystem bs;
+
+#ifdef USING_UDP
 extern WiFiUDP udp; // UDP
-extern const int TELEMETRY_PORT;
+// extern const int TELEMETRY_PORT;
+// extern const int COMMAND_PORT;
+extern WiFiUDP udpCommand;
+extern WiFiUDP udpTelemetry;
+// extern WiFiUDP udpRollcall;
+#endif
 
 // Constructor
 Throttle::Throttle(void)
+    : telemetryPort(TELEMETRY_PORT_A), // initialize UdpTransport
+      telemetry(telemetryPort)         // pass that into TelemetryHandler
+
 {
     _notch = 0;
     _currentSpeed = 0;
@@ -42,11 +59,28 @@ Throttle::Throttle(void)
     _compressorCountdown = 0;
 }
 
+// Getter implementation
+bool Throttle::inUse() const
+{
+    return _inUse;
+}
+
+// Setter implementation
+void Throttle::inUse(bool inUseValue)
+{
+    _inUse = inUseValue;
+}
+
 void Throttle::init()
 {
     commandFifo.pushCommand(functionNotchingEnable, true);
     commandFifo.pushCommand(functionNotchUp, 0);
     commandFifo.pushCommand(functionNotchDown, 0);
+}
+
+void Throttle::setControllingIP(IPAddress ip)
+{
+    _controllingIP = ip;
 }
 
 void Throttle::getLocoPrefs(void)
@@ -64,19 +98,18 @@ void Throttle::getLocoPrefs(void)
     _tractiveEffort = myPrefs.getLong("tractiveeffort", 70000);
     _topSpeed = myPrefs.getInt("topspeed", 60 * 5280 / 3600); // default to 60 mph or 88 fps gfh add 020525
     _odometer = myPrefs.getFloat("odometer", 0.0);
-    _muActive = myPrefs.getBool("muactive", false);
-    _muState = myPrefs.getUInt("mustate", 0);
+    _muState = static_cast<MuState>(myPrefs.getUInt("mustate", 0));
     _muLeadLoco = myPrefs.getString("muleadloco", "3");
     _muReversed = myPrefs.getBool("mureversed", false);
     myPrefs.end();
 
-    /*     myPrefs.begin("consist", false); // v0.26 ff
-        // convert the saved json consist string to json document of loco data objects
-        String muString;
-        muString = myPrefs.getString("consist", "{}").c_str(); // seed the pref with "{}"
-        DeserializationError error = deserializeJson(muDoc, muString.c_str());
-        myPrefs.end(); */
-    deserializeJson(muDoc, "{}");
+    myPrefs.begin("consist", false); // v0.26 ff
+
+    // convert the saved json consist string to json document of loco data objects
+    String muString;
+    muString = myPrefs.getString("consist", "{}").c_str(); // seed the pref with "{}"
+    DeserializationError error = deserializeJson(muDoc, muString.c_str());
+    myPrefs.end();
 
     myPrefs.begin("calibration", true);
     // _calibrationTrapLength = myPrefs.getInt("traplength", 3);
@@ -99,11 +132,11 @@ void Throttle::getLocoPrefs(void)
 
     _locoMass = _locoWeight / 32; // slugs
 
-    if (_muState > 1) // v0.26 TBD this does not work here
+    if ((_muState == mid) || (_muState == trailing)) // v0.26 TBD this does not work here
         muSubscribe(true);
     else
     {
-        sumMuPerformanceValues(); // v0.26
+        muSumPerformanceValues(); // v0.26
         muSubscribe(false);
     }
 }
@@ -125,7 +158,7 @@ void Throttle::getFunctionPrefs(void)
     functionNotchingEnable = myPrefs.getInt("notchingEnable", 28);
     functionIndependentBrake = myPrefs.getInt("iBrake", 5);
     functionTrainBrake = myPrefs.getInt("tBrake", 4);
-    functionEmergencyBrake = myPrefs.getInt("eBrake", 0); // TBD set to zero as test, need method for unassigned functions v 0.19
+    functionEmergencyBrake = myPrefs.getInt("eBrake", 0);
     functionCompressor = myPrefs.getInt("compressor", 20);
     functionBrakeSqueal = myPrefs.getInt("brakesqueal", -1);
     myPrefs.end();
@@ -133,7 +166,7 @@ void Throttle::getFunctionPrefs(void)
     bs.setCompressorFunction(functionCompressor);
 }
 
-void Throttle::report()
+void Throttle::report() // TBR TBD obsolete
 // respond to a broadcast message that requests who is online
 // send locoID, ip address, loco type
 {
@@ -152,28 +185,9 @@ void Throttle::report()
     x.concat(_muState);
     // x.concat("\"}");
     x.concat("}");
+#ifdef USING_MQTT
     client.publish(topicChars, x.c_str());
-}
-
-void Throttle::udpReport()      // UDP
-// roster rollcall sent as udp broadcast in response to udp broadcast rollcall query from app
-{
-    // String x = "{\"id\":\"";
-    String x = "{\"t\":\"report\",\"id\":\"";
-    x.concat(_locoID);
-    x.concat("\",\"ip\":\"");
-    x.concat(WiFi.localIP().toString());
-    x.concat("\",\"type\":\"");
-    x.concat(_locoType);
-    // x.concat("\",\"mu\":\"");    v0.26 removing quotes around _muState
-    x.concat("\",\"mu\":");
-    x.concat(_muState);
-    // x.concat("\"}");
-    x.concat("}");
-
-    udp.beginPacket(IPAddress(255, 255, 255, 255), TELEMETRY_PORT);
-    udp.write((const uint8_t*)x.c_str(), x.length());
-    udp.endPacket();
+#endif
 }
 
 uint32_t Throttle::getTime()
@@ -183,7 +197,6 @@ uint32_t Throttle::getTime()
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo))
     {
-        // Serial.println("Failed to obtain time");
         return (0);
     }
     time(&now);
@@ -229,47 +242,69 @@ void Throttle::setWaypoint(uint8_t waypoint, bool eastbound)
 
 void Throttle::pmOnOff(bool onOff)
 {
+    // starts or stops the prime mover
+
+    // this is to determine how long it has been since last run
+    // could be used to set effects like main reservoir pressure due to leakdown
     Preferences myPrefs;
     uint32_t thisStartupTime;
     uint32_t deltaTime;
     const uint16_t DOWNTIME = 96;
 
     _running = onOff;
-    if (!onOff) // save the mileage
+
+    if (!onOff) // shutdown
+
     {
+        // save the mileage
         myPrefs.begin("loco", false);
         myPrefs.putFloat("odometer", _odometer);
         myPrefs.putULong("lastshuttime", getTime());
         myPrefs.end();
         _opMode = off;
 
+        // do something to the brake system TBD
         bs.cycle(false); // v027
 
         // turn off PM on the mued loco(s) if this loco is a lead
-        if (_muState < 2)
+        if (_muState == lead)
         {
             JsonObject root = muDoc.as<JsonObject>();
             char topicChars[TOPIC_CHAR_SIZE];
+
             for (JsonPair kv : root)
             {
-                // if (strcmp(kv.key().c_str(), _locoID.c_str()) != 0) // don't shut self down
-                // {
+                JsonObject obj = kv.value();
+                const char *muIP = obj["muip"];
+
+#ifdef USING_MQTT
                 strcpy(topicChars, _commandTopic.c_str());
                 strcat(topicChars, kv.key().c_str());
                 strcat(topicChars, "/startstop");
                 client.publish(topicChars, "0");
-                // }
+
+#elif defined(USING_UDP)
+                JsonDocument doc;
+                String jsonString;
+                doc["topic"] = "startstop";
+                doc["value"] = "0";
+                serializeJson(doc, jsonString);
+
+                udpCommand.beginPacket(muIP, COMMAND_PORT);
+                udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
+                udpCommand.endPacket();
+#ifdef DEBUG_UDP
+                Serial.println("[pmOnOff] command sent: " + jsonString + " to: " + muIP);
+#endif
+#endif
             }
         }
     }
-    else
+    else // power up
     {
         _opMode = idle;
 
-        // in case the brake was left on at last shutdown
-        // _independentBrake = 0;
-        // _emergencyBrake = 0;
-        // TBD not sure about these following
+        // in case the brakes were left on at last shutdown
         bs.applyEmmergency(false);
         _independentBrake = bs.applyLocoBrake(false);
         _trainBrake = bs.applyTrainBrake(false);
@@ -295,6 +330,55 @@ void Throttle::pmOnOff(bool onOff)
         else
             // bleeds down to zero after 48 hours
             _trainlinePSI = (1 - (deltaTime / (DOWNTIME * 3600.))) * TRAINLINE_SET_PSI;
+
+        // syncronization scheme - run at powerup
+        // use saved data in muDoc to query each loco that should be in consist
+        // send individual query requesting mu status from muReport in the trailer
+        // receive muLocoData responses
+        // polled locos must respond whether they think they are in consist or not, reply contains muState
+        // if muState > 1 keep in muDoc, update performance
+        // if muState = 0 or no response, remove trailer from muDoc
+        // locos that don't respond are likely orphans in purgatory
+        // this may be enough. operator investigates loco using app and remediates the issue
+
+        // possibly alternatively, any loco at pm turnon that is in consist queries the lead (assumes lead is alive)
+        // if lead agrees then stay in consist
+        // if not, change muState to 0
+        // TBA the app must show consist status for trailers
+        // TBA the app must restrict choice for trailers to noncontrolled and nonconsisted locos
+
+        String myIP = WiFi.localIP().toString();
+        JsonDocument doc;
+        doc["topic"] = "muReport";
+        String docString;
+
+        // Iterate key-value pairs at top level
+        // root is the loco id (key), its value is a json object
+        JsonObject root = muDoc.as<JsonObject>();
+        for (JsonPair kv : root)
+        {
+            const char *key = kv.key().c_str();
+            JsonObject child = kv.value(); // this form is important, don't use 'as' clause
+            const char *muip = child["muip"];
+
+            doc["value"] = myIP;
+            serializeJson(doc, docString);
+#ifdef DEBUG_UDP
+            Serial.println("[pmOnOff] docString: " + docString + " to " + String(muip));
+#endif
+
+            udpCommand.beginPacket(muip, COMMAND_PORT);
+            udpCommand.write((uint8_t *)docString.c_str(), strlen(docString.c_str()));
+            udpCommand.endPacket();
+#ifdef DEBUG_UDP
+            Serial.println("[pmOnOff] command sent: " + docString + " to: " + muip);
+#endif
+        }
+        // we have sent commands to all known trailing locos
+        // they will respond asynchronously
+        // on subsequent itterations of main.loop the responses will be processed
+        // this will rebuild muDoc so we can clear it now
+        muDoc.clear();
     }
 
     commandFifo.pushCommand(functionPM, onOff);
@@ -303,30 +387,17 @@ void Throttle::pmOnOff(bool onOff)
 
     // TBD TBA add code here to start/stop all mued locos, or might just leave this as an operator task, like real world
 
-    // query for any consisted locos, clear muDoc first then rebuild with data received from consist v0.26
-    // clear muDoc
-    muDoc.clear(); // then why bother saving it in preferences TBD the trailers have to save state
-
-    // query the locos
-    if (onOff && (_muState < 2)) // only on startup and only if the lead unit unit
-    {
-        char topicChars[TOPIC_CHAR_SIZE];
-        char msgChars[100];
-
-        strcpy(topicChars, _commandTopic.c_str());
-        strcat(topicChars, "0"); // broadcast to all
-        strcat(topicChars, "/muReport");
-        strcpy(msgChars, _locoID.c_str());
-        client.publish(topicChars, msgChars);
-    }
+    // #ifdef USING_MQTT
+    //         client.publish(topicChars, msgChars);
+    // #endif
+    //     }
 }
 
 void Throttle::headlight(int offDimBright)
 {
     // if mued no headlights are active unless it is the lead unit
-    if (_muActive)
-        if ((_muState != 1))
-            return;
+    if ((_muState == mid) || (_muState == trailing))
+        return;
 
     _headlight = offDimBright;
 
@@ -349,13 +420,67 @@ void Throttle::headlight(int offDimBright)
 
 void Throttle::rearlight(int offDimBright)
 {
-
-    if (_muActive)
+    switch (_muState)
     {
-        if ((_muState == 2) || (_muState == 1)) // no rear lights for lead or mid consist locos v 0.18
-            return;
+    case solo:
+        if (offDimBright == 0)
+        {
+            commandFifo.pushCommand(functionRearlightDim, false);
+            commandFifo.pushCommand(functionRearlightBright, false);
+        }
+        else if (offDimBright == 1)
+        {
+            commandFifo.pushCommand(functionRearlightDim, true);
+            commandFifo.pushCommand(functionRearlightBright, false);
+        }
+        else if (offDimBright == 2)
+        {
+            commandFifo.pushCommand(functionRearlightDim, false);
+            commandFifo.pushCommand(functionRearlightBright, true);
+        }
+        break;
 
-        else if ((_muState == 3) && (_muReversed)) // if reversed the headlight is the rearlight
+    case mid:
+        break;
+    case lead:
+    {
+        String jsonString;
+        JsonDocument doc;
+        char buffer[4];
+        itoa(offDimBright, buffer, 10);
+        doc["topic"] = "rearlight";
+        doc["value"] = buffer;
+
+        // Iterate key-value pairs at top level
+        // root is the loco id (key), its value is a json object
+        // we are examining all mued locos attached to this lead
+        // looking for the trailing (last) one
+        // will send the rearlight command to that one and only that one
+        JsonObject root = muDoc.as<JsonObject>();
+        const char *muip;
+        for (JsonPair kv : root)
+        {
+            const char *key = kv.key().c_str();
+            JsonObject child = kv.value(); // this form is important, don't use 'as' clause
+            muip = child["muip"];
+            const int st = child["st"];
+            if (st == 3) // trailing
+                break;
+        }
+        serializeJson(doc, jsonString);
+#ifdef DEBUG_UDP
+        Serial.print("[pmOnOff] jsonString: " + jsonString + " to ");
+        Serial.println(muip);
+#endif
+
+        udpCommand.beginPacket(muip, COMMAND_PORT);
+        udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
+        udpCommand.endPacket();
+    }
+    break;
+
+    case trailing:
+        if (_muReversed) // the rear facing light is the physical headlight
         {
             if (offDimBright == 0)
             {
@@ -372,27 +497,67 @@ void Throttle::rearlight(int offDimBright)
                 commandFifo.pushCommand(functionHeadlightDim, false);
                 commandFifo.pushCommand(functionHeadlightBright, true);
             }
-            return;
+        }
+        else // not reversed so the rear facing light is the physical rearlight
+        {
+            if (offDimBright == 0)
+            {
+                commandFifo.pushCommand(functionRearlightDim, false);
+                commandFifo.pushCommand(functionRearlightBright, false);
+            }
+            else if (offDimBright == 1)
+            {
+                commandFifo.pushCommand(functionRearlightDim, true);
+                commandFifo.pushCommand(functionRearlightBright, false);
+            }
+            else if (offDimBright == 2)
+            {
+                commandFifo.pushCommand(functionRearlightDim, false);
+                commandFifo.pushCommand(functionRearlightBright, true);
+            }
         }
     }
 
-    _rearlight = offDimBright; // TBD on this
+    // if ((_muState == mid) || (_muState == lead)) // no rear lights for lead or mid consist locos v 0.18
+    //     return;
 
-    if (offDimBright == 0)
-    {
-        commandFifo.pushCommand(functionRearlightDim, false);
-        commandFifo.pushCommand(functionRearlightBright, false);
-    }
-    else if (offDimBright == 1)
-    {
-        commandFifo.pushCommand(functionRearlightDim, true);
-        commandFifo.pushCommand(functionRearlightBright, false);
-    }
-    else if (offDimBright == 2)
-    {
-        commandFifo.pushCommand(functionRearlightDim, false);
-        commandFifo.pushCommand(functionRearlightBright, true);
-    }
+    // else if ((_muState == trailing) && (_muReversed)) // if reversed the headlight is the rearlight
+    // {
+    //     if (offDimBright == 0)
+    //     {
+    //         commandFifo.pushCommand(functionHeadlightDim, false);
+    //         commandFifo.pushCommand(functionHeadlightBright, false);
+    //     }
+    //     else if (offDimBright == 1)
+    //     {
+    //         commandFifo.pushCommand(functionHeadlightDim, true);
+    //         commandFifo.pushCommand(functionHeadlightBright, false);
+    //     }
+    //     else if (offDimBright == 2)
+    //     {
+    //         commandFifo.pushCommand(functionHeadlightDim, false);
+    //         commandFifo.pushCommand(functionHeadlightBright, true);
+    //     }
+    //     return;
+    // }
+
+    // _rearlight = offDimBright;
+
+    // if (offDimBright == 0)
+    // {
+    //     commandFifo.pushCommand(functionRearlightDim, false);
+    //     commandFifo.pushCommand(functionRearlightBright, false);
+    // }
+    // else if (offDimBright == 1)
+    // {
+    //     commandFifo.pushCommand(functionRearlightDim, true);
+    //     commandFifo.pushCommand(functionRearlightBright, false);
+    // }
+    // else if (offDimBright == 2)
+    // {
+    //     commandFifo.pushCommand(functionRearlightDim, false);
+    //     commandFifo.pushCommand(functionRearlightBright, true);
+    // }
 }
 
 void Throttle::panicStop()
@@ -454,7 +619,6 @@ void Throttle::setDirection(int direction)
         _direction = true;
     else
         _neutral = true;
-    // TBD doesn't match ETL but seems to work as is
 
     // send a speed command with zero speed just to set the current direction correctly in loco
     String dummyString = "t 1 ";
@@ -505,7 +669,7 @@ void Throttle::setLBrake(bool applying)
         _opMode = idle;
 
     commandFifo.pushCommand(functionIndependentBrake, applying);
-#ifdef MQTT_DEBUG_ON
+#ifdef DEBUG_MQTT
     reportMqttDebug("locoBrake ", applying);
 #endif
 
@@ -556,6 +720,10 @@ void Throttle::trainline(bool connect)
 void Throttle::manualNotch(bool up)
 // this routine just sets the notch to be later processed in computeVelocity
 {
+#ifdef SERIAL_ON
+    Serial.println("(manualNotch) " + up);
+#endif
+
     uint32_t now;
 
     if (!_running) // nothing to do here, move along
@@ -616,10 +784,10 @@ void Throttle::manualNotch(bool up)
         return; // so that notch is not redundantly returned to throttle
     }
 
-    if ((_muActive) && (_muState < 2) && (_mph == 0))
+    if ((_muState == lead) && (_mph == 0))
         reportStatus(); // TBD this might work, forces lead to emit status absolutely which trailers need
 
-    if (_muState < 2) // trailers in consist should not report notch
+    if ((_muState == solo) || (_muState == lead)) // trailers in consist should not report notch
     {
         reportNotch();
     }
@@ -627,6 +795,8 @@ void Throttle::manualNotch(bool up)
 
 void Throttle::reportNotch()
 {
+    // force notch report to elicit haptic on throttle indicating idle
+
     char topicChars[TOPIC_CHAR_SIZE];
     strcpy(topicChars, _feedbackTopic.c_str());
     strcat(topicChars, _locoID.c_str());
@@ -637,13 +807,25 @@ void Throttle::reportNotch()
     char msgChars[20];
     strcpy(msgChars, buffer);
 
+#ifdef USING_MQTT
     client.publish(topicChars, msgChars);
+#elif defined(USING_UDP)
+    JsonDocument doc;
+    String jsonString;
+    doc["topic"] = "notch";
+    doc["value"] = buffer;
+    serializeJson(doc, jsonString);
+
+    // udp publish via telemetry
+    telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
+    telemetry.sendTelemetry(jsonString.c_str());
+#endif
 }
 
 void Throttle::longPress(bool up)
 // long press on the volume up or down buttons in Android app
 {
-    if ((_opMode == off) || (_muState > 1)) // if mued nothing to do here v0.26
+    if ((_opMode == off) || (_muState == mid) || (_muState == trailing)) // if mued nothing to do here v0.26
         return;
 
     if (up && _opMode == braking)
@@ -681,13 +863,28 @@ void Throttle::longPress(bool up)
         strcat(topicChars, _locoID.c_str());
         strcat(topicChars, "/reverser");
 
-        char msgChars[2];
+        char msgChars[10];
         if (_direction)
             strcpy(msgChars, "2");
         else
             strcpy(msgChars, "0");
 
+#ifdef USING_MQTT
         client.publish(topicChars, msgChars);
+#elif defined(USING_UDP)
+        JsonDocument doc;
+        String jsonString;
+        doc["topic"] = "reverser";
+        if (_direction)
+            doc["value"] = "2";
+        else
+            doc["value"] = "0";
+        serializeJson(doc, jsonString);
+
+        // udp publish via telemetry
+        telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
+        telemetry.sendTelemetry(jsonString.c_str());
+#endif
     }
     else if (!up && _opMode == powered)
     // straight to zero
@@ -726,14 +923,15 @@ void Throttle::computeVelocity(void)
     static uint16_t lastTrainlinePSI;
     static uint8_t startupCounter;
 
+#ifdef DEBUG_SPEED
+    // Serial.println("computeVelocity");
+#endif
+
     if (!_running)
     {
         startupCounter = 0;
         bs.setPMRunning(false);
     }
-
-    // if ((!_running) || ((_muActive) && (_muState > 1)))
-    //     return;
 
     if (startupCounter < 15)
         startupCounter++;
@@ -744,14 +942,14 @@ void Throttle::computeVelocity(void)
     }
 
     bool compressorRunning = bs.cycle(true); // v027
-    if ((!_running) || ((_muActive) && (_muState > 1)))
+    if ((!_running) || ((_muState == mid) || (_muState == trailing)))
         return;
 
     _trainlinePSI = bs.getTrainlinePSI();
     _trainBrake = bs.getEffectiveTrainBrake();
     _independentBrake = bs.getEffectiveLocoBrake();
 
-#ifdef MQTT_DEBUG_ON
+#ifdef DEBUG_MQTT
     // reportMqttDebug("trainBrake ", _trainBrake);
 #endif
 
@@ -768,8 +966,13 @@ void Throttle::computeVelocity(void)
     consistTractiveEffort = _tractiveEffort + _muTractiveEffort;
     _horsepowerAtIdle = consistHorsepower / 100;
 
-    if (_neutral)
+    if (_neutral == true)
+    {
+#ifdef DEBUG_SPEED
+        Serial.println("(computeVelocity) returning 2 (neutral)" + _neutral);
+#endif
         return; // if in neutral don't waste time in here
+    }
 
     if (_notch == 0)
         effectiveHP = 0;
@@ -792,9 +995,9 @@ void Throttle::computeVelocity(void)
     else if (_notch == 8)
         effectiveHP = consistHorsepower - 50;
 
-#ifdef SPEED_DEBUG
-    Serial.print("_mph  ");
-    Serial.println(_mph);
+#ifdef DEBUG_SPEED
+    Serial.println("(computeVelocity) _mph:  " + String(_mph));
+// Serial.println(_mph);
 #endif
 
     // compute the tractive force
@@ -826,13 +1029,10 @@ void Throttle::computeVelocity(void)
         startingForce = 0;
         dragForce = (consistMass * 32 * ROLLING_RESISTANCE_COEFICIENT) + (_tonnage * 2000 * ROLLING_RESISTANCE_COEFICIENT);
     }
-#ifdef SPEED_DEBUG
-    Serial.print("_tonnage ");
-    Serial.println(_tonnage);
-    Serial.print("_locoMass  ");
-    Serial.println(_locoMass);
-    Serial.print("starting force ");
-    Serial.println(startingForce);
+#ifdef DEBUG_SPEED
+    Serial.println("(computeVelocity) _tonnage: " + _tonnage);
+    Serial.println("(computeVelocity) _locoMass: " + _locoMass);
+    Serial.println("computeVelocity) startingForce: " + startingForce);
 #endif
 
     // this routine attempts to simulate spooling up
@@ -842,18 +1042,16 @@ void Throttle::computeVelocity(void)
 
     _lastTractiveForce = tractiveForce;
 
-#ifdef SPEED_DEBUG
-    Serial.print("tractiveForce ");
-    Serial.println(tractiveForce);
+#ifdef DEBUG_SPEED
+    Serial.println("(compuuteVelocity) tractiveForce: " + tractiveForce);
 #endif
 
     // compute the drag forces
     // there must be some drag effect that varies with speed that is peculiar to locos - this is a guess
     variableLocoDragForce = consistMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT;
 
-#ifdef SPEED_DEBUG
-    Serial.print("variableLocoDragForce ");
-    Serial.println(variableLocoDragForce);
+#ifdef DEBUG_SPEED
+    Serial.println("computeVelocity) variableLocoDragForce: " + variableLocoDragForce);
 #endif
 
     // consider brake forces if any
@@ -872,9 +1070,8 @@ void Throttle::computeVelocity(void)
         trainBrakeForce = 0;
         // emergencyBrakeForce = 0; // TBD
     }
-#ifdef SPEED_DEBUG
-    Serial.print("dragForce ");
-    Serial.println(dragForce);
+#ifdef DEBUG_SPEED
+    Serial.println("(computeVelocity) dragForce: " + dragForce);
     Serial.print("independentBrake and ...Force ");
     Serial.print(_independentBrake);
     Serial.print("   ");
@@ -889,9 +1086,8 @@ void Throttle::computeVelocity(void)
     if (accel > MAX_ACCEL)
         accel = MAX_ACCEL;
 
-#ifdef SPEED_DEBUG
-    Serial.print("accel ");
-    Serial.println(accel);
+#ifdef DEBUG_SPEED
+    Serial.println("(computeVelocity) accel: " + accel);
 #endif
 
     // integrate acceleration to get speed, here in fps, ultimately required by decoder
@@ -914,11 +1110,9 @@ void Throttle::computeVelocity(void)
     if (intCurrentSpeed > 126)
         intCurrentSpeed = 126;
 
-#ifdef SPEED_DEBUG
-    Serial.print("_currentSpeed ");
-    Serial.println(_currentSpeed);
-    Serial.print("_currentSpeed factored ");
-    Serial.println(intCurrentSpeed);
+#ifdef DEBUG_SPEED
+    Serial.println("(computeVelocity) _currentSpeed: " + _currentSpeed);
+    Serial.println("(computeVelocity) _currentSpeed factored: " + intCurrentSpeed);
     Serial.print('\n');
 #endif
 
@@ -1141,28 +1335,30 @@ void Throttle::calibrate(int speed)
 
 } // calibrate
 
-void Throttle::setMuState(char *jsonMsg)
+void Throttle::muSetState(const char *jsonMsg)
 {
-    // from MU fragment on app select trailing locos
-    // command is sent only to the selected trailing loco
 
-    // when selected send mustate command to trailing unit for direction, position, lead loco id
-    // in response trailing unit replies with condition topic including HP and mass of loco
-    // lead unit will then send startup command to trailing unit, just in case not running and also to ease operator loading
-    // lead unit will keep track of the trailers and display those on throttle
+    /*  from MU fragment on app select trailing locos
+        command is sent only to the selected trailing loco
 
-    // messages causing change of mu state will be sent to this loco address and are processed here
-    // mu states:
-    //  0 - not mued so leave consist and inform lead if was mid or trailing
-    //  1 - mued as lead, look for incoming hp and mass values from locos in consist NOPE
-    //  2 - mued as mid, send hp and mass values to lead
-    //  3 - mued as trailing, send hp and mass values to lead
+        when selected send mustate command to trailing unit for direction, position, lead loco id
+        in response trailing unit replies with muLocoData topic including HP and mass of loco
+        lead unit will then send startup command to trailing unit, just in case not running and also to ease operator loading
+        lead unit will keep track of the trailers and display those on throttle
 
-    // json format
-    // {muState:"", leadID:"", reversed:""}
+        messages causing change of mu state will be sent to this loco address and are processed here
+        mu states:
+         solo or 0 - not mued so leave consist and inform lead if was mid or trailing
+         lead or 1 - mued as lead, look for incoming hp and mass values from locos in consist NOPE TBD why nope?
+         mid or 2 - mued as mid, send hp and mass values to lead
+         trailing or 3 - mued as trailing, send hp and mass values to lead
+
+        json format
+        {muState:"", leadID:"", reversed:""} */
 
     Preferences myPrefs;
     JsonDocument doc;
+    String jsonString = "";
 
     // Deserialize the JSON document
     DeserializationError error = deserializeJson(doc, jsonMsg);
@@ -1175,20 +1371,22 @@ void Throttle::setMuState(char *jsonMsg)
     const char *mull;     // v 0.22
     mull = doc["leadID"]; // v 0.22
 
+    const char *leadIpAdr;
+    leadIpAdr = doc["leadIpAdr"];
+    strlcpy(_leadIpAdr, leadIpAdr, sizeof(_leadIpAdr));
+
     switch (commandedState)
     {
     case 0: // not mued
-        _muActive = false;
-
-        if ((_muState == 2) || (_muState == 3))
+        if ((_muState == mid) || (_muState == trailing))
         { // v 0.22 all of this block
-            _muState = 0;
+            _muState = solo;
             _muLeadLoco = String(mull);
             // send my zero muState to lead now cuz I'm outta here
             char topicChars[TOPIC_CHAR_SIZE];
             strcpy(topicChars, _commandTopic.c_str());
             strcat(topicChars, _muLeadLoco.c_str());
-            strcat(topicChars, "/muperformance");
+            strcat(topicChars, "/muLocoData");
 
             char msgChars[100]; // myID, locomass, hp, tractive effort
             char buffer[50];
@@ -1202,14 +1400,31 @@ void Throttle::setMuState(char *jsonMsg)
             strcat(msgChars, buffer);
             strcat(msgChars, "}");
 
+            JsonDocument doc;
+            doc["topic"] = "muLocoData";
+            doc["muip"] = WiFi.localIP().toString();
+            doc["id"] = _locoID.c_str();
+            doc["st"] = String((int)_muState);
+            serializeJson(doc, jsonString);
+
             // send the parameters to lead loco to affect its performance
+#ifdef USING_MQTT
             client.publish(topicChars, msgChars);
 
             // unsubscribe from lead loco messages
             muSubscribe(false);
+#elif defined(USING_UDP)
+            udpCommand.beginPacket(leadIpAdr, COMMAND_PORT);
+            udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
+            udpCommand.endPacket();
+            // TBD something about unsubscribe?
+#ifdef DEBUG_UDP
+            Serial.println("[muSetState] unicast sent: " + jsonString + " to: " + String(leadIpAdr));
+#endif
+#endif
         }
 
-        _muState = commandedState;
+        _muState = static_cast<Throttle::MuState>(commandedState);
         // store the state
         myPrefs.begin("loco");
         myPrefs.putUInt("mustate", _muState);
@@ -1223,23 +1438,25 @@ void Throttle::setMuState(char *jsonMsg)
         // if (_muState != 0) // only allowed if coming from not mued  TBD this is questionable v0.26 commented this
         //     return;
 
-        _muState = commandedState;
-        _muActive = true;
+        _muState = static_cast<Throttle::MuState>(commandedState);
+        _consistMember = true; // tested every 60 seconds
+
         // const char *mull;    v 0.22
         // mull = doc["leadID"];
         _muLeadLoco = String(mull);
         // send my id, mass, hp and tractive effort to lead now
-        muReport(_muLeadLoco.c_str());
+        // muReport(_muLeadLoco.c_str(), leadIpAdr);
+        // muReport(mull, leadIpAdr);
+        muReport(leadIpAdr);
 
         // subscribe to lead loco messages for speed, direction and notch
-        muSubscribe(true);
+        // muSubscribe(true);
 
         break;
     }
 
     // save it all for next time
     myPrefs.begin("loco");
-    myPrefs.putBool("muactive", _muActive);
     myPrefs.putUInt("mustate", commandedState);
     myPrefs.putString("muleadloco", _muLeadLoco);
     myPrefs.putBool("mureversed", _muReversed);
@@ -1247,28 +1464,58 @@ void Throttle::setMuState(char *jsonMsg)
 
     getLocoPrefs();
 
-} // setMuState
+    // TODO: save leadIpAdr in myPrefs
+    // change muReport to accept leadIpAdr as parameter
+    // add udp transmission from muReport
+    // deal with muSubscribe, what does that mean for udp?
+} // muSetState
 
-void Throttle::muReport(const char *leadLoco) // v0.26
+void Throttle::muReport(const char *leadIpAdr) // v0.26
 {
+    // this routine is run by trailing mued locos and results in a message sent that is received by lead loco to adjust its performance to include trailing units
     // this technique synchronizes lead and mu units on lead startup
     // all locos that think they are mued to a lead loco will respond to the muReport message if the locoID in that message equals their lead
     // the lead will build a roster of all candidates received
     // all received candidates will be included in loco speed status messages
     // a candidate will only respond to speed status messages that include its id, and will change its mu status to not mued if missing
 
-    if ((strcmp(_muLeadLoco.c_str(), leadLoco) == 0) && (_muActive) && (_muState > 1))
+    if ((_muState == mid) || (_muState == trailing))
     {
+
+        String muIP = WiFi.localIP().toString();
+
         char topicChars[TOPIC_CHAR_SIZE];
         strcpy(topicChars, _commandTopic.c_str());
         strcat(topicChars, _muLeadLoco.c_str());
         strcat(topicChars, "/muperformance");
 
-        char msgChars[100]; // myID, locomass, hp, tractive effort
-        char buffer[50];
+        char msgChars[256]; // myID, locomass, hp, tractive effort
+        char buffer[100];
+
+        String jsonString = "";
+
+#ifndef USING_MQTT
+        // strcpy(topicChars, "muperformance");
+        strcpy(topicChars, "muLocoData");
+#endif
+        JsonDocument doc;
+        doc["topic"] = topicChars;
+        doc["id"] = _locoID.c_str();
+        doc["muip"] = muIP.c_str();
+        doc["mass"] = _locoMass;
+        doc["hp"] = _horsepower;
+        doc["te"] = _tractiveEffort;
+        doc["st"] = String((int)_muState);
+        serializeJson(doc, jsonString);
 
         strcpy(msgChars, "{\"id\":\"");
         strcat(msgChars, _locoID.c_str());
+
+        strcat(msgChars, "\",\"topic\":\"");
+        strcat(msgChars, topicChars);
+
+        strcat(msgChars, "\",\"muip\":\"");
+        strcat(msgChars, muIP.c_str());
 
         strcat(msgChars, "\",\"mass\":");
         itoa(_locoMass, buffer, 10);
@@ -1289,10 +1536,24 @@ void Throttle::muReport(const char *leadLoco) // v0.26
         strcat(msgChars, "}");
 
         // send the parameters to lead loco to affect its performance
+#ifdef USING_MQTT
         client.publish(topicChars, msgChars);
 
         // subscribe to the lead messages
         muSubscribe(true);
+
+#elif defined(USING_UDP)
+#ifdef DEBUG_UDP
+        Serial.println("(muReport) 3");
+#endif
+        udpCommand.beginPacket(leadIpAdr, COMMAND_PORT);
+        udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
+        udpCommand.endPacket();
+
+#ifdef DEBUG_UDP
+        Serial.println("[muReport] sent unicast: " + jsonString + " to: " + String(leadIpAdr));
+#endif
+#endif
     }
 }
 
@@ -1308,11 +1569,13 @@ void Throttle::muSubscribe(bool subUnsub)
     strcat(subscription, _muLeadLoco.c_str());
     strcat(subscription, "/status");
 
+#ifdef USING_MQTT
     if (subUnsub)
         // client.subscribe(subscription, 1);
         client.subscribe(subscription, 0); // TBD testing QOS effect 7/12/24
     else
         client.unsubscribe(subscription);
+#endif
 
     // subscribe to lead loco messages for headlight
     // strcpy(subscription, _feedbackTopic.c_str());
@@ -1320,11 +1583,13 @@ void Throttle::muSubscribe(bool subUnsub)
     strcat(subscription, _muLeadLoco.c_str());
     strcat(subscription, "/headlight");
 
+#ifdef USING_MQTT
     if (subUnsub)
         // client.subscribe(subscription, 1);
         client.subscribe(subscription, 0); // TBD testing QOS effect 7/12/24
     else
         client.unsubscribe(subscription);
+#endif
 
     // subscribe to lead loco messages for rearlight
     // strcpy(subscription, _feedbackTopic.c_str());
@@ -1332,22 +1597,25 @@ void Throttle::muSubscribe(bool subUnsub)
     strcat(subscription, _muLeadLoco.c_str());
     strcat(subscription, "/rearlight");
 
+#ifdef USING_MQTT
     if (subUnsub)
         // client.subscribe(subscription, 1);
         client.subscribe(subscription, 0); // TBD testing QOS effect 7/12/24
     else
         client.unsubscribe(subscription);
+#endif
 
 } // muSubscribe
 
-void Throttle::setMuPerformance(char *jsonMsg)
+void Throttle::muSetPerformance(const char *jsonMsg)
 {
     // TBD
     // v 0.20 complete
 
+    // runs in response to muLocoData message from trailing loco(s)
     // set muState to 1 if adding trailers
     // set muState to 0 if depleting trailers
-    // lead unit keeps track of the consist in muDoc and stores in Preferences for future use TBD is there a need to store?
+    // lead unit keeps track of the consist in muDoc and stores in Preferences for future use TBD is there a need to store? yes there is, can't broadcast so need ip addrs.
     // also saves trailers hp, mass and tractive effort to be added to lead unit parameters
     // do nothing else
 
@@ -1361,12 +1629,20 @@ void Throttle::setMuPerformance(char *jsonMsg)
     Preferences myPrefs;
     JsonDocument doc;
     String consistString;
+    StaticJsonDocument<200> doc1;
+    String jsonString;
+
+#ifdef DEBUG_UDP
+    Serial.print("[muSetPerformance] received jsonMsg ");
+    Serial.println(jsonMsg);
+#endif
 
     // Deserialize the JSON document coming from candidate
     // DeserializationError error = deserializeJson(doc, jsonMsg);
     deserializeJson(doc, jsonMsg);
 
     String locoID = doc["id"];
+    const char *muIP = doc["muip"];
     int mass = doc["mass"];
     int hp = doc["hp"];
     uint32_t te = doc["te"]; // tractive effort v0.26
@@ -1386,43 +1662,72 @@ void Throttle::setMuPerformance(char *jsonMsg)
 
         if (muDoc.size() == 0)
         {
-            // if no more loco ids in muDoc then reset _muActive and _muState
-            _muActive = false;
-            _muState = 0;
+            // if no more loco ids in muDoc then reset _muState
+            _muState = solo;
         }
 
         serializeJson(muDoc, consistString);
 
-        // save it in Preferences
-        // myPrefs.begin("consist"); // v0.26 ff
-        // myPrefs.putString("consist", consistString);
-        // myPrefs.end();
+        // save it in Preferences version 0.38.16
+        myPrefs.begin("consist"); // v0.26 ff
+        myPrefs.putString("consist", consistString);
+        myPrefs.end();
 
         myPrefs.begin("loco"); // v0.26 ff
-        myPrefs.putBool("muactive", _muActive);
         myPrefs.putUInt("mustate", _muState);
         myPrefs.end();
 
         // turn off PM on the mued loco
+#ifdef USING_MQTT
         client.publish(topicChars, "0");
+#else
+        jsonString = "";
 
-        sumMuPerformanceValues();
+        doc1["topic"] = "startstop";
+        doc1["value"] = "0";
+        serializeJson(doc1, jsonString);
+        udpCommand.beginPacket(muIP, COMMAND_PORT);
+        udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
+        udpCommand.endPacket();
+#ifdef DEBUG_UDP
+        Serial.println("[muSetPerformance] command sent: " + jsonString + " to: " + muIP);
+#endif
+#endif
+
+        muSumPerformanceValues();
     }
     else
     {
-        _muState = 1; // we are the lead
-        _muActive = true;
+        _muState = lead; // we are the lead
 
         // start PM on the mued loco (may already be running, doesn't matter)
         // if lead is not running then don't start
         // separate logic in startup proc to start mued locos TBD
         if (_running)
+        {
+#ifdef USING_MQTT
             client.publish(topicChars, "1");
+#else
+            jsonString = "";
+
+            doc1["topic"] = "startstop";
+            doc1["value"] = "1";
+            serializeJson(doc1, jsonString);
+
+            udpCommand.beginPacket(muIP, COMMAND_PORT);
+            udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
+            udpCommand.endPacket();
+#ifdef DEBUG_UDP
+            Serial.println("[muSetPerformance] lead running, command sent: " + jsonString + " to: " + muIP);
+#endif
+#endif
+        }
 
         // v 0.26 ff
         // TBD before we do the following, try to find existing id for this candidate in muDoc
         // if found, replace it or maybe do nothing, although we may be updating performance characteristics (seems unlikely)
         // look for this candidate in muDoc and remove it
+        // ...later learned that to(JsonObject) creates or replaces, as(JsonObject) updates an existing entry
         // if (!muDoc.containsKey(locoID))
         {
             JsonObject candidate = muDoc[locoID].to<JsonObject>();
@@ -1431,45 +1736,46 @@ void Throttle::setMuPerformance(char *jsonMsg)
             candidate["hp"] = hp;
             candidate["mass"] = mass;
             candidate["te"] = te;
+            candidate["muip"] = muIP;
 
-            // save the serialized and changed muDoc in Preferences
-            // serializeJson(muDoc, consistString);
-            // myPrefs.begin("consist"); // v0.26 ff
-            // myPrefs.putString("consist", consistString);
-            // myPrefs.end();
+            // save the serialized and changed muDoc in Preferences version 0.38.16
+            serializeJson(muDoc, consistString);
+            myPrefs.begin("consist"); // v0.26 ff
+            myPrefs.putString("consist", consistString);
+            myPrefs.end();
 
             // save the mustates in Preferences
             myPrefs.begin("loco"); // v0.26 ff
-            myPrefs.putBool("muactive", _muActive);
             myPrefs.putUInt("mustate", _muState);
             myPrefs.end();
 
-            sumMuPerformanceValues();
+            muSumPerformanceValues();
+            reportStatus(); // so the app has a current view of mu status
         }
     }
 }
 
-void Throttle::setMuSpeed(char *jsonMsg)
+void Throttle::muSetSpeed(const char *jsonMsg)
 {
     // receive speed messages from lead unit, set this unit's speed to match
 
     static bool lastBrake;
-    float lastOdo; // odometer update
+    float lastOdo = 0.; // odometer update
 
-    if ((!_muActive) || (!_running)) // TBD this is a workaround that can't be left in the code why? because we may not be running
+    if ((_muState == solo) || (_muState == lead) || (!_running)) // TBD this is a workaround that can't be left in the code why? because we may not be running
         return;
 
-    // static bool alternateSeconds = false;
     JsonDocument doc;
-
-    // switch this each 1 sec cycle, it will be used to add or subtract 0.5 mph to commanded speed
-    // this (theoretically) will defeat the back emf algorithm in the decoder to eliminate tug-of-war effect
-    // alternateSeconds = !alternateSeconds;
 
     // Deserialize the JSON document
     DeserializationError error = deserializeJson(doc, jsonMsg);
     if (error)
+    {
+#ifdef SERIAL_ON
+        Serial.println("muSetSpeed error");
+#endif
         return;
+    }
 
     // retrieve mph value
     float muMPH = doc["mph"];
@@ -1479,12 +1785,10 @@ void Throttle::setMuSpeed(char *jsonMsg)
     String consistString = doc["consist"];
     if ((consistString.indexOf(_locoID) == -1) && (muMPH > 0)) // need to qualify for speed > 0 to avoid disconnecting because of preliminary status msgs
     {
-        _muState = 0;
-        _muActive = false;
+        _muState = solo;
 
         Preferences myPrefs;
         myPrefs.begin("loco");
-        myPrefs.putBool("muactive", _muActive);
         myPrefs.putUInt("mustate", _muState);
         myPrefs.end();
 
@@ -1561,6 +1865,8 @@ void Throttle::reportCondition()
     // sends static condition to app whenever app opens throttle fragment
     // this sets the state of various views in the fragment
 
+    String jsonString = "";
+
     char topicChars[TOPIC_CHAR_SIZE];
     char msgChars[200]; // v 0.16
     char charPsi[10];
@@ -1621,7 +1927,7 @@ void Throttle::reportCondition()
     strcat(msgChars, charMu);
 
     // if mued, the lead loco id  TBD this may not be necessary as it is handled elsewhere
-    if (_muActive) // new 10/29
+    if ((_muState == mid) || (_muState == trailing))
     {
         strcat(msgChars, ",\"muto\":");
         strcat(msgChars, _muLeadLoco.c_str());
@@ -1643,13 +1949,40 @@ void Throttle::reportCondition()
 
     strcat(msgChars, "}");
 
+    JsonDocument doc;
+    doc["topic"] = "condition";
+    doc["id"] = "_locoID.c_str()";
+    doc["pm "] = charPm;
+    doc["rvrsr"] = charDir;
+    doc["hl"] = charHl;
+    doc["rl"] = charRl;
+    doc["bell"] = charBl;
+    doc["psi"] = charPsi;
+    doc["mu"] = charMu;
+    doc["muto"] = _muLeadLoco.c_str();
+    doc["tl"] = charTl;
+    doc["cars"] = charCarCount;
+    doc["tons"] = charTonnage;
+    serializeJson(doc, jsonString);
+
+#ifdef USING_MQTT
     client.publish(topicChars, msgChars);
+#elif defined(USING_UDP)
+    // udp publish via telemetry
+#ifdef DEBUG_UDP
+    Serial.println("[reportCondition] sending " + jsonString);
+#endif
+    telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
+    telemetry.sendTelemetry(jsonString.c_str());
+#endif
 }
 
 void Throttle::reportStatus()
 {
     // reports various current values back to the app for display there
     // the mqtt msg is in json format
+
+    String jsonString = "";
 
     _trainlinePSI = bs.getTrainlinePSI();
 
@@ -1666,61 +1999,90 @@ void Throttle::reportStatus()
     char charOdo[10];
     char charPsi[10];
 
-    strcpy(msgChars, "{\"mph\":");
-    dtostrf(speedoSpeed, 4, 2, charSpeed);
-    strcat(msgChars, charSpeed);
-
-    strcat(msgChars, ",\"dir\":");
-    const char charDir[2] = {char(_direction + 48), 0}; // 48 = ascii zero
-    strcat(msgChars, charDir);
-
-    strcat(msgChars, ",\"notch\":");
-    const char charNotch[2] = {char(_notch + 48), 0}; // 48 = ascii zero
-    strcat(msgChars, charNotch);
-
-    strcat(msgChars, ",\"brk\":");                              // depicts loco brake on or off
-    const char charBrake[2] = {char(bs.locoBrakeOn() + 48), 0}; // 48 = ascii zero
-    strcat(msgChars, charBrake);
-
-    strcat(msgChars, ",\"odo\":");
-    dtostrf((_odometer / 5280), 4, 2, charOdo);
-    strcat(msgChars, charOdo);
-
-    strcat(msgChars, ",\"psi\":");
-    dtostrf(_trainlinePSI, 2, 0, charPsi);
-    strcat(msgChars, charPsi);
-
-    strcat(msgChars, ",\"mp\":");
-    dtostrf(bs.getMainPSI(), 2, 0, charPsi);
-    strcat(msgChars, charPsi);
+    JsonDocument doc;
+    bool locoBrkOn = bs.locoBrakeOn();
+    uint16_t mainPsi = bs.getMainPSI();
+    // round to 1, 2 decimal places
+    float speedo2 = round(speedoSpeed * 10.f) / 10.f;
+    float odo2 = round((_odometer * 100.) / 5280.) / 100.0f;
+    doc["topic"] = "status";
+    doc["id"] = _locoID.c_str();
+    doc["mph"] = speedo2;
+    doc["dir"] = (uint16_t)_direction;
+    doc["notch"] = (uint16_t)_notch;
+    doc["brk"] = (uint16_t)locoBrkOn;
+    doc["odo"] = odo2;
+    doc["psi"] = _trainlinePSI, 0;
+    doc["mp"] = (float)mainPsi, 0;
 
     // add trailing loco IDs if lead loco in consist v 0.26 ff
-    // JSON document muDoc was populated by setMuPerformance
-    if (_muState == 1) // check if mued as lead
+    // JSON document muDoc was populated by muSetPerformance
+    if (_muState == lead) // loco is the lead loco in a consist
     {
         // build a string of the consisted loco IDs as derived from muDoc
         // add them to the json string
         JsonObject root = muDoc.as<JsonObject>();
-        uint8_t counter = 0;
+        if (muDoc.isNull())
+            _muState = solo; // failsafe here
+        else
+        {
+            uint8_t counter = 0;
+            char muStr[256] = "";
 
-        strcat(msgChars, ",\"consist\":\"");
+            // https://arduinojson.org/v7/api/jsonobject/begin_end/
+            for (JsonPair kv : root)
+            {
+                if (counter == 0)
+                    strcpy(muStr, kv.key().c_str());
+                else
+                {
+                    strcat(muStr, ",");
+                    strcat(muStr, kv.key().c_str());
+                }
+                counter++;
+            }
 
-        // https://arduinojson.org/v7/api/jsonobject/begin_end/
+            doc["consist"] = muStr;
+        }
+    }
+    serializeJson(doc, jsonString);
+
+#ifdef USING_MQTT
+    client.publish(topicChars, jsonString.c_str());
+#elif defined(USING_UDP)
+    // udp publish via telemetry
+    telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
+    telemetry.sendTelemetry(jsonString.c_str());
+#ifdef DEBUG_UDP
+    Serial.println("[reportStatus] Sent telemetry: " + jsonString + " to: " + _controllingIP);
+#endif
+
+    if (_muState == lead) // check for lead unit
+    {
+        // send status to each of the trailing locos, if any
+        // Iterate key-value pairs at top level
+        // root is the loco id (key), its value is a json object
+        // first remove the unneeded bits
+        doc["topic"] = "muLeadStatus";
+        doc.remove("psi");
+        doc.remove("mp");
+        serializeJson(doc, jsonString);
+
+        JsonObject root = muDoc.as<JsonObject>();
         for (JsonPair kv : root)
         {
-            if (counter > 0)
-                strcat(msgChars, ",");
-            counter++;
-
-            // strcat(msgChars, "\"");
-            strcat(msgChars, kv.key().c_str());
-            // strcat(msgChars, "\"");
+            const char *key = kv.key().c_str();
+            JsonObject child = kv.value(); // this form is important, don't use 'as' clause
+            const char *muip = child["muip"];
+            udpCommand.beginPacket(muip, COMMAND_PORT);
+            udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
+            udpCommand.endPacket();
+#ifdef DEBUG_UDP
+            Serial.println("[reportStatus] Sent unicast to trailer: " + jsonString + " to: " + muip);
+#endif
         }
-        strcat(msgChars, "\"");
-    }
-
-    strcat(msgChars, "}");
-    client.publish(topicChars, msgChars);
+#endif
+}
 }
 
 void Throttle::reportMqttDebug(String parameter, float value) // v 0.25
@@ -1738,7 +2100,9 @@ void Throttle::reportMqttDebug(String parameter, float value) // v 0.25
     dtostrf(value, 8, 2, charValue);
     strcpy(msgChars, charValue);
 
+#ifdef USING_MQTT
     client.publish(topicChars, msgChars);
+#endif
 }
 
 void Throttle::reportMqttDebugString(String parameter, String data) // v 0.25
@@ -1754,7 +2118,9 @@ void Throttle::reportMqttDebugString(String parameter, String data) // v 0.25
 
     strcpy(msgChars, data.c_str());
 
+#ifdef USING_MQTT
     client.publish(topicChars, msgChars);
+#endif
 }
 
 void Throttle::reportFunctionLabels()
@@ -1769,34 +2135,65 @@ void Throttle::reportFunctionLabels()
     strcat(topicChars, _locoID.c_str());
     strcat(topicChars, "/functionLabels");
 
-    char msgChars[1024];
-    String iString;
-    String labelString;
+    char msgChars[1024]; // TBD limit the labels (elsewhere) to 30 characters
+    // String iString;
+    // String labelString;
 
-    strcpy(msgChars, "{");
-    // open the spiff
+    // strcpy(msgChars, "{");
+    // // open the spiff
+    // myPrefs.begin("functions", true);
+    // for (int i = 0; i < 29; i++)
+    // {
+    //     // convert i to string
+    //     iString = "f" + String(i);
+    //     // get the string from spiff
+    //     labelString = myPrefs.getString(iString.c_str(), "");
+    //     // // build the string including the i string
+    //     strcat(msgChars, "\"");
+    //     strncat(msgChars, iString.c_str(), 3);
+    //     strcat(msgChars, "\":\"");
+    //     // concat the label
+    //     strncat(msgChars, labelString.c_str(), 10);
+    //     strcat(msgChars, "\"");
+    //     if (i < 28)
+    //         strcat(msgChars, ",");
+    // }
+    // myPrefs.end();
+
+    // strcat(msgChars, "}");
+
+    // following from chatGPT 12/07/25
+    // places the labels into a json array, {"labels":["label1","label2"...]}
+    StaticJsonDocument<2048> doc; // enough for 29 labels
+
+    doc["topic"] = "functionLabels";
+
+    JsonArray labels = doc["labels"].to<JsonArray>();
+
     myPrefs.begin("functions", true);
     for (int i = 0; i < 29; i++)
     {
-        // convert i to string
-        iString = "f" + String(i);
-        // get the string from spiff
-        labelString = myPrefs.getString(iString.c_str(), "");
-        // // build the string including the i string
-        strcat(msgChars, "\"");
-        strncat(msgChars, iString.c_str(), 3);
-        strcat(msgChars, "\":\"");
-        // concat the label
-        strncat(msgChars, labelString.c_str(), 10);
-        strcat(msgChars, "\"");
-        if (i < 28)
-            strcat(msgChars, ",");
+        String key = "f" + String(i);
+        String value = myPrefs.getString(key.c_str(), "");
+        labels.add(value);
     }
     myPrefs.end();
 
-    strcat(msgChars, "}");
+    String output;
+    serializeJson(doc, output);
 
-    client.publish(topicChars, msgChars);
+#ifdef USING_MQTT
+    // client.publish(topicChars, msgChars);
+    client.publish(topicChars, output.c_str());
+#elif defined(USING_UDP)
+    // TBA UDP
+    // udp publish via telemetry
+    telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
+    telemetry.sendTelemetry(output.c_str());
+#ifdef DEBUG_UDP
+    Serial.println("[reportFunctionLabels] " + output);
+#endif
+#endif
 }
 
 uint16_t Throttle::interpolateSpeedFactor(float fps)
@@ -1871,7 +2268,7 @@ void Throttle::setFunction(char *jsonMsg)
 {
     JsonDocument doc;
 
-    // Deserialize the JSON document
+    // convert the json string to a json doc
     DeserializationError error = deserializeJson(doc, jsonMsg);
     if (error)
         return;
@@ -1916,7 +2313,7 @@ void Throttle::brakeSqueal(bool on)
     return;
 }
 
-void Throttle::sumMuPerformanceValues() // v0.26
+void Throttle::muSumPerformanceValues() // v0.26
 {
     // ref: https://arduinojson.org/v7/api/jsonobject/begin_end/
 
@@ -1924,9 +2321,9 @@ void Throttle::sumMuPerformanceValues() // v0.26
     _muLocoMass = 0;
     _muTractiveEffort = 0;
 
-    if (_muState == 0)
+    if (_muState == solo)
     {
-        // #ifdef MQTT_DEBUG_ON
+        // #ifdef DEBUG_MQTT
         //         reportMqttDebug("combinedHP", (float)_muHorsepower);
         // #endif
         return;
@@ -1949,7 +2346,128 @@ void Throttle::sumMuPerformanceValues() // v0.26
         _muTractiveEffort = _muTractiveEffort + value32;
     }
 
-    // #ifdef MQTT_DEBUG_ON
+    // #ifdef DEBUG_MQTT
     //     reportMqttDebug("combinedHP", (float)_muHorsepower);
     // #endif
+}
+
+void Throttle::muMemberCheck(bool consistMember)
+{
+
+    // this runs on a trailing loco in the consist in response to the message sent by lead after muMemberCheck() message was sent to it
+    // normally runs once per minute if consisted and lead is replying
+    // if the parameter is true then the lead affirms this loco is in the consist
+    // if false the lead loco wants nothing to do with this loco
+    // if false this loco removes itself from the consist by setting _muState to solo
+    // if no response from lead was received then muMemberCheck will set _muState to solo
+
+    Preferences myPrefs;
+
+    if ((_muState == solo) || (_muState == lead))
+        return;
+
+    _consistMember = consistMember;
+
+    if (!consistMember)
+    {
+        _muState = solo;
+        // save in prefs
+        myPrefs.begin("loco");
+        myPrefs.putUInt("mustate", _muState);
+        myPrefs.end();
+    }
+}
+
+void Throttle::muMemberCheck()
+{
+    // this runs on any loco trailing the lead in a consist
+    // if a loco believes that it is in a consist (_muState = mid or trailing) then it runs this code once per minute
+    // the message is sent to the lead engine asking for confirmation and then sets a flag, consistMember (bool)
+    // the lead will reply affirmative, negative or not at all
+    // if affirmative this loco will clear the flag
+    // if negative this loco will reset its _muState to solo
+    // if missing after another period has expired and the flag is still set then this loco resets _muState to solo
+
+    String jsonString = "";
+    Preferences myPrefs;
+
+    if ((_muState == solo) || (_muState == lead))
+        return;
+
+    if (!_consistMember) // wasn't reset by a response to the last membercheck (no response at all)
+    {
+        _muState = solo;
+#ifdef SERIAL_ON
+        Serial.println("[muMemberCheck] no response, terminating");
+#endif
+        // save in prefs
+        myPrefs.begin("loco");
+        myPrefs.putUInt("mustate", _muState);
+        myPrefs.end();
+        return;
+    }
+
+    IPAddress ip = WiFi.localIP();
+    char ipBuffer[16]; // Maximum length of an IPv4 string (including null terminator)
+
+    // Format the 4 octets into the buffer
+    snprintf(ipBuffer, sizeof(ipBuffer), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]); // TBD make a private class var and do this once, ref later says gfh
+
+    JsonDocument doc;
+    doc["topic"] = "muMemberCheck";
+    doc["value"] = ipBuffer;
+    serializeJson(doc, jsonString);
+
+    udpCommand.beginPacket(_leadIpAdr, COMMAND_PORT);
+    udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
+    udpCommand.endPacket();
+}
+
+void Throttle::muMemberResponse(const char *muip)
+{
+    // this runs on lead
+    // in response to membercheck udp command from supposed consist member
+    // this function checks the incoming ip address against those stored for members in muDoc
+    // if found in the list return true, else false in another udp message
+
+    bool isMember = false;
+    String jsonString;
+    char isMemberChar[12]; // this is bullshit
+
+// This prints the entire nested structure with line breaks and indentation
+#ifdef SERIAL_ON
+    serializeJsonPretty(muDoc, Serial);
+    Serial.println(); // Add a newline at the end for readability
+#endif
+
+    JsonObject root = muDoc.as<JsonObject>();
+
+    if (muDoc.size() == 0) // we don't need no stinkin' consist
+        strcpy(isMemberChar, "false");
+    else
+    {
+        for (JsonPair kv : root)
+        {
+            JsonObject obj = kv.value();
+            const char *muIP = obj["muip"];
+
+            if (strcmp(muIP, muip) == 0)
+                isMember = true;
+        }
+
+        if (isMember)
+            strcpy(isMemberChar, "true");
+        else
+            strcpy(isMemberChar, "false");
+    }
+
+    JsonDocument doc;
+    doc["topic"] = "muMemberResponse";
+    doc["value"] = isMemberChar;
+
+    serializeJson(doc, jsonString);
+
+    udpCommand.beginPacket(muip, COMMAND_PORT);
+    udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
+    udpCommand.endPacket();
 }

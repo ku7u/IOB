@@ -199,27 +199,24 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 
 **********************************************************************/
 
+#include "version.h"
 #include "devices.h" // modify the contents as required to match the hardware
 // #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager  gfh
 
-#include "nvs_flash.h"
 #include <Arduino.h>
-#include "ArduinoJson.h"
-#include <iostream>
+#include <ArduinoJson.h>
+#include "AsyncTCP.h"
+#include "ElegantOTA.h"
 // there is a problem in ESPAsyncWebServer and the dorks don't fix it
 // I forced the platform version in platformio.ini per recommendation in following
 // https://github.com/me-no-dev/ESPAsyncWebServer/issues/1147
-#include <ESPmDNS.h>
 #include "ESPAsyncWebServer.h"
-#include "AsyncTCP.h"
-// #include "ESPConnect.h"   // TBD need for this?
-// #include "AsyncElegantOTA.h"
-#include "ElegantOTA.h"
+#include <ESPmDNS.h>
+#include <iostream>
+#include "nvs_flash.h"
 #include "Preferences.h"
 #include "PubSubClient.h"
 #include "WiFi.h"
-#include <WiFiUdp.h> // UDP
-#include "MQTT.h"
 #include "FS.h"
 #include "SPIFFS.h"
 #include "RBot.h"
@@ -244,6 +241,17 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include "HardwareSerial.h"
 #include "WiFiConfigurator.h"
 
+#ifdef USING_MQTT
+#include "MQTT.h"
+#elif defined(USING_UDP)
+#include <WiFiUdp.h>      // UDP
+#include "udpTransport.h" // TBR
+#include "UdpTransport.h"
+#include "RollcallHandler.h"
+#include "CommandHandler.h"   // TBA
+#include "TelemetryHandler.h" // TBA
+#endif
+
 using namespace std;
 
 #ifdef RGB_BUILTIN
@@ -259,18 +267,32 @@ WiFiClient espClient;
 // bool eraseSSID = false;
 String mdnsURL;
 AsyncWebServer server(80);
-WiFiConfigurator wifiConfig(server);
-// unsigned long softAPTimeout = 300000; // 5 minutes
-// unsigned long softAPStartTime ;
+// WiFiConfigurator wifiConfig(server); // this was the previous method
+WiFiConfigurator wifiConfigurator(server); // defaults: SoftAP "IOB_AP", prefs ns "wifi_conf"
+
+// for mDNS discovery process
+// Define the Service Name and Type that Android will look for
+const char *serviceName = "myesp32device"; // A unique name, perhaps derived from MAC address
+const char *serviceType = "_myesp32app";   // MUST MATCH Android NsdHelper.SERVICE_TYPE (minus the ._udp)
+const char *serviceProto = "_udp";         // The protocol
+const uint16_t servicePort = 12345;        // The UDP port your ESP32 is listening on
 
 // udp
+#ifdef USING_UDP
 WiFiUDP udp;
+// dedicated ports for rollcall, commands and telemetry
 WiFiUDP udpCommand;
 WiFiUDP udpTelemetry;
 WiFiUDP udpRollcall;
-const int ROLLCALL_PORT = 50001;  // Port this ESP32 listens on for rollcall
-const int COMMAND_PORT = 50002;   // commands to me use this
-const int TELEMETRY_PORT = 50003; // speed, etc. telementry from lead loco in consist
+// extern const int ROLLCALL_PORT = 50001;  // Port this ESP32 listens on for rollcall
+// extern const int COMMAND_PORT = 50002;   // commands to me use this
+// extern const int TELEMETRY_PORT = 50003; // speed, etc. telementry from lead loco in consist
+
+UdpTransport rollcallPort(ROLLCALL_PORT);   // only for rollcall queries, multicast
+UdpTransport commandPort(COMMAND_PORT);     // commands are sent to this port, unicast
+UdpTransport telemetryPort(TELEMETRY_PORT); // telemetry, multicast, might be unicast but would require multiple messages for trailing units
+
+#endif
 
 // time
 const char *ntpServer = "pool.ntp.org";
@@ -278,9 +300,11 @@ const long gmtOffset_sec = 0;
 const int daylightOffset_sec = 0;
 
 // mqtt
+#ifdef USING_MQTT
 PubSubClient client(espClient);
 String mqttServer = "192.168.99.99"; // TBD fix this
 String mqttNode = "OLSdevice";
+#endif
 String topicCommandLeftEnd;
 String topicFeedbackLeftEnd;
 
@@ -288,7 +312,14 @@ Fifo commandFifo;
 BrakeSystem bs;
 UartReader uartReader;
 
-Throttle throttle;
+// --- UDP handlers and throttle (intertwingled) ---
+// TelemetryHandler telemetry(telemetryPort);   // declared in throttle object, not needed here
+Throttle throttle; // requires telemetry object
+#ifdef USING_UDP
+CommandHandler commands(commandPort, throttle); // requires throttle object
+RollcallHandler rollcall(rollcallPort);
+#endif
+
 Train train;
 
 // position on layout
@@ -446,7 +477,9 @@ void getGeneralPrefs()
 {
   // get the stored configuration values, defaults are the second parameter in the list
   myPrefs.begin("general", true);
-  mqttServer = myPrefs.getString("mqttserver", "192.168.99.99");
+#ifdef USING_MQTT
+  mqttServer = myPrefs.getString("mqttserver", "192.168.0.9");
+#endif
   topicCommandLeftEnd = myPrefs.getString("commandtopic", "cmd/ols/");
   topicFeedbackLeftEnd = myPrefs.getString("feedbacktopic", "tlm/ols/");
   // eraseSSID = myPrefs.getBool("erasessid", false);
@@ -458,9 +491,10 @@ void getGeneralPrefs()
 // this function converts placeholders in index.html into active data values
 String processorIndex(const String &var)
 {
-  Serial.println("Processor var: " + var); // Debug
+  // Serial.println("Processor var: " + var); // Debug
   if (var == "version")
-    return olsVersion;
+    // return olsVersion;
+    return VERSION_STRING;
 
   return String(); // in case nothing matched
 }
@@ -469,22 +503,32 @@ String processorIndex(const String &var)
 // this function converts placeholders in network.html into active data values
 String processorNetwork(const String &var)
 {
-  Serial.print("Template variable: ");
-  Serial.println(var);
+  String returnString = ""; // this is unnecessary, just troubleshooting, can be reset back to original returns
+
+  // Serial.print("Template variable: ");
+  // Serial.println(var);
+
   if (var == "IP")
-    return WiFi.localIP().toString();
+    // return WiFi.localIP().toString();
+    returnString = WiFi.localIP().toString();
   else if (var == "SSID")
-    return WiFi.SSID();
+    // return WiFi.SSID();
+    returnString = WiFi.SSID();
   else if (var == "RSSI")
-    return String(WiFi.RSSI());
+    // return String(WiFi.RSSI());
+    returnString = String(WiFi.RSSI());
   else if (var == "MAC")
-    return WiFi.macAddress();
+    // return WiFi.macAddress();
+    returnString = WiFi.macAddress();
   else if (var == "MDNS")
-    return mdnsURL;
+    // return mdnsURL;
+    returnString = mdnsURL;
+#ifdef USING_MQTT
   else if (var == "MQ")
     return mqttServer;
   else if (var == "MQTTSERVERIPADR")
     return mqttServer;
+#endif
   else if (var == "TOPICCOMMANDLEFTEND")
   {
     topicCommandLeftEnd.replace("%", "");
@@ -496,7 +540,10 @@ String processorNetwork(const String &var)
     return topicFeedbackLeftEnd;
   }
 
-  return String(); // in case nothing matched
+  if (returnString != "")
+    return returnString;
+  else
+    return String(); // in case nothing matched
 }
 
 /*****************************************************************************/
@@ -664,36 +711,13 @@ String processorFunctions(const String &var)
 }
 
 /*****************************************************************************/
-// this function converts placeholders in functions.html into active data values
-// String processorFunctionLabels(const String &var)
-// {
-//   // Serial.println(var);
-//   String returnVal;
-//   returnVal = "";
-
-//   myPrefs.begin("labels", true);
-//   if (var == "F0")
-//     returnVal = (myPrefs.getString("f0", "undefined"));
-//   else if (var == "F1")
-//     returnVal = (myPrefs.getString("f1", "undefined"));
-//   else if (var == "F2")
-//     returnVal = (myPrefs.getString("f2", "undefined"));
-//   else if (var == "F3")
-//     returnVal = (myPrefs.getString("f3", "undefined"));
-//   else if (var == "F4")
-//     returnVal = (myPrefs.getString("f4", "undefined"));
-
-//   myPrefs.end();
-
-//   return (returnVal);
-// }
-
-/*****************************************************************************/
 // this function handles data entry from the web pages
 void setupWeb()
 {
+
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/index.html", "text/html", false, processorIndex); });
+
   server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/index.html", "text/html", false, processorIndex); });
   server.on("/functions.html", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -704,8 +728,6 @@ void setupWeb()
             { request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork); });
   server.on("/calibration.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/calibration.html", "text/html", false, processorCalibrationparms); });
-  // server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-  //           { request->send(SPIFFS, "/stylesheet.css", "text/css", false); });
 
   server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -716,8 +738,10 @@ void setupWeb()
     if (request->hasParam("NetworkParm"))
     {
       myPrefs.begin("general", false);
+#ifdef USING_MQTT
       mqttServer = request->getParam("mqttserver")->value();
       myPrefs.putString("mqttserver", mqttServer);
+#endif
       topicCommandLeftEnd = request->getParam("commandtopic")->value();
       myPrefs.putString("commandtopic", topicCommandLeftEnd);
       topicFeedbackLeftEnd = request->getParam("feedbacktopic")->value();
@@ -725,7 +749,7 @@ void setupWeb()
       myPrefs.end();
       request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork);
     }
-
+    
     else if (request->hasParam("EraseParm"))
     {
       myPrefs.begin("general", false);
@@ -736,8 +760,8 @@ void setupWeb()
       request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork);
       ESP.restart();  // v 0.23
     }
-
-   else if (request->hasParam("locoparmsParm")) 
+    
+    else if (request->hasParam("locoparmsParm")) 
     {
       myPrefs.begin("loco", false);
       inputMessage = request->getParam("dccaddress")->value();
@@ -753,12 +777,12 @@ void setupWeb()
       inputMessage = request->getParam("tractiveeffort")->value();
       myPrefs.putLong("tractiveeffort", inputMessage.toInt()); // TBD why float?
       myPrefs.end();
-
+      
       throttle.getLocoPrefs();
       request->send(SPIFFS, "/locoparms.html", "text/html", false, processorLocoparms);
     }
-   
-   else if (request->hasParam("calibrationParm"))
+    
+    else if (request->hasParam("calibrationParm"))
     {
       myPrefs.begin("calibration", false);
       inputMessage = request->getParam("speed2forward")->value();
@@ -775,20 +799,20 @@ void setupWeb()
       myPrefs.putFloat("speed10forward", inputMessage.toFloat());
       inputMessage = request->getParam("speed10reverse")->value();
       myPrefs.putFloat("speed10reverse", inputMessage.toFloat());
-
-
+      
+      
       inputMessage = request->getParam("speed20forward")->value();
       myPrefs.putFloat("speed20forward", inputMessage.toFloat());
       inputMessage = request->getParam("speed20reverse")->value();
       myPrefs.putFloat("speed20reverse", inputMessage.toFloat());
-
+      
       inputMessage = request->getParam("speed50forward")->value();
       myPrefs.putFloat("speed50forward", inputMessage.toFloat());
       inputMessage = request->getParam("speed50reverse")->value();
       myPrefs.putFloat("speed50reverse", inputMessage.toFloat());
       
       myPrefs.end();
-
+      
       throttle.getLocoPrefs();  // TBD have to add to getLocoPrefs
       request->send(SPIFFS, "/calibration.html", "text/html", false, processorCalibrationparms);
     }
@@ -904,8 +928,7 @@ void setupWeb()
       request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions);
     } });
 
-  // following from codeproject
-  server.serveStatic("/", SPIFFS, "/");
+  server.serveStatic("/", SPIFFS, "/"); // chatGPT says this needs to go before the catchall (onNotFound)
 }
 
 /*****************************************************************************/
@@ -934,88 +957,182 @@ void setupMDNS(String locoid)
 
     return;
   }
+
+  // Advertise the service details for device discovery
+  MDNS.addService(serviceType, serviceProto, servicePort);
+#ifdef SERIAL_ON
+  Serial.printf("Advertising service: %s.%s on port %d\n", serviceType, serviceProto, servicePort);
+#endif
+  // Retrieve strings from preferences once
+  myPrefs.begin("loco");
+  String locoId = myPrefs.getString("locoid", "none");
+  locoId.trim();
+  String locoType = myPrefs.getString("locotype", "none");
+  locoType.trim();
+  myPrefs.end();
+  Serial.printf("DEBUG: Sending locoID: [%s] Type: [%s]\n", locoId.c_str(), locoType.c_str());
+
+  // Use MDNS.addServiceTxt(serviceType, serviceProto, key, value)
+  // Convert Arduino Strings to C-style const char* for the function call
+  MDNS.addServiceTxt(serviceType, serviceProto, "locoID", locoId.c_str());
+  MDNS.addServiceTxt(serviceType, serviceProto, "type", locoType.c_str());
+
+  //   delay(5000);
+  //   MDNS.end(); // TBD TBD TBD
+  // #ifdef SERIAL_ON
+  //   Serial.println("[setupMDNS] ended");
+  // #endif
+}
+
+const char *getSubstringAfterLastSlash(const char *input)
+{
+  const char *lastSlash = strrchr(input, '/'); // find last occurrence of '/'
+  if (lastSlash)
+  {
+    return lastSlash + 1; // move past the slash
+  }
+  return input; // no slash found, return the whole string
 }
 
 /*****************************************************************************/
-void processUdpRollcall()
-{
-  // String msg = "{ID=" + locoID + " + ";IP=" + WiFi.localIP().toString() +};
-  char buf[128];
-  int len = udpRollcall.read(buf, sizeof(buf) - 1);
-  if (len > 0)
-  {
-    // Add jitter to reduce interference of the response messages
-    delay(random(10, 200));
+// #ifndef USING_MQTT
+// void processUdpCommand()
+// {
+//   // call something in the throttle object
+//   bool b;
+//   // const char *s;
+//   String msg;
 
-    buf[len] = 0;
-    String msg = String(buf);
-    Serial.println("udp broadcast received: " + msg);
+//   char buf[128];
+//   int len = udpCommand.read(buf, sizeof(buf) - 1);
+//   if (len > 0)
+//   {
+//     buf[len] = 0;
+//     msg = String(buf);
+// #ifdef DEBUG_UDP
+//     Serial.println("(main) received command: " + msg);
+// #endif
+//   }
 
-    // Build JSON response
-    StaticJsonDocument<200> doc;
-    myPrefs.begin("loco");
-    doc["locoID"] = myPrefs.getString("locoid", "none");
-    doc["ip"] = WiFi.localIP().toString();
-    doc["type"] = myPrefs.getString("locotype", "none");
-    myPrefs.end();
+//   // Parse the JSON
+//   StaticJsonDocument<256> doc;
+//   DeserializationError error = deserializeJson(doc, buf);
 
-    char jsonBuf[200];
-    serializeJson(doc, jsonBuf);
+//   if (error)
+//   {
+// #ifdef DEBUG_UDP
+//     Serial.print("JSON parse failed: ");
+//     Serial.println(error.c_str());
+// #endif
+//     return;
+//   }
 
-    // Reply via unicast
-    IPAddress senderIP = udpRollcall.remoteIP();
-    int senderPort = udpRollcall.remotePort();
+//   // Check required fields
+//   // if (doc["id"].isNull() || doc["topic"].isNull())
+//   // {
+//   //   Serial.println("Missing or null JSON field. Exiting.");
+//   //   return;
+//   // }
 
-    udpRollcall.beginPacket(senderIP, senderPort);
-    udpRollcall.write((uint8_t *)jsonBuf, strlen(jsonBuf));
-    udpRollcall.endPacket();
+//   // Extract fields
+//   // const char *id = doc["id"];
+//   const char *topic = doc["topic"];
+//   const char *value = doc["value"]; // TBD why const or not? required const for arduinoJson 7.x
 
-    Serial.println("Sent unicast response to: " + senderIP.toString());
-  }
-}
+//   JsonVariant valueVariant = doc["value"];
+
+//   // #ifdef DEBUG_UDP
+//   //   Serial.println("Parsed values:");
+//   //   // Serial.printf("  id: %s\n", id ? id : "<null>");   // id may be useful as a troubleshooting aid
+//   //   Serial.printf("  topic: %s\n", topic ? topic : "<null>");
+//   //   Serial.printf("  value: %s\n", value ? value : "<null>");
+//   // #endif
+
+//   const char *shortTopic = getSubstringAfterLastSlash(topic);
+
+//   // bool boolVal = (strcmp(value, "1") ? false : true); // strcmp returns 0 if true which is dumb
+
+//   if (strcmp(shortTopic, "sendstatus") == 0)
+//   {
+//     throttle.reportCondition();
+//     throttle.reportStatus();
+//   }
+//   else if (strcmp(shortTopic, "startstop") == 0)
+//     throttle.pmOnOff(strcmp(value, "1") ? false : true);
+//   else if (strcmp(shortTopic, "stop") == 0)
+//     throttle.panicStop();
+//   else if (strcmp(shortTopic, "bell") == 0)
+//     throttle.bell(strcmp(value, "1") ? false : true);
+//   else if (strcmp(shortTopic, "horn") == 0)
+//     throttle.horn(strcmp(value, "1") ? false : true);
+//   else if (strcmp(shortTopic, "headlight") == 0)
+//     throttle.headlight(atoi(value));
+//   else if (strcmp(shortTopic, "rearlight") == 0)
+//     throttle.rearlight(atoi(value));
+//   else if (strcmp(shortTopic, "notch") == 0)
+//     throttle.manualNotch(strcmp(value, "1") ? false : true);
+//   else if (strcmp(shortTopic, "longpress") == 0)
+//     throttle.longPress(strcmp(value, "1") ? false : true);
+//   else if (strcmp(shortTopic, "ibrake") == 0)
+//     throttle.setLBrake(strcmp(value, "1") ? false : true);
+//   else if (strcmp(shortTopic, "tbrake") == 0)
+//     throttle.setABrake(strcmp(value, "1") ? false : true);
+//   else if (strcmp(shortTopic, "trainline") == 0)
+//     throttle.trainline(strcmp(value, "1") ? false : true);
+//   else if (strcmp(shortTopic, "carcount") == 0)
+//     throttle.setCarCount(atoi(value));
+//   else if (strcmp(shortTopic, "reportlabels") == 0)
+//     throttle.reportFunctionLabels();
+//   else if (strcmp(shortTopic, "calibrate") == 0)
+//     throttle.calibrate(atoi(value));
+
+//   else if (strcmp(shortTopic, "report") == 0)
+//     throttle.report();
+//   else if (strcmp(shortTopic, "reverser") == 0)
+//     throttle.setDirection(atoi(value));
+
+//   // mu processing
+//   else if (strcmp(shortTopic, "setmustate") == 0)
+//   {
+//     // a loco is chosen to be mued to a lead, value is a json string that includes lead id,
+//     static char buffer[256];
+//     serializeJson(valueVariant, buffer, sizeof(buffer));
+//     throttle.muSetState(buffer);
+//   }
+//   else if (strcmp(shortTopic, "muperformance") == 0)
+//   {
+//     // a loco is chosen to be mued to a lead, value is a json string that includes lead id,
+//     // static char buffer[256];
+//     // serializeJson(valueVariant, buffer, sizeof(buffer));
+//     // throttle.muSetPerformance(buffer);
+//     throttle.muSetPerformance(msg.c_str());
+//   }
+//   else if (strcmp(shortTopic, "muReport") == 0)
+//     throttle.muReport(value, "0.0.0.0"); // second parameter is a clumsy temporary dummy
+// }
+// #endif
 
 /*****************************************************************************/
-void processUdpCommand()
+#ifdef USING_UDP
+void processUdpTelemetry()
+// this routine would receive the speed telemetry from lead loco and process if in a consist
 {
-  // call something in the throttle object
-
   char buf[128];
-  int len = udpCommand.read(buf, sizeof(buf) - 1);
+  int len = udpTelemetry.read(buf, sizeof(buf) - 1);
   if (len > 0)
   {
     buf[len] = 0;
     String msg = String(buf);
-    Serial.println("udp broadcast received: " + msg);
+#ifdef DEBUG_UDP
+    Serial.println("(main) received telemetry: " + msg);
+#endif
   }
-
-  // Parse the JSON
-  StaticJsonDocument<256> doc;
-  DeserializationError error = deserializeJson(doc, buf);
-
-  if (error)
-  {
-    Serial.print("JSON parse failed: ");
-    Serial.println(error.c_str());
-    return;
-  }
-
-  // Extract fields
-  const char *topic = doc["topic"];
-  const char *value = doc["value"];
-
-  Serial.println("Parsed values:");
-  Serial.printf("  topic: %s\n", topic);
-  Serial.printf("  value: %s\n", value);
-
-  if (topic == "startstop")
-    throttle.pmOnOff(value);
-
-  else if (topic == "horn")
-    throttle.horn(value);
 }
+#endif
 
 /*****************************************************************************/
 #ifdef ESP32C3DK
+
 void setupNeoPixels(int numLamps)
 {
   // start neoPixels and set all to blue
@@ -1031,6 +1148,59 @@ void setupNeoPixels(int numLamps)
 }
 #endif
 
+void processPendingCommands()
+{
+  PendingCommand cmd;
+  while (commands.getNext(cmd))
+  {
+    Serial.println("wheeeee!");
+    if (strcmp(cmd.topic, "sendstatus") == 0)
+    {
+      throttle.inUse(true);
+      throttle.setControllingIP(cmd.ip);
+      throttle.reportCondition();
+      throttle.reportStatus();
+    }
+
+    else if (strcmp(cmd.topic, "startstop") == 0)
+      throttle.pmOnOff(strcmp(cmd.value, "1") ? false : true);
+    else if (strcmp(cmd.topic, "stop") == 0)
+      throttle.panicStop();
+    else if (strcmp(cmd.topic, "horn") == 0)
+      throttle.horn(strcmp(cmd.value, "1") ? false : true);
+    else if (strcmp(cmd.topic, "bell") == 0)
+      throttle.bell(strcmp(cmd.value, "1") ? false : true);
+    else if (strcmp(cmd.topic, "horn") == 0)
+      throttle.horn(strcmp(cmd.value, "1") ? false : true);
+    else if (strcmp(cmd.topic, "headlight") == 0)
+      throttle.headlight(atoi(cmd.value));
+    else if (strcmp(cmd.topic, "rearlight") == 0)
+      throttle.rearlight(atoi(cmd.value));
+    else if (strcmp(cmd.topic, "notch") == 0)
+      throttle.manualNotch(strcmp(cmd.value, "1") ? false : true);
+    else if (strcmp(cmd.topic, "longpress") == 0)
+      throttle.longPress(strcmp(cmd.value, "1") ? false : true);
+    else if (strcmp(cmd.topic, "ibrake") == 0)
+      throttle.setLBrake(strcmp(cmd.value, "1") ? false : true);
+    else if (strcmp(cmd.topic, "tbrake") == 0)
+      throttle.setABrake(strcmp(cmd.value, "1") ? false : true);
+    else if (strcmp(cmd.topic, "trainline") == 0)
+      throttle.trainline(strcmp(cmd.value, "1") ? false : true);
+    else if (strcmp(cmd.topic, "carcount") == 0)
+      throttle.setCarCount(atoi(cmd.value));
+    else if (strcmp(cmd.topic, "reportlabels") == 0)
+      throttle.reportFunctionLabels();
+    else if (strcmp(cmd.topic, "calibrate") == 0)
+      throttle.calibrate(atoi(cmd.value));
+    else if (strcmp(cmd.topic, "function") == 0)
+      throttle.setFunction(cmd.value);
+    else if (strcmp(cmd.topic, "report") == 0)
+      throttle.report();
+    else if (strcmp(cmd.topic, "reverser") == 0)
+      throttle.setDirection(atoi(cmd.value));
+  }
+}
+
 /*****************************************************************************/
 void setup()
 {
@@ -1043,12 +1213,6 @@ void setup()
   nvs_flash_init();
 
 #ifdef ESP32C3DK
-  // strip.begin();
-  // strip.setBrightness(7);
-  // // strip.setPixelColor(0, red); // show LED red before wifi connect
-  //   // strip.setPixelColor(0, strip.Color(0, 80, 0)); // red
-
-  // strip.show();
   setupNeoPixels(1);
 #endif
 
@@ -1065,12 +1229,26 @@ void setup()
   pinMode(9, INPUT_PULLDOWN);
 #endif
 
-#ifdef SERIAL_ON
-  Serial.begin(115200); // TBD gfh
+// #ifdef SERIAL_ON
+#if defined(SERIAL_ON) || defined(DEBUG_UDP) || defined(DEBUG_MQTT) || defined(DEBUG_SPEED)
+  Serial.begin(115200);
+  Serial.println("SERIAL ON");
   // see USB build flags in platformio.ini - set to zeroes to make it all work for C3F
   // per Espressif note, RTS/CTS must be disabled
   // so in monitor pgm set those to none and then restart the device, possibly requires hard reset (power cycle)
-  Serial.println("OLS firmware version " + String(olsVersion));
+  // Serial.println("OLS firmware version " + String(olsVersion));
+#endif
+
+#ifdef DEBUG_UDP
+  Serial.println("DEBUG UDP ON");
+#endif
+
+#ifdef DEBUG_MQTT
+  Serial.println("DEBUG MQTT ON");
+#endif
+
+#ifdef DEBUG_SPEED
+  Serial.println("DEBUG SPEED ON");
 #endif
 
 #ifdef SERIAL_POL // position on layout reader
@@ -1078,7 +1256,7 @@ void setup()
   pinMode(HW_SERIAL_PIN, INPUT_PULLDOWN);
 #endif
 
-  SPIFFS.begin(true); // format on fail
+  SPIFFS.begin(false); // format on fail if true
 
   getGeneralPrefs();
 
@@ -1087,19 +1265,22 @@ void setup()
   String locoID = myPrefs.getString("locoid", "new");
   myPrefs.end();
 
-  // use mac address as SSID to assure uniqueness
-  String SSID = WiFi.macAddress();
-#ifdef SERIAL_ON
-  Serial.println("SSID " + SSID);
-#endif
-
-  // it is a good practice to make sure your code sets wifi mode how you want it.
-  // WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
-
   // WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
   // WiFiManager wm;
-  // wifiConfig.begin(locoID.c_str());
-  wifiConfig.begin();
+
+  // using AI generated wificonfigurator object
+  // it presents a soft AP that will display a captive portal page to the user
+  // the captive page shows the ip address if already connected
+  // it also allows connecting to existing APs in the area
+  // soft AP terminates automatically in 2 minutes
+  // code will connect to a previously selected AP simultaneously with the soft AP creation
+
+  // wifiConfigurator.setSoftApSSID(locoID + "_AP");
+  wifiConfigurator.begin();
+
+  setupWeb(); // how to interact with each of the web pages
+
+  server.begin(); // this is the web server
 
   // Automatically connect using saved credentials,
   // if connection fails, it starts an access point with the the chip ID as the name,
@@ -1119,9 +1300,8 @@ void setup()
   */
   // bool res = wm.autoConnect(); // auto generated AP name from chipid
 
-// show yellow LED if connected to wifi
 #ifdef ESP32C3DK
-  // strip.setPixelColor(0, strip.Color(80, 80, 0)); // yellow?
+  // show yellow LED if connected to wifi
   strip.setPixelColor(0, yellow);
   strip.show();
   // also workaround for pins 20, 21
@@ -1132,24 +1312,28 @@ void setup()
   WiFi.setSleep(false);        // trying to avoid latency  TBD v0282
   WiFi.setAutoReconnect(true); // TBD v0282 could lead to stuck device https://esp32.com/viewtopic.php?f=19&t=39116
 
-  udpCommand.begin(COMMAND_PORT);     // udp
-  udpTelemetry.begin(TELEMETRY_PORT); // udp
-  udpRollcall.begin(ROLLCALL_PORT);   // udp
-
-  // AsyncElegantOTA.begin(&server); // Start ElegantOTA
   ElegantOTA.begin(&server); // Start ElegantOTA
-  server.begin();
+
+  ElegantOTA.onEnd([](bool success) // Hook into OTA completion
+                   {
+  if (success) {
+#ifdef SERIAL_ON
+    Serial.println("OTA update finished successfully, restarting...");
+#endif
+    ESP.restart();
+  } else {
+#ifdef SERIAL_ON
+    Serial.println("OTA update failed, not restarting.");
+#endif
+  } });
 
   setupMDNS(locoID);
 
-  setupWeb();
-
-  // SerialCommand::init(&mainRegs, &progRegs, &mainMonitor); // create structure to read and parse commands from serial line
   SerialCommand::init(&mainRegs, &progRegs);              // create structure to read and parse commands from serial line TBD remove current monitor
   mainRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
   progRegs.loadPacket(1, RegisterList::idlePacket, 2, 0); // load idle packet into register 1
 
-  // // opposite phases are sent to these two pins controlling one H bridge pair
+  // opposite phases are sent to these two pins controlling one H bridge pair
   pinMode(DCC_SIGNAL_PIN_MAIN, OUTPUT);
   pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT);
 
@@ -1164,33 +1348,38 @@ void setup()
   timerAlarmWrite(pulseTimer1, DCC_ZERO_BIT_TOTAL_DURATION_TIMER1, true);
   timerAlarmEnable(pulseTimer1);
 
-  // MQTT
+// MQTT
+#ifdef USING_MQTT
   mqttNode = "OLS" + locoID;
   mqttSetup(mqttServer, mqttNode);
+#endif
 
   throttle.getLocoPrefs();
   throttle.getFunctionPrefs();
   throttle.init();
 
-#ifdef SPEED_DEBUG
-#ifdef SERIAL_ON
-  Serial.println("SPEED_DEBUG is on");
-#endif
-#endif
-
-  // use millis as seed for random generator
-  // srand(millis()); // TBD don't think this is in use anymore
-
   // time is used in throttle object to set trainline psi after extended shutdown
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
-  // MQTT
+// MQTT
+#ifdef USING_MQTT
   connectMQTT(mqttNode);
   setupSubscriptions();
+#endif
 
   pinMode(LEFT_HED_PIN, INPUT_PULLDOWN); // TBD
-  // pinMode(20, INPUT_PULLDOWN);
 
+#if defined(USING_UDP)
+  rollcallPort.begin();
+  commandPort.begin();
+  // telemetryPort.begin();
+
+  rollcall.begin();
+#endif
+#ifdef SERIAL_ON
+  Serial.println("end of setup");
+  Serial.println("Firmware version: " + VERSION_STRING);
+#endif
 } // end setup
 
 /*****************************************************************************/
@@ -1200,39 +1389,68 @@ void loop()
   timer200ms.tick();
   timer60000ms.tick();
 
-  // times out the softAP
-  wifiConfig.loop();
+  uint8_t buf[256];
+  IPAddress sender;
+  uint16_t senderPort;
+
+  // TESTING ----------------------------------------------------------------
+#ifdef USING_UDP
+  // rollcall.loop();
+  commands.loop();
+  // telemetry.loop();
+  processPendingCommands();
+#endif
+  // TESTING ----------------------------------------------------------------
 
   // following for udp testing
+  // #ifndef USING_MQTT
+  //   // int packetSize = udpRollcall.parsePacket();
+  // #ifdef DEBUG_UDP
+  //   if (packetSize)
+  //     Serial.printf("Received packet of size %d from %s:%d\n",
+  //                   packetSize,
+  //                   udp.remoteIP().toString().c_str(),
+  //                   udp.remotePort());
+  // #endif
+  // respond to rollcall with a unicast message containing loco data
+  // processUdpRollcall();
 
-  if (udpRollcall.parsePacket())
-    // respond to rollcall with a unicast message containing loco data
-    processUdpRollcall();
+  //   if (udpCommand.parsePacket())
+  //   {
+  // #ifdef DEBUG_UDP
+  //     Serial.println("parsed a command packet");
+  // #endif
+  //     // these are commands from the app
+  //     processUdpCommand();
+  //   }
 
-  if (udpCommand.parsePacket())
-    // these are commands from the app
-    processUdpCommand();
-
-  if (udpTelemetry.parsePacket())
-  {
-    // handle telemetry packet, these are speed reports from lead loco in consist
-    // call something in the throttle object
-  }
+#ifdef USING_UDP
+  // if (udpTelemetry.parsePacket())
+  // {
+  //   // #ifdef DEBUG_UDP
+  //   //     Serial.println("parsed a telemetry packet");
+  //   // #endif
+  //   // handle telemetry packet, these are speed reports from lead loco in consist
+  //   processUdpTelemetry();
+  // }
+#endif
 
   // process the mqtt input
   // client.loop();
 
-  // if (timer60000ms.expired)
-  // {
-  //   // memory testing
-  //   int freeHeap = ESP.getFreeHeap();
-  //   String myFreeHeap = String(freeHeap);
-  //   unsigned long maxAllocHeap = ESP.getMaxAllocHeap();
-  //   String myMaxAllocHeap = String(maxAllocHeap);
-  //   throttle.reportMqttDebugString(myFreeHeap, "freeHeap");
-  //   throttle.reportMqttDebugString(myMaxAllocHeap, "maxAllocHeap");
-  // }
+  if (timer60000ms.expired)
+  {
+    //   // memory testing
+    //   int freeHeap = ESP.getFreeHeap();
+    //   String myFreeHeap = String(freeHeap);
+    //   unsigned long maxAllocHeap = ESP.getMaxAllocHeap();
+    //   String myMaxAllocHeap = String(maxAllocHeap);
+    //   throttle.reportMqttDebugString(myFreeHeap, "freeHeap");
+    //   throttle.reportMqttDebugString(myMaxAllocHeap, "maxAllocHeap");
+    throttle.muMemberCheck();
+  }
 
+#ifdef USING_MQTT
   if (!client.loop()) // I took this out for a reason, caused some issue on reconnection?
   {
 #ifdef ESP32C3DK
@@ -1251,6 +1469,7 @@ void loop()
 #endif
     setupSubscriptions();
   }
+#endif
 
   // if (magReader.check(throttle.getLastIntCurrentSpeed())) // check for waypoints by reading magnets embedded in track
   //   uint milepost = magReader.process(throttle.isForward()); waddawedo with 'milepost'?

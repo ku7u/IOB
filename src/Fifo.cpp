@@ -4,6 +4,9 @@
 
 void Fifo::pushCommand(int myFunction, bool myBool)
 {
+#ifdef SERIAL_ON
+    Serial.println("[pushCommand] " + String(myFunction) + " " + String(myBool));
+#endif    
     _functionParms myParms;
     myParms.functionID = myFunction;
     myParms.onOff = myBool;

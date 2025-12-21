@@ -1,41 +1,48 @@
 #pragma once
 
-// #ifndef WIFI_CONFIGURATOR_H
-// #define WIFI_CONFIGURATOR_H
-
-#include <Arduino.h>
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <Preferences.h>
+#include "SPIFFS.h"
 
 class WiFiConfigurator {
 public:
-    WiFiConfigurator(AsyncWebServer& server);
-    void begin();
-    void loop();
+    WiFiConfigurator(AsyncWebServer &srv,
+                     const char *prefsNamespace = "wifi_conf",
+                     const char *softApSSID = "Device_AP",
+                     IPAddress apIP = IPAddress(192,168,4,1),
+                     unsigned long portalTimeoutMs = 180000UL);
+
+    void begin();             // call in setup()
+    void handle();            // call regularly in loop()
+    void restartPortal(unsigned long timeoutMs = 180000UL);
+    bool connectSTA(const char *ssid, const char *pass);
 
 private:
+    AsyncWebServer &server;
+
+    String _softApSSID;
+    const char *_prefsNamespace;
+    IPAddress _apIP;
+    unsigned long _portalTimeoutMs;
+
+    Preferences _prefs;
+    bool _portalActive;
+    unsigned long _portalStartMillis;
+
+    const char *KEY_SSID = "ssid";
+    const char *KEY_PASS = "pass";
+
     void startSoftAP();
-    void connectToWiFi();
-    void setupRoutes();
-    void setupCaptivePortal();
-    void stopSoftAP();
-
-    void handleScan(AsyncWebServerRequest *request);
-    void handleSave(AsyncWebServerRequest *request);
-    void handleNotFound(AsyncWebServerRequest *request);
-    String processor(const String& var);
-
-    void saveCredentials(const String& ssid, const String& password);
-    bool isWiFiConnected();
-    String getContentType(const String& filename);
-
-    AsyncWebServer& server;
-    Preferences prefs;
-    bool softAPActive = false;
-    unsigned long softAPStartTime = 0;
-    const unsigned long softAPTimeoutMs = 5 * 60 * 1000;  // 5 minutes
-    String _locoID;
+    void stopPortal();
+    void setupWebServerRoutes();
+    void serveApSelectPage(AsyncWebServerRequest *req);
+    void handleAPlist(AsyncWebServerRequest *req);
+    void handleStatus(AsyncWebServerRequest *req);
+    void handleConnect(AsyncWebServerRequest *req);
+    bool attemptConnectAndSave(const char *ssid, const char *password);
+    void connectToSavedHouseAP();
+    void saveCredentials(const char *ssid, const char *pass);
+    String jsonEscape(const String &s);
+    String embeddedApSelectHtml();
 };
-
-// #endif

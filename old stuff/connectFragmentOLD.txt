@@ -1,0 +1,169 @@
+//package com.olequacircuits.ols
+//
+//import android.annotation.SuppressLint
+//import android.content.BroadcastReceiver
+//import android.content.Context
+//import android.content.Intent
+//import android.content.IntentFilter
+//import android.os.Bundle
+//import androidx.fragment.app.Fragment
+//import android.view.LayoutInflater
+//import android.view.View
+//import android.view.ViewGroup
+//import android.widget.AdapterView
+//import android.widget.ArrayAdapter
+//import android.widget.AutoCompleteTextView
+//import androidx.core.content.ContextCompat.registerReceiver
+//import androidx.fragment.app.FragmentActivity
+//import androidx.localbroadcastmanager.content.LocalBroadcastManager
+//import com.google.android.material.snackbar.Snackbar
+//import kotlinx.android.synthetic.main.activity_main.*
+//import kotlinx.android.synthetic.main.dropdown_item.*
+//import kotlinx.android.synthetic.main.fragment_connect.*
+//import kotlinx.android.synthetic.main.fragment_connect.textviewRosterDropdown
+//import kotlinx.android.synthetic.main.fragment_mu.*
+//import kotlinx.android.synthetic.main.fragment_throttle.*
+//import org.eclipse.paho.client.mqttv3.MqttException
+//
+//// then sends the selection (locoID) to main activity using a broadcast message
+//
+//class ConnectFragment : Fragment(R.layout.fragment_connect) {
+//
+//    @SuppressLint("SetTextI18n") // only for hard coded locoID (maybe)
+//    var locoId = ""
+//    var locoType = ""
+//    var ipAdr = ""
+//
+//    var locoEntry = Pair("","")  // new
+//    var locoArray = arrayListOf<String>()
+//
+//    var pairArray = arrayListOf<Pair<String, String>>()  // new
+//
+//    interface DeviceSelectorListener {
+//        fun getDeviceRoster(): Map<String, DeviceInfo>
+//    }
+//
+//    // this receiver populates the list as locos report to MainActivity, which then relays that data to here
+//    val receiver: BroadcastReceiver = object : BroadcastReceiver() {
+//        override fun onReceive(context: Context?, intent: Intent) {
+//            if (intent.action == "com.olequacircuits.ols.LOCO_ID") {
+//                locoId = intent.getStringExtra("locoid").toString()
+//                locoType = intent.getStringExtra("type").toString()
+//                locoArray.add(locoId + "/" + locoType)
+//                locoArray.sort()
+//
+//                ipAdr = intent.getStringExtra("ipAdr").toString()  // new
+//                locoEntry = Pair(locoId, ipAdr)  // new
+//                pairArray.add(locoEntry)  // new
+//
+//
+////                try {
+////                    view.let {
+////                        Snackbar.make(
+////                            requireActivity().findViewById(android.R.id.content),
+////                            "loco id " + locoId,
+////                            Snackbar.LENGTH_LONG
+////                        )
+////                            .setAction("Action", null).show()
+////                    }
+////                } catch (ex: MqttException) {
+////                        Snackbar.make(
+////                            findViewById(android.R.id.content),
+////                            "Failed to query all locos",
+////                            Snackbar.LENGTH_LONG
+////                        )
+////                            .setAction("Action", null).show()
+////                }
+//            }
+//            view?.findViewById<AutoCompleteTextView>(R.id.textviewRosterDropdown)?.showDropDown()   // TBD test 062224 works OK
+//        }
+//    }
+//
+//
+//    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+//        super.onViewCreated(view, savedInstanceState)
+//
+//        val arrayAdapter = ArrayAdapter(requireContext(), R.layout.dropdown_item, locoArray)
+//        view.findViewById<AutoCompleteTextView>(R.id.textviewRosterDropdown)
+//            .setAdapter(arrayAdapter)
+//
+//        Intent().also { intent ->
+//            intent.action = "com.olequacircuits.ols.REPORTREQUEST"
+//            intent.putExtra("topic", "0/report")
+//            intent.putExtra("msg", 0)
+//            activity?.sendBroadcast(intent)
+//        }
+//
+////        view.let {
+////            Snackbar.make(
+////                requireActivity().findViewById(android.R.id.content),
+////                "loco id " + locoId,
+////                Snackbar.LENGTH_LONG
+////            )
+////                .setAction("Action", null).show()
+////        }
+//
+//
+//
+//        textviewRosterDropdown.onItemClickListener =
+//            AdapterView.OnItemClickListener { parent, view, position, id ->
+//                val item = parent.getItemAtPosition(position)
+//
+//                val itemString = item.toString()
+//                val locoID = itemString.substring(0,itemString.indexOf("/"))
+//                val locoType = itemString.substringAfter("/","unknown")
+//                var ipAdr = ""
+//
+//                for (x in pairArray.indices) {
+//                    if (pairArray[x].first == locoID) {
+//                        ipAdr = pairArray[x].second
+//                        break
+//                    }
+//                }
+////                Snackbar.make(
+////                    requireActivity().findViewById(android.R.id.content),
+////                    pairArray[0].first + " " + pairArray[0].second + " " + itemString,
+////                    Snackbar.LENGTH_LONG
+////                )
+////                    .setAction("Action", null).show()
+//
+//                Intent().also { intent ->
+//                    intent.action = "com.olequacircuits.ols.LOCOID"
+//                    intent.putExtra("locoid", locoID)
+//                    intent.putExtra("ipadr", ipAdr)
+//                    intent.putExtra("locotype", locoType)
+//                    activity?.sendBroadcast(intent)
+//                }
+//            }
+//
+//
+//        fun  navButtonAction(direction : String) {
+//            Intent().also { intent ->
+//                intent.action = "com.olequacircuits.ols.NAV_ACTION"
+//                intent.putExtra("direction", direction)
+//                activity?.sendBroadcast(intent)
+//            }
+//        }
+//
+//        // go to throttle button
+//        buttonGoThrottle.setOnClickListener() {
+//            navButtonAction("throttle")
+//        }
+//    }
+//
+//    override fun onResume() {
+//        super.onResume()
+//
+////        Intent().also { intent ->
+////            intent.action = "com.olequacircuits.ols.MQTT_COMMAND"
+////            intent.putExtra("topic", "0/report")
+////            intent.putExtra("msg", 0)
+////            activity?.sendBroadcast(intent)
+////        }
+//
+//        requireActivity().registerReceiver(
+//            this.receiver,
+//            IntentFilter("com.olequacircuits.ols.LOCO_ID")
+//        )
+//    }
+//}

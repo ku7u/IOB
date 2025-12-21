@@ -1,8 +1,12 @@
 #pragma once
 
+#include "defines.h"
 #include <stdint.h>
 #include "Arduino.h"
 #include "ArduinoJson.h"
+#include "UdpTransport.h"
+#include "TelemetryHandler.h" // TBA
+#include <optional>
 
 class Throttle
 {
@@ -10,6 +14,7 @@ public:
     Throttle(void);
 
     void init(void);
+    void setControllingIP(IPAddress);
     void getFunctionPrefs(void);
     void getLocoPrefs(void);
     void report(void);
@@ -43,12 +48,12 @@ public:
     uint16_t interpolateSpeedFactor(float fps);
     bool isForward();
     uint getLastIntCurrentSpeed();
-    void setMuState(char *);
-    void setMuStateFromLead(char *);
-    void setMuSpeed(char *);
+    void muSetState(const char *); // added const for arduinoJson 7.x
+    void muSetSpeed(const char *);
     void queryMuTrailer(void);
-    void setMuPerformance(char *);
+    void muSetPerformance(const char *);
     void muSubscribe(bool);
+    // void muReport(const char *, const char *);
     void muReport(const char *);
     void reportCondition(void);
     void reportStatus(void);
@@ -59,6 +64,11 @@ public:
     void setFunction(char *);
     bool isRunning(void);
     void setWaypoint(uint8_t, bool); // waypoint ID, direction E=true
+    bool inUse() const;             // Getter function (const version is good practice)
+    void inUse(bool inUseValue);    // Setter function
+    void muMemberCheck();
+    void muMemberCheck(bool);
+    void muMemberResponse(const char *);
 
     int functionPM;
     int functionBell;
@@ -80,7 +90,10 @@ private:
     uint32_t getTime(void);
     void brakeSqueal(bool);
     void setEBrake(bool);
-    void sumMuPerformanceValues(void);
+    void muSumPerformanceValues(void);
+
+    UdpTransport telemetryPort; // declared only
+    TelemetryHandler telemetry; // declared only
 
     enum opModeType
     {
@@ -89,11 +102,17 @@ private:
         braking,
         powered
     } _opMode;
+
+    IPAddress _controllingIP; // the app runs here
+
+    bool _inUse = false;    // true if some app has latched on to this device
     uint16_t _roadNumber = 3;
     String _locoID;
     String _locoType;
     uint16_t _dccAddress = 3;
-    uint16_t _muState; // v0.26 was uint8_t
+     char _leadIpAdr [20];
+    enum MuState {solo=0, lead=1, mid=2, trailing=3};
+    MuState _muState; // v0.26 was uint8_t
     String _muLeadLoco;
     bool _muTrailingUnit; // false = mid, true = trailing unit
     bool _muReversed;     // true if running reversed in consist
@@ -166,6 +185,7 @@ private:
     float _fpsDccFactorReverse50;
     String _feedbackTopic;
     String _commandTopic;
+    bool _consistMember = false;
 
     JsonDocument muDoc; // holds state of consist v 0.26
     // {"GN123":{"hp":123, "lm":123, "te":123}, {...}, ...}   an object of objects, locoID as key
@@ -173,7 +193,7 @@ private:
 
     const int TOPIC_CHAR_SIZE = 200;
     const float ROLLING_RESISTANCE_COEFICIENT = .0020; // was .0015
-    const float VARIABLE_LOCO_DRAG_COEFICIENT = .0004;  // gfh 020825 was 0.0006 / 021725 was 0005
+    const float VARIABLE_LOCO_DRAG_COEFICIENT = .0004; // gfh 020825 was 0.0006 / 021725 was 0005
     const float LOCO_FRICTION_COEFICIENT = .2;         // similar to friction coefficient for brakes gfh 020725 was .1
     const float TRAIN_BRAKE_FRICTION_COEFICIENT = .05; // v027D was .1
 
@@ -190,4 +210,5 @@ private:
     const float MIN_EFFECTIVE_EMERGENCY_BRAKE_LINE_PRESSURE = 40; // TBD now in BrakeSystem? could be bogus
     const float EMERGENCY_BRAKE_FACTOR = 1.5;                     // to be more effective brake than automatic brake max which is computed to be 1.0
     const int AVERAGE_CAR_TONNAGE = 75;
+
 };

@@ -128,7 +128,7 @@ void callback(char *topic, byte *message, unsigned int length)
   messChars[length] = '\0';
   int msgVal = atoi(messChars);
 
-  if (partString == "report")
+  if (partString == "report") // TBD wait, does his belong here? response to broadcast?
     throttle.report();
 
   // basic throttle ops
@@ -183,13 +183,13 @@ void callback(char *topic, byte *message, unsigned int length)
 
   // following is mu stuff
   else if (partString == "setmustate")
-    throttle.setMuState(messChars);
+    throttle.muSetState(messChars);
   else if (partString == "muperformance")
-    throttle.setMuPerformance(messChars);
+    throttle.muSetPerformance(messChars);
   else if (partString == "muReport")
-    throttle.muReport(messChars);
+    throttle.muReport(messChars);  // second parameter is a clumsy temporary dummy 
   else if (partString == "status")
-    throttle.setMuSpeed(messChars);
+    throttle.muSetSpeed(messChars);
 
   // following from track server
   else if (partString == "traindata")

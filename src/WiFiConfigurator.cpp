@@ -1,163 +1,222 @@
 #include "WiFiConfigurator.h"
-#include <DNSServer.h>
-#include <SPIFFS.h>
 
-#define DNS_PORT 53
-
-WiFiConfigurator::WiFiConfigurator(AsyncWebServer& srv) : server(srv) {}
+WiFiConfigurator::WiFiConfigurator(AsyncWebServer &srv,
+                                   const char *prefsNamespace,
+                                   const char *softApSSID,
+                                   IPAddress apIP,
+                                   unsigned long portalTimeoutMs)
+    : server(srv),
+      _softApSSID(softApSSID),
+      _prefsNamespace(prefsNamespace),
+      _apIP(apIP),
+      _portalTimeoutMs(portalTimeoutMs),
+      _portalActive(false),
+      _portalStartMillis(0) {}
 
 void WiFiConfigurator::begin() {
-    // get the road number
-    prefs.begin("loco", true);
-    _locoID = prefs.getString("locoid", "new");
-    prefs.end();
+    if (!SPIFFS.begin(false)) {
+        Serial.println("[WiFiConfigurator] SPIFFS mount failed");
+    }
 
-    prefs.begin("wifi", false);
-    connectToWiFi();
-    startSoftAP();
-    setupRoutes();
-    setupCaptivePortal();
+    connectToSavedHouseAP(); // attempt STA
+
+    if (WiFi.status() != WL_CONNECTED) {
+        startSoftAP();        // start captive portal
+        _portalActive = true;
+        _portalStartMillis = millis();
+    }
+
+    setupWebServerRoutes();
 }
 
-void WiFiConfigurator::loop() {
-    if (softAPActive && millis() - softAPStartTime > softAPTimeoutMs) {
-        Serial.println("SoftAP timeout reached. Stopping SoftAP...");
-        stopSoftAP();
+void WiFiConfigurator::handle() {
+    if (_portalActive && (millis() - _portalStartMillis >= _portalTimeoutMs)) {
+        stopPortal();
     }
 }
 
-void WiFiConfigurator::connectToWiFi() {
-    String ssid = prefs.getString("ssid", "");
-    String password = prefs.getString("password", "");
-
-    if (ssid.length() > 0) {
-        WiFi.begin(ssid.c_str(), password.c_str());
-        Serial.printf("Connecting to %s", ssid.c_str());
-        unsigned long startAttempt = millis();
-        while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 10000) {
-            delay(500);
-            Serial.print(".");
-        }
-        Serial.println(WiFi.status() == WL_CONNECTED ? "\nConnected." : "\nFailed.");
-    } else {
-        Serial.println("No stored credentials.");
+void WiFiConfigurator::restartPortal(unsigned long timeoutMs) {
+    _portalTimeoutMs = timeoutMs;
+    if (!_portalActive) {
+        startSoftAP();
+        _portalActive = true;
     }
+    _portalStartMillis = millis();
+}
+
+bool WiFiConfigurator::connectSTA(const char *ssid, const char *pass) {
+    WiFi.mode(WIFI_MODE_STA);
+    WiFi.begin(ssid, pass);
+
+    Serial.println("[WiFiConfigurator] Connecting to STA...");
+    unsigned long start = millis();
+    const unsigned long timeout = 10000UL;
+
+    while (WiFi.status() != WL_CONNECTED && millis() - start < timeout) {
+        delay(200);
+        Serial.print(".");
+    }
+    Serial.println();
+
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.print("[WiFiConfigurator] Connected: ");
+        Serial.println(WiFi.localIP());
+        return true;
+    }
+    return false;
 }
 
 void WiFiConfigurator::startSoftAP() {
-    char softAPName [50];
-    String softAPNameString = "IOB_AP_" + _locoID;
-    Serial.println(softAPNameString);
-    strcpy(softAPName, softAPNameString.c_str());
-    WiFi.softAP(softAPName);
-    softAPActive = true;
-    softAPStartTime = millis();
-    Serial.println("Started SoftAP: " + String(softAPName));
-    Serial.println(WiFi.softAPIP());
+    WiFi.mode(WIFI_MODE_AP); // open AP
+    WiFi.softAP(_softApSSID.c_str());
+    WiFi.softAPConfig(_apIP, _apIP, IPAddress(255,255,255,0));
+    Serial.printf("[WiFiConfigurator] SoftAP started: %s, IP: %s\n", 
+                  _softApSSID.c_str(), WiFi.softAPIP().toString().c_str());
 }
 
-void WiFiConfigurator::stopSoftAP() {
+void WiFiConfigurator::stopPortal() {
     WiFi.softAPdisconnect(true);
-    softAPActive = false;
+    _portalActive = false;
+    Serial.println("[WiFiConfigurator] SoftAP stopped (portal timeout)");
 }
 
-void WiFiConfigurator::setupCaptivePortal() {
-    static DNSServer dnsServer;
-    dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+void WiFiConfigurator::setupWebServerRoutes() {
+    server.on("/apselect.html", HTTP_GET, [this](AsyncWebServerRequest *req){
+        serveApSelectPage(req);
+    });
 
-    // Call loop() on dnsServer periodically
-    static TaskHandle_t dnsTaskHandle;
-    xTaskCreate([](void *param) {
-        while (true) {
-            dnsServer.processNextRequest();
-            vTaskDelay(pdMS_TO_TICKS(10));
+    server.serveStatic("/stylesheet.css", SPIFFS, "/stylesheet.css");
+
+    server.on("/aplist", HTTP_GET, [this](AsyncWebServerRequest *req){
+        handleAPlist(req);
+    });
+    server.on("/status", HTTP_GET, [this](AsyncWebServerRequest *req){
+        handleStatus(req);
+    });
+    server.on("/connect", HTTP_POST, [this](AsyncWebServerRequest *req){
+        handleConnect(req);
+    });
+
+    server.onNotFound([this](AsyncWebServerRequest *req){
+        if (WiFi.status() != WL_CONNECTED) {
+            req->redirect(String("http://") + _apIP.toString() + "/apselect.html");
+        } else {
+            req->send(404, "text/plain", "Not found");
         }
-    }, "dns_loop", 4096, NULL, 1, &dnsTaskHandle);
+    });
 }
 
-void WiFiConfigurator::setupRoutes() {
-    server.on("/scan", HTTP_GET, [this](AsyncWebServerRequest *request) {
-        handleScan(request);
-    });
-
-    server.on("/save", HTTP_POST, [this](AsyncWebServerRequest *request) {
-        handleSave(request);
-    });
-
-    server.onNotFound([this](AsyncWebServerRequest *request) {
-        handleNotFound(request);
-    });
-
-    // server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html").setTemplateProcessor(
-    //     [this](const String& var) {
-    //         return processor(var);
-    //     }
-    // );
-
-    server.begin();
-    Serial.println("Web server started.");
+void WiFiConfigurator::serveApSelectPage(AsyncWebServerRequest *req) {
+    if (SPIFFS.exists("/apselect.html")) {
+        req->send(SPIFFS, "/apselect.html", "text/html");
+    } else {
+        req->send(200, "text/html", embeddedApSelectHtml());
+    }
 }
 
-void WiFiConfigurator::handleScan(AsyncWebServerRequest *request) {
+void WiFiConfigurator::handleAPlist(AsyncWebServerRequest *req) {
     int n = WiFi.scanNetworks();
     String json = "[";
-    for (int i = 0; i < n; ++i) {
-        if (i > 0) json += ",";
-        json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+    bool first = true;
+    for (int i=0; i<n; ++i) {
+        String s = WiFi.SSID(i);
+        if (s.length() == 0) continue;
+        if (!first) json += ",";
+        json += "{\"ssid\":\"" + jsonEscape(s) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+        first = false;
     }
     json += "]";
-    request->send(200, "application/json", json);
+    req->send(200, "application/json", json);
 }
 
-void WiFiConfigurator::handleSave(AsyncWebServerRequest *request) {
-    if (!request->hasParam("ssid", true) || !request->hasParam("password", true)) {
-        request->send(400, "text/plain", "Missing ssid or password");
+void WiFiConfigurator::handleStatus(AsyncWebServerRequest *req) {
+    bool connected = WiFi.status() == WL_CONNECTED;
+    IPAddress ip = connected ? WiFi.localIP() : IPAddress(0,0,0,0);
+    String body = "{\"connected\":" + String(connected ? "true" : "false") + ",";
+    body += "\"ssid\":\"" + jsonEscape(WiFi.SSID()) + "\",";
+    body += "\"ip\":\"" + ip.toString() + "\"}";
+    req->send(200, "application/json", body);
+}
+
+void WiFiConfigurator::handleConnect(AsyncWebServerRequest *req) {
+    String ssid, password;
+
+    // check form-encoded
+    if (req->hasParam("ssid", true))
+        ssid = req->getParam("ssid", true)->value();
+    if (req->hasParam("password", true))
+        password = req->getParam("password", true)->value();
+
+    if (ssid.length() == 0) {
+        req->send(400, "application/json", "{\"ok\":false,\"message\":\"missing ssid\"}");
         return;
     }
 
-    String ssid = request->getParam("ssid", true)->value();
-    String password = request->getParam("password", true)->value();
+    bool ok = attemptConnectAndSave(ssid.c_str(), password.c_str());
+    req->send(200, "application/json",
+              "{\"ok\":" + String(ok ? "true" : "false") +
+              ",\"message\":\"" + (ok ? "connecting" : "failed") + "\"}");
+}
 
+bool WiFiConfigurator::attemptConnectAndSave(const char *ssid, const char *password) {
+    bool connected = connectSTA(ssid, password);
     saveCredentials(ssid, password);
-
-    String html = "<html><body><h2>Saved. Rebooting...</h2></body></html>";
-    request->send(200, "text/html", html);
-    delay(2000);
-    ESP.restart();
+    return connected;
 }
 
-void WiFiConfigurator::handleNotFound(AsyncWebServerRequest *request) {
-    String path = request->url();
-    if (SPIFFS.exists(path)) {
-        request->send(SPIFFS, path, getContentType(path), false, [this](const String& var) {
-            return processor(var);
-        });
+void WiFiConfigurator::connectToSavedHouseAP() {
+    _prefs.begin(_prefsNamespace, true);
+    String ssid = _prefs.getString(KEY_SSID, "");
+    String pass = _prefs.getString(KEY_PASS, "");
+    _prefs.end();
+
+    if (ssid.length() > 0) {
+        Serial.printf("[WiFiConfigurator] Found SSID '%s', connecting...\n", ssid.c_str());
+        connectSTA(ssid.c_str(), pass.c_str());
     } else {
-        request->send(404, "text/plain", "Not found");
+        Serial.println("[WiFiConfigurator] No saved credentials → SoftAP mode");
     }
 }
 
-void WiFiConfigurator::saveCredentials(const String& ssid, const String& password) {
-    prefs.putString("ssid", ssid);
-    prefs.putString("password", password);
-    Serial.printf("Saved credentials: %s / %s\n", ssid.c_str(), password.c_str());
+void WiFiConfigurator::saveCredentials(const char *ssid, const char *pass) {
+    _prefs.begin(_prefsNamespace, false);
+    _prefs.putString(KEY_SSID, ssid);
+    _prefs.putString(KEY_PASS, pass);
+    _prefs.end();
+    Serial.println("[WiFiConfigurator] Credentials saved");
 }
 
-String WiFiConfigurator::processor(const String& var) {
-    if (var == "version") {
-        return "1.0.0";  // Replace with dynamic version if needed
+String WiFiConfigurator::jsonEscape(const String &s) {
+    String out;
+    for (unsigned int i=0; i<s.length(); ++i) {
+        char c = s[i];
+        if (c == '\\' || c == '"') { out += '\\'; out += c; }
+        else if (c == '\n') out += "\\n";
+        else out += c;
     }
-    return String();
+    return out;
 }
 
-String WiFiConfigurator::getContentType(const String& filename) {
-    if (filename.endsWith(".html")) return "text/html";
-    else if (filename.endsWith(".css")) return "text/css";
-    else if (filename.endsWith(".js")) return "application/javascript";
-    else if (filename.endsWith(".png")) return "image/png";
-    else if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) return "image/jpeg";
-    else if (filename.endsWith(".ico")) return "image/x-icon";
-    else if (filename.endsWith(".json")) return "application/json";
-    else if (filename.endsWith(".txt")) return "text/plain";
-    return "application/octet-stream";
+String WiFiConfigurator::embeddedApSelectHtml() {
+    return R"rawliteral(
+<!doctype html>
+<html>
+<head><meta name="viewport" content="width=device-width, initial-scale=1"><title>WiFi Setup</title></head>
+<body>
+<h2>Configure Wi-Fi</h2>
+<div><input id="ssid" placeholder="SSID"/><input id="password" type="password" placeholder="Password"/><button id="saveBtn">Save & Connect</button></div>
+<div id="aplist">Scanning...</div>
+<script>
+document.getElementById('saveBtn').onclick=function(){
+    let ssid=document.getElementById('ssid').value;
+    let pass=document.getElementById('password').value;
+    if(!ssid){alert('Enter SSID');return;}
+    fetch('/connect',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:'ssid='+encodeURIComponent(ssid)+'&password='+encodeURIComponent(pass)}).then(r=>r.json())
+    .then(js=>{alert(js.message);}).catch(e=>{alert('Error attempting to connect');});
+};
+</script>
+</body>
+</html>
+)rawliteral";
 }
