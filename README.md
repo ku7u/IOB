@@ -24,3 +24,5 @@ The app will present the operator with a list of candidate locos to attach to th
 -  The lead builds a json document (muDoc) containing all trailing locos and their performance data and ip addresses
 -  The lead loco uses the performance data in muDoc to recalculate acceleration going forward.
 -  It will include the mued locomotive(s) as an addition to subsequent status messages it transmits of the form "consist":"locoID1", "locoID2", etc. (TBD necessity)
+IOB stands for Intelligence on Board. It arose from a discussion on the MRH forum started by Geoff Bunza. I expanded his concept, which is to include a DCC command station onboard a model railroad loco, to provide a simulator of the prototype in the onboard device.
+This project is not ready for human consumption as yet although it is fully functional. It would take a great deal of handholding for someone else to use it. It requires an Android app for control which is in another github project. The app and the onboard device communicate using wifi and MQTT.
