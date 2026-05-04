@@ -1,9 +1,0 @@
-{
-    "cmake.configureOnOpen": false,
-    "idf.adapterTargetName": "esp32c6",
-    "idf.openOcdConfigs": [
-        "board/esp32h2-bridge.cfg"
-    ],
-    "idf.portWin": "COM7",
-    "idf.currentSetup": "C:\\Users\\George\\esp\\esp-idf"
-}
