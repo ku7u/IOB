@@ -1,34 +1,25 @@
 #include <iostream>
 #include "WiFi.h"
 #include "Arduino.h"
-#include "PubSubClient.h"
 #include "defines.h"
 #include "Throttle.h"
-#include "SerialCommand.h"
-#include "Function.h"
-#include "MQTT.h"
 #include "Preferences.h"
-#include "Fifo.h"
-#include "BrakeSystem.h"
 #include <WiFiUdp.h> // UDP
-#include <optional>
+// #include "BrakeSystem.h"
+// #include "SerialCommand.h"
+// #include "Function.h"
+// #include "PubSubClient.h"
+// #include "MQTT.h"
+// #include <optional> was using to enable optional function null parms
 
 #ifdef USING_MQTT
 extern PubSubClient client;
-// #elif defined(USING_UDP)
-// #include "TelemetryHandler.h" already in .h
 #endif
 
-extern Fifo commandFifo;
-extern BrakeSystem bs;
-
 #ifdef USING_UDP
-extern WiFiUDP udp; // UDP
-// extern const int TELEMETRY_PORT;
-// extern const int COMMAND_PORT;
+// extern WiFiUDP udp; // UDP
 extern WiFiUDP udpCommand;
-extern WiFiUDP udpTelemetry;
-// extern WiFiUDP udpRollcall;
+// extern WiFiUDP udpTelemetry;
 #endif
 
 // Constructor
@@ -73,9 +64,15 @@ void Throttle::inUse(bool inUseValue)
 
 void Throttle::init()
 {
-    commandFifo.pushCommand(functionNotchingEnable, true);
-    commandFifo.pushCommand(functionNotchUp, 0);
-    commandFifo.pushCommand(functionNotchDown, 0);
+    // commandFifo.pushCommand(functionNotchingEnable, true);
+    if (callbackPushCommand)
+        callbackPushCommand(functionNotchingEnable, true);
+    // commandFifo.pushCommand(functionNotchUp, 0);
+    if (callbackPushCommand)
+        callbackPushCommand(functionNotchUp, 0);
+    // commandFifo.pushCommand(functionNotchDown, 0);
+    if (callbackPushCommand)
+        callbackPushCommand(functionNotchDown, 0);
 }
 
 void Throttle::setControllingIP(IPAddress ip)
@@ -163,7 +160,13 @@ void Throttle::getFunctionPrefs(void)
     functionBrakeSqueal = myPrefs.getInt("brakesqueal", -1);
     myPrefs.end();
 
-    bs.setCompressorFunction(functionCompressor);
+    // bs.setCompressorFunction(functionCompressor);
+    if (callbackSetCompressorFunction)
+        callbackSetCompressorFunction(functionCompressor);
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
 }
 
 void Throttle::report() // TBR TBD obsolete
@@ -264,7 +267,14 @@ void Throttle::pmOnOff(bool onOff)
         _opMode = off;
 
         // do something to the brake system TBD
-        bs.cycle(false); // v027
+        // bs.cycle(false); // v027
+        if (callbackBrakeSystemCycle)
+            callbackBrakeSystemCycle(false);
+
+#ifdef DEBUG_CALLBACK
+        else
+            Serial.println("Callback failed");
+#endif
 
         // turn off PM on the mued loco(s) if this loco is a lead
         if (_muState == lead)
@@ -294,7 +304,6 @@ void Throttle::pmOnOff(bool onOff)
                 udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
                 udpCommand.endPacket();
 #ifdef DEBUG_UDP
-                Serial.println("[pmOnOff] command sent: " + jsonString + " to: " + muIP);
 #endif
 #endif
             }
@@ -303,11 +312,29 @@ void Throttle::pmOnOff(bool onOff)
     else // power up
     {
         _opMode = idle;
-
         // in case the brakes were left on at last shutdown
-        bs.applyEmmergency(false);
-        _independentBrake = bs.applyLocoBrake(false);
-        _trainBrake = bs.applyTrainBrake(false);
+        // bs.applyEmmergency(false);
+        if (callbackApplyEmergency)
+            callbackApplyEmergency(false);
+#ifdef DEBUG_CALLBACK
+        else
+            Serial.println("Callback failed");
+#endif
+        // _independentBrake = bs.applyLocoBrake(false);
+        if (callbackApplyLocoBrake)
+            _independentBrake = callbackApplyLocoBrake(false);
+#ifdef DEBUG_CALLBACK
+        else
+            Serial.println("Callback failed");
+#endif
+        // _trainBrake = bs.applyTrainBrake(false);
+        if (callbackApplyTrainBrake)
+            _trainBrake = callbackApplyTrainBrake(false);
+#ifdef DEBUG_CALLBACK
+        else
+            Serial.println("Callback failed");
+#endif
+
         // _independentBrake = 0;
         // _trainBrake = 0;
 
@@ -381,8 +408,16 @@ void Throttle::pmOnOff(bool onOff)
         muDoc.clear();
     }
 
-    commandFifo.pushCommand(functionPM, onOff);
-    commandFifo.pushCommand(functionNotchingEnable, onOff); // TBD can't turn off PM unless this is here WMNS
+    // commandFifo.pushCommand(functionPM, onOff);
+    if (callbackPushCommand)
+        callbackPushCommand(functionPM, onOff);
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
+    // commandFifo.pushCommand(functionNotchingEnable, onOff); // TBD can't turn off PM unless this is here WMNS
+    if (callbackPushCommand)
+        callbackPushCommand(functionNotchingEnable, onOff);
     reportStatus();
 
     // TBD TBA add code here to start/stop all mued locos, or might just leave this as an operator task, like real world
@@ -403,18 +438,30 @@ void Throttle::headlight(int offDimBright)
 
     if (offDimBright == 0)
     {
-        commandFifo.pushCommand(functionHeadlightDim, false);
-        commandFifo.pushCommand(functionHeadlightBright, false);
+        // commandFifo.pushCommand(functionHeadlightDim, false);
+        if (callbackPushCommand)
+            callbackPushCommand(functionHeadlightDim, false);
+        // commandFifo.pushCommand(functionHeadlightBright, false);
+        if (callbackPushCommand)
+            callbackPushCommand(functionHeadlightBright, false);
     }
     else if (offDimBright == 1)
     {
-        commandFifo.pushCommand(functionHeadlightDim, true);
-        commandFifo.pushCommand(functionHeadlightBright, false);
+        // commandFifo.pushCommand(functionHeadlightDim, true);
+        if (callbackPushCommand)
+            callbackPushCommand(functionHeadlightDim, true);
+        // commandFifo.pushCommand(functionHeadlightBright, false);
+        if (callbackPushCommand)
+            callbackPushCommand(functionHeadlightBright, false);
     }
     else if (offDimBright == 2)
     {
-        commandFifo.pushCommand(functionHeadlightDim, false);
-        commandFifo.pushCommand(functionHeadlightBright, true);
+        // commandFifo.pushCommand(functionHeadlightDim, false);
+        if (callbackPushCommand)
+            callbackPushCommand(functionHeadlightDim, false);
+        // commandFifo.pushCommand(functionHeadlightBright, true);
+        if (callbackPushCommand)
+            callbackPushCommand(functionHeadlightBright, true);
     }
 }
 
@@ -425,18 +472,30 @@ void Throttle::rearlight(int offDimBright)
     case solo:
         if (offDimBright == 0)
         {
-            commandFifo.pushCommand(functionRearlightDim, false);
-            commandFifo.pushCommand(functionRearlightBright, false);
+            // commandFifo.pushCommand(functionRearlightDim, false);
+            if (callbackPushCommand)
+                callbackPushCommand(functionRearlightDim, false);
+            // commandFifo.pushCommand(functionRearlightBright, false);
+            if (callbackPushCommand)
+                callbackPushCommand(functionRearlightBright, false);
         }
         else if (offDimBright == 1)
         {
-            commandFifo.pushCommand(functionRearlightDim, true);
-            commandFifo.pushCommand(functionRearlightBright, false);
+            // commandFifo.pushCommand(functionRearlightDim, true);
+            if (callbackPushCommand)
+                callbackPushCommand(functionRearlightDim, true);
+            // commandFifo.pushCommand(functionRearlightBright, false);
+            if (callbackPushCommand)
+                callbackPushCommand(functionRearlightBright, false);
         }
         else if (offDimBright == 2)
         {
-            commandFifo.pushCommand(functionRearlightDim, false);
-            commandFifo.pushCommand(functionRearlightBright, true);
+            // commandFifo.pushCommand(functionRearlightDim, false);
+            if (callbackPushCommand)
+                callbackPushCommand(functionRearlightDim, false);
+            // commandFifo.pushCommand(functionRearlightBright, true);
+            if (callbackPushCommand)
+                callbackPushCommand(functionRearlightBright, true);
         }
         break;
 
@@ -484,36 +543,60 @@ void Throttle::rearlight(int offDimBright)
         {
             if (offDimBright == 0)
             {
-                commandFifo.pushCommand(functionHeadlightDim, false);
-                commandFifo.pushCommand(functionHeadlightBright, false);
+                // commandFifo.pushCommand(functionHeadlightDim, false);
+                if (callbackPushCommand)
+                    callbackPushCommand(functionHeadlightDim, false);
+                // commandFifo.pushCommand(functionHeadlightBright, false);
+                if (callbackPushCommand)
+                    callbackPushCommand(functionRearlightBright, false);
             }
             else if (offDimBright == 1)
             {
-                commandFifo.pushCommand(functionHeadlightDim, true);
-                commandFifo.pushCommand(functionHeadlightBright, false);
+                // commandFifo.pushCommand(functionHeadlightDim, true);
+                if (callbackPushCommand)
+                    callbackPushCommand(functionHeadlightDim, true);
+                // commandFifo.pushCommand(functionHeadlightBright, false);
+                if (callbackPushCommand)
+                    callbackPushCommand(functionRearlightBright, false);
             }
             else if (offDimBright == 2)
             {
-                commandFifo.pushCommand(functionHeadlightDim, false);
-                commandFifo.pushCommand(functionHeadlightBright, true);
+                // commandFifo.pushCommand(functionHeadlightDim, false);
+                if (callbackPushCommand)
+                    callbackPushCommand(functionHeadlightDim, false);
+                // commandFifo.pushCommand(functionHeadlightBright, true);
+                if (callbackPushCommand)
+                    callbackPushCommand(functionRearlightBright, true);
             }
         }
         else // not reversed so the rear facing light is the physical rearlight
         {
             if (offDimBright == 0)
             {
-                commandFifo.pushCommand(functionRearlightDim, false);
-                commandFifo.pushCommand(functionRearlightBright, false);
+                // commandFifo.pushCommand(functionRearlightDim, false);
+                if (callbackPushCommand)
+                    callbackPushCommand(functionRearlightDim, false);
+                // commandFifo.pushCommand(functionRearlightBright, false);
+                if (callbackPushCommand)
+                    callbackPushCommand(functionRearlightBright, false);
             }
             else if (offDimBright == 1)
             {
-                commandFifo.pushCommand(functionRearlightDim, true);
-                commandFifo.pushCommand(functionRearlightBright, false);
+                // commandFifo.pushCommand(functionRearlightDim, true);
+                if (callbackPushCommand)
+                    callbackPushCommand(functionRearlightDim, true);
+                // commandFifo.pushCommand(functionRearlightBright, false);
+                if (callbackPushCommand)
+                    callbackPushCommand(functionRearlightBright, false);
             }
             else if (offDimBright == 2)
             {
-                commandFifo.pushCommand(functionRearlightDim, false);
-                commandFifo.pushCommand(functionRearlightBright, true);
+                // commandFifo.pushCommand(functionRearlightDim, false);
+                if (callbackPushCommand)
+                    callbackPushCommand(functionRearlightDim, false);
+                // commandFifo.pushCommand(functionRearlightBright, true);
+                if (callbackPushCommand)
+                    callbackPushCommand(functionRearlightBright, true);
             }
         }
     }
@@ -562,16 +645,26 @@ void Throttle::rearlight(int offDimBright)
 
 void Throttle::panicStop()
 {
-    char dccCommandChars[30];
-    char buffer[10];
-    itoa(_dccAddress, buffer, 10);
+    // char dccCommandChars[30];
+    // char buffer[10];
+    // itoa(_dccAddress, buffer, 10);
 
-    strcpy(dccCommandChars, "t 1 ");
-    strcat(dccCommandChars, buffer);
-    strcat(dccCommandChars, " 0");
-    SerialCommand::parse(dccCommandChars);
+    // strcpy(dccCommandChars, "t 1 ");
+    // strcat(dccCommandChars, buffer);
+    // strcat(dccCommandChars, " 0");
+    // SerialCommand::parse(dccCommandChars);
+    // if (callbackCommandDCC)
+    //     callbackCommandDCC(dccCommandChars);
+    if (callbackThrottleDCC)
+        callbackThrottleDCC(_dccAddress, 0, 1);
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
 
     _currentSpeed = 0;
+
+    // reset the throttle to idle
     while (_notch > 0)
     {
         manualNotch(false);
@@ -582,7 +675,9 @@ void Throttle::bell(bool onOff)
 {
     if (_running)
     {
-        commandFifo.pushCommand(functionBell, onOff);
+        // commandFifo.pushCommand(functionBell, onOff);
+        if (callbackPushCommand)
+            callbackPushCommand(functionBell, onOff);
         _bell = onOff;
     }
 }
@@ -592,7 +687,9 @@ void Throttle::horn(bool onOff)
 
     if (_running)
     {
-        commandFifo.pushCommand(functionHorn, onOff);
+        // commandFifo.pushCommand(functionHorn, onOff);
+        if (callbackPushCommand)
+            callbackPushCommand(functionHorn, onOff);
     }
 }
 
@@ -621,17 +718,21 @@ void Throttle::setDirection(int direction)
         _neutral = true;
 
     // send a speed command with zero speed just to set the current direction correctly in loco
-    String dummyString = "t 1 ";
-    dummyString.concat(String(_dccAddress) + " ");
-    dummyString.concat(String(0) + " "); // zero speed
+    // String dummyString = "t 1 ";
+    // dummyString.concat(String(_dccAddress) + " ");
+    // dummyString.concat(String(0) + " "); // zero speed
 
-    if (_direction)
-        dummyString.concat("1");
-    else
-        dummyString.concat("0");
+    // if (_direction)
+    //     dummyString.concat("1");
+    // else
+    //     dummyString.concat("0");
 
-    strcpy(dummyChars, dummyString.c_str());
-    SerialCommand::parse(dummyChars);
+    // strcpy(dummyChars, dummyString.c_str());
+    // SerialCommand::parse(dummyChars);
+    // if (callbackCommandDCC)
+    //     callbackCommandDCC(dummyChars);
+    if (callbackThrottleDCC)
+        callbackThrottleDCC(_dccAddress, 0, _direction);
 }
 
 void Throttle::setCarCount(uint16_t carcount)
@@ -668,12 +769,22 @@ void Throttle::setLBrake(bool applying)
     else
         _opMode = idle;
 
-    commandFifo.pushCommand(functionIndependentBrake, applying);
+    // commandFifo.pushCommand(functionIndependentBrake, applying);
+    if (callbackPushCommand)
+        callbackPushCommand(functionIndependentBrake, applying);
 #ifdef DEBUG_MQTT
     reportMqttDebug("locoBrake ", applying);
 #endif
 
-    _independentBrake = bs.applyLocoBrake(applying);
+    // _independentBrake = bs.applyLocoBrake(applying);
+    if (callbackApplyLocoBrake)
+        _independentBrake = callbackApplyLocoBrake(applying);
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
+
+    // if ()  TBD TBD TBD this might be very bad
 }
 
 void Throttle::setABrake(bool applying)
@@ -683,8 +794,16 @@ void Throttle::setABrake(bool applying)
     else
         _opMode = idle;
 
-    _trainBrake = bs.applyTrainBrake(applying);
-    commandFifo.pushCommand(functionTrainBrake, applying);
+    // _trainBrake = bs.applyTrainBrake(applying);
+    if (callbackApplyTrainBrake)
+        _trainBrake = callbackApplyTrainBrake(applying);
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
+    // commandFifo.pushCommand(functionTrainBrake, applying);
+    if (callbackPushCommand)
+        callbackPushCommand(functionTrainBrake, applying);
 }
 
 void Throttle::setEBrake(bool applying)
@@ -695,10 +814,26 @@ void Throttle::setEBrake(bool applying)
         _opMode = idle;
     // TBD how to reset trainline pressure
 
-    bs.applyEmmergency(applying);
-    _trainBrake = bs.getEffectiveTrainBrake();
-    _independentBrake = bs.getEffectiveLocoBrake();
-    commandFifo.pushCommand(functionEmergencyBrake, applying);
+    // bs.applyEmmergency(applying);
+    if (callbackApplyEmergency)
+        callbackApplyEmergency(applying);
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
+    // _trainBrake = bs.getEffectiveTrainBrake();
+    if (callbackGetEffectiveTrainBrake)
+        _trainBrake = callbackGetEffectiveTrainBrake();
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
+    // _independentBrake = bs.getEffectiveLocoBrake();
+    if (callbackGetEffectiveTrainBrake)
+        _independentBrake = callbackGetEffectiveTrainBrake();
+    // commandFifo.pushCommand(functionEmergencyBrake, applying);
+    if (callbackPushCommand)
+        callbackPushCommand(functionEmergencyBrake, applying);
 }
 
 void Throttle::trainline(bool connect)
@@ -707,12 +842,20 @@ void Throttle::trainline(bool connect)
 {
     if (connect)
     {
-        bs.connectAirLine(true, _carCount);
+        // bs.connectAirLine(true, _carCount);
+        if (callbackConnectAirLine)
+            callbackConnectAirLine2(true, _carCount);
+#ifdef DEBUG_CALLBACK
+        else
+            Serial.println("Callback failed");
+#endif
         _trainlineConnected = true;
     }
     else
     {
-        bs.connectAirLine(false);
+        // bs.connectAirLine(false);
+        if (callbackConnectAirLine)
+            callbackConnectAirLine(false);
         _trainlineConnected = false;
     }
 }
@@ -739,20 +882,39 @@ void Throttle::manualNotch(bool up)
         if (_notch == 8)
             return;
         _opMode = powered;
-        commandFifo.pushCommand(functionNotchUp, true);
-        commandFifo.pushCommand(functionNotchUp, false);
+        // commandFifo.pushCommand(functionNotchUp, true);
+        if (callbackPushCommand)
+            callbackPushCommand(functionNotchUp, true);
+        // commandFifo.pushCommand(functionNotchUp, false);
+        if (callbackPushCommand)
+            callbackPushCommand(functionNotchUp, false);
         _notch++;
     }
     else if (up && _opMode == braking)
     // release the brakes
     {
         _opMode = idle;
-        if (bs.emergencyBrakeOn())
+        // if (bs.emergencyBrakeOn())
+        if (callbackEmergencyBrakeOn())
             setEBrake(false);
-        if (bs.trainBrakeOn())
+#ifdef DEBUG_CALLBACK
+        else
+            Serial.println("Callback failed");
+#endif
+        // if (bs.trainBrakeOn())
+        if (callbackTrainBrakeOn())
             setABrake(false);
-        if (bs.locoBrakeOn())
+#ifdef DEBUG_CALLBACK
+        else
+            Serial.println("Callback failed");
+#endif
+        // if (bs.locoBrakeOn())
+        if (callbackLocoBrakeOn())
             setLBrake(false);
+#ifdef DEBUG_CALLBACK
+        else
+            Serial.println("Callback failed");
+#endif
     }
     else if (!up && _opMode == powered)
     // notching down
@@ -760,8 +922,12 @@ void Throttle::manualNotch(bool up)
         if (_notch == 0)
             return;
 
-        commandFifo.pushCommand(functionNotchDown, true);
-        commandFifo.pushCommand(functionNotchDown, false);
+        // commandFifo.pushCommand(functionNotchDown, true);
+        if (callbackPushCommand)
+            callbackPushCommand(functionNotchDown, true);
+        // commandFifo.pushCommand(functionNotchDown, false);
+        if (callbackPushCommand)
+            callbackPushCommand(functionNotchDown, false);
         _notch--;
         if (_notch == 0)
         {
@@ -817,8 +983,9 @@ void Throttle::reportNotch()
     serializeJson(doc, jsonString);
 
     // udp publish via telemetry
-    telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
-    telemetry.sendTelemetry(jsonString.c_str());
+    // telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
+    // telemetry.sendTelemetry(jsonString.c_str());
+    telemetry.sendTelemetry(_controllingIP, TELEMETRY_PORT, jsonString.c_str());
 #endif
 }
 
@@ -834,11 +1001,14 @@ void Throttle::longPress(bool up)
         reportNotch();
 
         // release all brakes
-        if (bs.emergencyBrakeOn())
+        // if (bs.emergencyBrakeOn())
+        if (callbackEmergencyBrakeOn())
             setEBrake(false);
-        if (bs.trainBrakeOn())
+        // if (bs.trainBrakeOn())
+        if (callbackTrainBrakeOn())
             setABrake(false);
-        if (bs.locoBrakeOn())
+        // if (bs.locoBrakeOn())
+        if (callbackLocoBrakeOn())
             setLBrake(false);
     }
 
@@ -882,8 +1052,9 @@ void Throttle::longPress(bool up)
         serializeJson(doc, jsonString);
 
         // udp publish via telemetry
-        telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
-        telemetry.sendTelemetry(jsonString.c_str());
+        // telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
+        // telemetry.sendTelemetry(jsonString.c_str());
+        telemetry.sendTelemetry(_controllingIP, TELEMETRY_PORT, jsonString.c_str());
 #endif
     }
     else if (!up && _opMode == powered)
@@ -930,24 +1101,52 @@ void Throttle::computeVelocity(void)
     if (!_running)
     {
         startupCounter = 0;
-        bs.setPMRunning(false);
+        // bs.setPMRunning(false);
+        if (callbackSetPMRunning)
+            callbackSetPMRunning(false);
+#ifdef DEBUG_CALLBACK
+        else
+            Serial.println("Callback failed");
+#endif
     }
 
     if (startupCounter < 15)
         startupCounter++;
     else if (startupCounter == 15)
     {
-        bs.setPMRunning(true);
+        // bs.setPMRunning(true);
+        if (callbackSetPMRunning)
+            callbackSetPMRunning(true);
         startupCounter++;
     }
 
-    bool compressorRunning = bs.cycle(true); // v027
+    // bool compressorRunning = bs.cycle(true); // v027
+    bool compressorRunning = callbackBrakeSystemCycle(true); // v027
     if ((!_running) || ((_muState == mid) || (_muState == trailing)))
         return;
 
-    _trainlinePSI = bs.getTrainlinePSI();
-    _trainBrake = bs.getEffectiveTrainBrake();
-    _independentBrake = bs.getEffectiveLocoBrake();
+    // _trainlinePSI = bs.getTrainlinePSI();
+    if (callbackGetTLPsi)
+        _trainlinePSI = callbackGetTLPsi();
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
+    // _trainBrake = bs.getEffectiveTrainBrake();
+    if (callbackGetEffectiveTrainBrake)
+        _trainBrake = callbackGetEffectiveTrainBrake();
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
+    // _independentBrake = bs.getEffectiveLocoBrake();
+    if (callbackGetEffectiveLocoBrake)
+        _independentBrake = callbackGetEffectiveLocoBrake();
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
+    // Serial.println("bs");delay(1000); ////////////////////////////////////////////////////////////////////////////
 
 #ifdef DEBUG_MQTT
     // reportMqttDebug("trainBrake ", _trainBrake);
@@ -1126,23 +1325,32 @@ void Throttle::computeVelocity(void)
         lastIntCurrentSpeed = intCurrentSpeed;
 
         // build the command string
-        char buffer[20];
-        strcpy(dummyChars, "t 1 ");
+        // char buffer[20];
+        // strcpy(dummyChars, "t 1 ");
 
-        itoa(_dccAddress, buffer, 10);
-        strcat(dummyChars, buffer);
-        strcat(dummyChars, " ");
+        // itoa(_dccAddress, buffer, 10);
+        // strcat(dummyChars, buffer);
+        // strcat(dummyChars, " ");
 
-        itoa(intCurrentSpeed, buffer, 10);
-        strcat(dummyChars, buffer);
-        strcat(dummyChars, " ");
+        // itoa(intCurrentSpeed, buffer, 10);
+        // strcat(dummyChars, buffer);
+        // strcat(dummyChars, " ");
 
-        if (_direction)
-            strcat(dummyChars, "1");
+        // if (_direction)
+        //     strcat(dummyChars, "1");
+        // else
+        //     strcat(dummyChars, "0");
+
+        // SerialCommand::parse(dummyChars);
+        // if (callbackCommandDCC)
+        //     callbackCommandDCC(dummyChars);
+
+        if (callbackThrottleDCC)
+            callbackThrottleDCC(_dccAddress, intCurrentSpeed, _direction);
+#ifdef DEBUG_CALLBACK
         else
-            strcat(dummyChars, "0");
-
-        SerialCommand::parse(dummyChars);
+            Serial.println("[computeVelocity] callback failed");
+#endif
     }
 
     // send back odometer data to operator
@@ -1178,14 +1386,22 @@ void Throttle::calibrate(int speed)
     // user is canceling
     if (speed == 0)
     {
-        String stopString = "t 1 ";
-        stopString.concat(String(_dccAddress) + " ");
-        stopString.concat(String(0) + " ");
-        stopString.concat("1");
-        strcpy(dummyChars, stopString.c_str());
-        SerialCommand::parse(dummyChars);
+        // String stopString = "t 1 ";
+        // stopString.concat(String(_dccAddress) + " ");
+        // stopString.concat(String(0) + " ");
+        // stopString.concat("1");
+        // strcpy(dummyChars, stopString.c_str());
+        // // SerialCommand::parse(dummyChars);
+        // if (callbackCommandDCC)
+        //     callbackCommandDCC(dummyChars);
+
+        if (callbackThrottleDCC)
+            callbackThrottleDCC(_dccAddress, 0, true);
+
         _calibrationStage = 0;
-        commandFifo.pushCommand(functionBell, false);
+        // commandFifo.pushCommand(functionBell, false);
+        if (callbackPushCommand)
+            callbackPushCommand(functionBell, false);
         return;
     }
 
@@ -1295,20 +1511,24 @@ void Throttle::calibrate(int speed)
         }
         myPrefs.end();
 
-        commandFifo.pushCommand(functionBell, false);
+        // commandFifo.pushCommand(functionBell, false);
+        if (callbackPushCommand)
+            callbackPushCommand(functionBell, false);
         getLocoPrefs(); // read storage into variables
     }
     else if (_calibrationStage == 1)
     // passing the start gate
     {
         _calibrationTimer = millis();
-        commandFifo.pushCommand(functionBell, true);
+        // commandFifo.pushCommand(functionBell, true);
+        if (callbackPushCommand)
+            callbackPushCommand(functionBell, true);
     }
 
     if (_calibrationStage != 1) // either starting movement or stopping (0 or 2)
     {
-        String dummyString = "t 1 ";
-        dummyString.concat(String(_dccAddress) + " ");
+        // String dummyString = "t 1 ";
+        // dummyString.concat(String(_dccAddress) + " ");
         if (_calibrationStage == 0)
         {
             if (speed > 0)
@@ -1316,18 +1536,25 @@ void Throttle::calibrate(int speed)
             else
                 dccVal = abs(speed * factorR / FPS_TO_MPH_FACTOR);
 
-            dummyString.concat(String(dccVal) + " "); // starting
+            // dummyString.concat(String(dccVal) + " "); // starting
         }
         else
-            dummyString.concat(String(0) + " "); // end of movement
+        {
+            // dummyString.concat(String(0) + " "); // end of movement
+            dccVal = 0;
+        }
 
-        if (speed >= 0) // forward or reverse
-            dummyString.concat("1");
-        else
-            dummyString.concat("0");
+        // if (speed >= 0) // forward or reverse
+        //     dummyString.concat("1");
+        // else
+        //     dummyString.concat("0");
 
-        strcpy(dummyChars, dummyString.c_str());
-        SerialCommand::parse(dummyChars);
+        // strcpy(dummyChars, dummyString.c_str());
+        // SerialCommand::parse(dummyChars);
+        // if (callbackCommandDCC)
+        //     callbackCommandDCC(dummyChars);
+        if (callbackThrottleDCC)
+            callbackThrottleDCC(_dccAddress, dccVal, (speed >= 0));
     }
 
     if (++_calibrationStage == 3)
@@ -1822,7 +2049,9 @@ void Throttle::muSetSpeed(const char *jsonMsg)
 
     bool brk = doc["brk"];
     if (brk != lastBrake)
-        commandFifo.pushCommand(functionIndependentBrake, brk);
+        // commandFifo.pushCommand(functionIndependentBrake, brk);
+        if (callbackPushCommand)
+            callbackPushCommand(functionIndependentBrake, brk);
     lastBrake = brk;
 
     float odo = doc["odo"]; // TBD not working v0285
@@ -1842,22 +2071,26 @@ void Throttle::muSetSpeed(const char *jsonMsg)
     if (dccFPS > 126)
         dccFPS = 126;
 
-    char buffer[20];
-    char dccCommandChars[30];
-    strcpy(dccCommandChars, "t 1 ");
-    itoa(_dccAddress, buffer, 10);
-    strcat(dccCommandChars, buffer);
-    strcat(dccCommandChars, " ");
-    itoa(dccFPS, buffer, 10);
-    strcat(dccCommandChars, buffer);
-    strcat(dccCommandChars, " ");
+    // char buffer[20];
+    // char dccCommandChars[30];
+    // strcpy(dccCommandChars, "t 1 ");
+    // itoa(_dccAddress, buffer, 10);
+    // strcat(dccCommandChars, buffer);
+    // strcat(dccCommandChars, " ");
+    // itoa(dccFPS, buffer, 10);
+    // strcat(dccCommandChars, buffer);
+    // strcat(dccCommandChars, " ");
 
-    if (direction)
-        strcat(dccCommandChars, "1");
-    else
-        strcat(dccCommandChars, "0");
+    // if (direction)
+    //     strcat(dccCommandChars, "1");
+    // else
+    //     strcat(dccCommandChars, "0");
 
-    SerialCommand::parse(dccCommandChars);
+    // SerialCommand::parse(dccCommandChars);
+    // if (callbackCommandDCC)
+    //     callbackCommandDCC(dccCommandChars);
+    if (callbackThrottleDCC)
+        callbackThrottleDCC(_dccAddress, dccFPS, direction);
 }
 
 void Throttle::reportCondition()
@@ -1972,8 +2205,9 @@ void Throttle::reportCondition()
 #ifdef DEBUG_UDP
     Serial.println("[reportCondition] sending " + jsonString);
 #endif
-    telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
-    telemetry.sendTelemetry(jsonString.c_str());
+    // telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
+    // telemetry.sendTelemetry(jsonString.c_str());
+    telemetry.sendTelemetry(_controllingIP, TELEMETRY_PORT, jsonString.c_str());
 #endif
 }
 
@@ -1984,7 +2218,13 @@ void Throttle::reportStatus()
 
     String jsonString = "";
 
-    _trainlinePSI = bs.getTrainlinePSI();
+    // _trainlinePSI = bs.getTrainlinePSI();
+    if (callbackGetTLPsi)
+        _trainlinePSI = callbackGetTLPsi();
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
 
     int intSpeedoSpeed = _mph * 10;
     float speedoSpeed = intSpeedoSpeed / 10.; // to get tenths of mph
@@ -1998,10 +2238,24 @@ void Throttle::reportStatus()
     char charSpeed[10];
     char charOdo[10];
     char charPsi[10];
+    bool locoBrkOn;
 
     JsonDocument doc;
-    bool locoBrkOn = bs.locoBrakeOn();
-    uint16_t mainPsi = bs.getMainPSI();
+    // bool locoBrkOn = bs.locoBrakeOn();
+    if (callbackLocoBrakeOn)
+        locoBrkOn = callbackLocoBrakeOn();
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
+    uint16_t mainPsi;
+    // uint16_t mainPsi = bs.getMainPSI();
+    if (callbackGetMainPSI)
+        mainPsi = callbackGetMainPSI();
+#ifdef DEBUG_CALLBACK
+    else
+        Serial.println("Callback failed");
+#endif
     // round to 1, 2 decimal places
     float speedo2 = round(speedoSpeed * 10.f) / 10.f;
     float odo2 = round((_odometer * 100.) / 5280.) / 100.0f;
@@ -2051,8 +2305,9 @@ void Throttle::reportStatus()
     client.publish(topicChars, jsonString.c_str());
 #elif defined(USING_UDP)
     // udp publish via telemetry
-    telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
-    telemetry.sendTelemetry(jsonString.c_str());
+    // telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
+    // telemetry.sendTelemetry(jsonString.c_str());
+    telemetry.sendTelemetry(_controllingIP, TELEMETRY_PORT, jsonString.c_str());
 #ifdef DEBUG_UDP
     Serial.println("[reportStatus] Sent telemetry: " + jsonString + " to: " + _controllingIP);
 #endif
@@ -2188,8 +2443,9 @@ void Throttle::reportFunctionLabels()
 #elif defined(USING_UDP)
     // TBA UDP
     // udp publish via telemetry
-    telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
-    telemetry.sendTelemetry(output.c_str());
+    // telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
+    // telemetry.sendTelemetry(output.c_str());
+    telemetry.sendTelemetry(_controllingIP, TELEMETRY_PORT, output.c_str());
 #ifdef DEBUG_UDP
     Serial.println("[reportFunctionLabels] " + output);
 #endif
@@ -2244,24 +2500,28 @@ uint16_t Throttle::interpolateSpeedFactor(float fps)
 
 void Throttle::setCV(int cv, int value)
 {
-    char dummyChars[31];
+    // char dummyChars[31];
 
-    // build the command string
-    char buffer[20];
-    strcpy(dummyChars, "w ");
+    // // build the command string
+    // char buffer[20];
+    // strcpy(dummyChars, "w ");
 
-    itoa(_dccAddress, buffer, 10);
-    strcat(dummyChars, buffer);
-    strcat(dummyChars, " ");
+    // itoa(_dccAddress, buffer, 10);
+    // strcat(dummyChars, buffer);
+    // strcat(dummyChars, " ");
 
-    itoa(cv, buffer, 10);
-    strcat(dummyChars, buffer);
-    strcat(dummyChars, " ");
+    // itoa(cv, buffer, 10);
+    // strcat(dummyChars, buffer);
+    // strcat(dummyChars, " ");
 
-    itoa(value, buffer, 10);
-    strcat(dummyChars, buffer);
+    // itoa(value, buffer, 10);
+    // strcat(dummyChars, buffer);
 
-    SerialCommand::parse(dummyChars);
+    // SerialCommand::parse(dummyChars);
+    // if (callbackCommandDCC)
+    //     callbackCommandDCC(dummyChars);
+    if (callbackSetCvDCC)
+        callbackSetCvDCC(_dccAddress, cv, value);
 }
 
 void Throttle::setFunction(char *jsonMsg)
@@ -2276,7 +2536,9 @@ void Throttle::setFunction(char *jsonMsg)
     int function = doc["f"];
     bool state = doc["s"];
 
-    commandFifo.pushCommand(function, state);
+    // commandFifo.pushCommand(function, state);
+    if (callbackPushCommand)
+        callbackPushCommand(function, state);
 }
 
 void Throttle::brakeSqueal(bool on)
@@ -2297,7 +2559,9 @@ void Throttle::brakeSqueal(bool on)
         // turn on the sound
         if (_independentBrake > 40) // for light braking, no sound
         {
-            commandFifo.pushCommand(functionBrakeSqueal, true);
+            // commandFifo.pushCommand(functionBrakeSqueal, true);
+            if (callbackPushCommand)
+                callbackPushCommand(functionBrakeSqueal, true);
             squealOn = true;
         }
     }
@@ -2306,7 +2570,9 @@ void Throttle::brakeSqueal(bool on)
     else if (!activate && squealOn)
     {
         // turn off the sound
-        commandFifo.pushCommand(functionBrakeSqueal, false);
+        // commandFifo.pushCommand(functionBrakeSqueal, false);
+        if (callbackPushCommand)
+            callbackPushCommand(functionBrakeSqueal, false);
         squealOn = false;
     }
 

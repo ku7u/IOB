@@ -6,6 +6,9 @@ using namespace std;
 class Fifo
 {
 public:
+    // callback
+    std::function<void(char *)> callbackFifoCommandDCC;
+
     void pushCommand(int, bool);
     void pop(void);
 

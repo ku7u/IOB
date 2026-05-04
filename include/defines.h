@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 // this file is included in every file that needs one of these constants or macros
 
 // version

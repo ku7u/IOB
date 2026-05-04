@@ -1,11 +1,15 @@
 #pragma once
 
 #include "Arduino.h"
+#include <functional>   // for callbacks
 
 class BrakeSystem
 {
 public:
     BrakeSystem(void);
+
+    // callbacks
+    std::function<void(int, bool)> callbackPushCommand;
 
     uint16_t getTrainlinePSI(void);
     uint16_t getEffectiveLocoBrake(void);

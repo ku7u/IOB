@@ -1,10 +1,4 @@
 #include "BrakeSystem.h"
-#include "Fifo.h"
-#include "Throttle.h"
-
-// extern int functionCompressor;
-extern Fifo commandFifo;
-extern Throttle throttle;
 
 // Constructor
 BrakeSystem::BrakeSystem(void)
@@ -39,6 +33,7 @@ float BrakeSystem::getEffectiveTrainBrake(void)
 void BrakeSystem::setCompressorFunction(uint16_t func)
 {
     _functionCompressor = func;
+    Serial.println("[setCompressorFunction] " + String(func));
 }
 
 bool BrakeSystem::cycle(bool pmRunning)
@@ -51,20 +46,20 @@ bool BrakeSystem::cycle(bool pmRunning)
     // turn off compressor if PM shutdown
     if (!pmRunning && _compressorRunning)
     {
-        commandFifo.pushCommand(_functionCompressor, 0);
+        if (callbackPushCommand) callbackPushCommand(_functionCompressor, false);
         _compressorRunning = false;
         return false;
     }
     // turn on compressor if needed
     else if (pmRunning && _startupComplete && (_compressorRunning == false) && (_mainPSI < MAIN_MIN_PSI))
     {
-        commandFifo.pushCommand(_functionCompressor, 1);
+        if (callbackPushCommand) callbackPushCommand(_functionCompressor, true);
         _compressorRunning = true;
     }
     // or turn it off if not needed
     else if ((_compressorRunning == true) && (_mainPSI >= MAIN_MAX_PSI))
     {
-        commandFifo.pushCommand(_functionCompressor, 0);
+        if (callbackPushCommand) callbackPushCommand(_functionCompressor, 0);
         _compressorRunning = false;
     }
 
@@ -204,6 +199,12 @@ void BrakeSystem::applyEmmergency(bool applying)
     }
     return;
 }
+
+void BrakeSystem::applyHandbrake()
+{
+    // TBD
+}
+
 
 void BrakeSystem::connectAirLine(bool connecting, uint16_t carCount)
 {

@@ -1,29 +1,15 @@
-
-// this code is called from fifo
-// it is only for function commands to DCC, not throttle
-// throttle commands are not sent through the fifo so come straight out of throttle
-// this scenario should be simplified
-
-#include "Arduino.h"
+#include "DCCFormatter.h"
 #include "RBot.h"
 #include "SerialCommand.h"
-#include "Function.h"
-#include "Throttle.h"
-// #include "Fifo.h"
 
-extern Throttle throttle;
-
-void setFunction(int function, bool onOff)
+void DCCFormatter::setFunction(int dccAddress, int function, bool onOff)
 {
     static bool fMap[29];
     uint8_t byte1;
     uint8_t byte2;
     char dummyChars[31];
-    
-    byte2 = 0;
 
-    // int roadNum = throttle.getRoadNumber(); //TBD this is lame, do it once somehow, or include in parameter list
-    int roadNum = throttle.getDccAddress(); 
+    byte2 = 0;
 
     if ((function > 29) || (function < 0))
         return;
@@ -51,7 +37,7 @@ void setFunction(int function, bool onOff)
 
     // build the command string
     String dummyString = "f ";
-    dummyString.concat(String(roadNum) + " ");
+    dummyString.concat(String(dccAddress) + " ");
     dummyString.concat(String(byte1));
 
     if (function >= 13)
@@ -63,20 +49,50 @@ void setFunction(int function, bool onOff)
     strcpy(dummyChars, dummyString.c_str());
     SerialCommand::parse(dummyChars);
     // if (callbackCommandFifoDCCFunction) callbackCommandFifoDCCFunction(dummyChars);
-
 }
 
+void DCCFormatter::setThrottle(int dccAddress, int currentSpeed, bool direction)
+{
+    char dummyChars[31];
 
-// void startStop(bool start)
-// {
-//     if (start)
-//     {
-//         setFunction(functionPM, true);
-//         setFunction(functionNotchingEnable, true);
-//     }
-//     else
-//     {
-//         setFunction(functionNotchingEnable, false);
-//         setFunction(functionPM, false);
-//     }
-// }
+    // build the command string
+    char buffer[20];
+    strcpy(dummyChars, "t 1 ");
+
+    itoa(dccAddress, buffer, 10);
+    strcat(dummyChars, buffer);
+    strcat(dummyChars, " ");
+
+    itoa(currentSpeed, buffer, 10);
+    strcat(dummyChars, buffer);
+    strcat(dummyChars, " ");
+
+    if (direction)
+        strcat(dummyChars, "1");
+    else
+        strcat(dummyChars, "0");
+
+    SerialCommand::parse(dummyChars);
+}
+
+void DCCFormatter::setCV(int dccAddress, int cv, int value)
+{
+    char dummyChars[31];
+
+    // build the command string
+    char buffer[20];
+    strcpy(dummyChars, "w ");
+
+    itoa(dccAddress, buffer, 10);
+    strcat(dummyChars, buffer);
+    strcat(dummyChars, " ");
+
+    itoa(cv, buffer, 10);
+    strcat(dummyChars, buffer);
+    strcat(dummyChars, " ");
+
+    itoa(value, buffer, 10);
+    strcat(dummyChars, buffer);
+
+    SerialCommand::parse(dummyChars);
+}

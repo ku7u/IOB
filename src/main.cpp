@@ -240,6 +240,8 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include "UartReader.h"
 #include "HardwareSerial.h"
 #include "WiFiConfigurator.h"
+#include "Wiring.h"
+#include "DCCFormatter.h"
 
 #ifdef USING_MQTT
 #include "MQTT.h"
@@ -283,7 +285,7 @@ WiFiUDP udp;
 // dedicated ports for rollcall, commands and telemetry
 WiFiUDP udpCommand;
 WiFiUDP udpTelemetry;
-WiFiUDP udpRollcall;
+// WiFiUDP udpRollcall;
 // extern const int ROLLCALL_PORT = 50001;  // Port this ESP32 listens on for rollcall
 // extern const int COMMAND_PORT = 50002;   // commands to me use this
 // extern const int TELEMETRY_PORT = 50003; // speed, etc. telementry from lead loco in consist
@@ -311,6 +313,7 @@ String topicFeedbackLeftEnd;
 Fifo commandFifo;
 BrakeSystem bs;
 UartReader uartReader;
+DCCFormatter df;
 
 // --- UDP handlers and throttle (intertwingled) ---
 // TelemetryHandler telemetry(telemetryPort);   // declared in throttle object, not needed here
@@ -1114,20 +1117,20 @@ const char *getSubstringAfterLastSlash(const char *input)
 
 /*****************************************************************************/
 #ifdef USING_UDP
-void processUdpTelemetry()
-// this routine would receive the speed telemetry from lead loco and process if in a consist
-{
-  char buf[128];
-  int len = udpTelemetry.read(buf, sizeof(buf) - 1);
-  if (len > 0)
-  {
-    buf[len] = 0;
-    String msg = String(buf);
-#ifdef DEBUG_UDP
-    Serial.println("(main) received telemetry: " + msg);
-#endif
-  }
-}
+// void processUdpTelemetry()
+// // this routine would receive the speed telemetry from lead loco and process if in a consist
+// {
+//   char buf[128];
+//   int len = udpTelemetry.read(buf, sizeof(buf) - 1);
+//   if (len > 0)
+//   {
+//     buf[len] = 0;
+//     String msg = String(buf);
+// #ifdef DEBUG_UDP
+//     Serial.println("(main) received telemetry: " + msg);
+// #endif
+//   }
+// }
 #endif
 
 /*****************************************************************************/
@@ -1354,10 +1357,14 @@ void setup()
   mqttSetup(mqttServer, mqttNode);
 #endif
 
+// define all the callbacks, must be prior to getLocoPrefs
+    connectSystems(throttle, bs, commandFifo, df);
+
   throttle.getLocoPrefs();
   throttle.getFunctionPrefs();
   throttle.init();
 
+  
   // time is used in throttle object to set trainline psi after extended shutdown
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
@@ -1376,126 +1383,128 @@ void setup()
 
   rollcall.begin();
 #endif
+
+
 #ifdef SERIAL_ON
-  Serial.println("end of setup");
-  Serial.println("Firmware version: " + VERSION_STRING);
+    Serial.println("end of setup");
+    Serial.println("Firmware version: " + VERSION_STRING);
 #endif
-} // end setup
+  } // end setup
 
-/*****************************************************************************/
-void loop()
-{
-  timer1sec.tick();
-  timer200ms.tick();
-  timer60000ms.tick();
-
-  uint8_t buf[256];
-  IPAddress sender;
-  uint16_t senderPort;
-
-  // TESTING ----------------------------------------------------------------
-#ifdef USING_UDP
-  // rollcall.loop();
-  commands.loop();
-  // telemetry.loop();
-  processPendingCommands();
-#endif
-  // TESTING ----------------------------------------------------------------
-
-  // following for udp testing
-  // #ifndef USING_MQTT
-  //   // int packetSize = udpRollcall.parsePacket();
-  // #ifdef DEBUG_UDP
-  //   if (packetSize)
-  //     Serial.printf("Received packet of size %d from %s:%d\n",
-  //                   packetSize,
-  //                   udp.remoteIP().toString().c_str(),
-  //                   udp.remotePort());
-  // #endif
-  // respond to rollcall with a unicast message containing loco data
-  // processUdpRollcall();
-
-  //   if (udpCommand.parsePacket())
-  //   {
-  // #ifdef DEBUG_UDP
-  //     Serial.println("parsed a command packet");
-  // #endif
-  //     // these are commands from the app
-  //     processUdpCommand();
-  //   }
-
-#ifdef USING_UDP
-  // if (udpTelemetry.parsePacket())
-  // {
-  //   // #ifdef DEBUG_UDP
-  //   //     Serial.println("parsed a telemetry packet");
-  //   // #endif
-  //   // handle telemetry packet, these are speed reports from lead loco in consist
-  //   processUdpTelemetry();
-  // }
-#endif
-
-  // process the mqtt input
-  // client.loop();
-
-  if (timer60000ms.expired)
+  /*****************************************************************************/
+  void loop()
   {
-    //   // memory testing
-    //   int freeHeap = ESP.getFreeHeap();
-    //   String myFreeHeap = String(freeHeap);
-    //   unsigned long maxAllocHeap = ESP.getMaxAllocHeap();
-    //   String myMaxAllocHeap = String(maxAllocHeap);
-    //   throttle.reportMqttDebugString(myFreeHeap, "freeHeap");
-    //   throttle.reportMqttDebugString(myMaxAllocHeap, "maxAllocHeap");
-    throttle.muMemberCheck();
-  }
+    timer1sec.tick();
+    timer200ms.tick();
+    timer60000ms.tick();
+
+    uint8_t buf[256];
+    IPAddress sender;
+    uint16_t senderPort;
+
+    // TESTING ----------------------------------------------------------------
+#ifdef USING_UDP
+    // rollcall.loop();
+    commands.loop();
+    // telemetry.loop();
+    processPendingCommands();
+#endif
+    // TESTING ----------------------------------------------------------------
+
+    // following for udp testing
+    // #ifndef USING_MQTT
+    //   // int packetSize = udpRollcall.parsePacket();
+    // #ifdef DEBUG_UDP
+    //   if (packetSize)
+    //     Serial.printf("Received packet of size %d from %s:%d\n",
+    //                   packetSize,
+    //                   udp.remoteIP().toString().c_str(),
+    //                   udp.remotePort());
+    // #endif
+    // respond to rollcall with a unicast message containing loco data
+    // processUdpRollcall();
+
+    //   if (udpCommand.parsePacket())
+    //   {
+    // #ifdef DEBUG_UDP
+    //     Serial.println("parsed a command packet");
+    // #endif
+    //     // these are commands from the app
+    //     processUdpCommand();
+    //   }
+
+#ifdef USING_UDP
+    // if (udpTelemetry.parsePacket())
+    // {
+    //   // #ifdef DEBUG_UDP
+    //   //     Serial.println("parsed a telemetry packet");
+    //   // #endif
+    //   // handle telemetry packet, these are speed reports from lead loco in consist
+    //   processUdpTelemetry();
+    // }
+#endif
+
+    // process the mqtt input
+    // client.loop();
+
+    if (timer60000ms.expired)
+    {
+      //   // memory testing
+      //   int freeHeap = ESP.getFreeHeap();
+      //   String myFreeHeap = String(freeHeap);
+      //   unsigned long maxAllocHeap = ESP.getMaxAllocHeap();
+      //   String myMaxAllocHeap = String(maxAllocHeap);
+      //   throttle.reportMqttDebugString(myFreeHeap, "freeHeap");
+      //   throttle.reportMqttDebugString(myMaxAllocHeap, "maxAllocHeap");
+      throttle.muMemberCheck();
+    }
 
 #ifdef USING_MQTT
-  if (!client.loop()) // I took this out for a reason, caused some issue on reconnection?
-  {
+    if (!client.loop()) // I took this out for a reason, caused some issue on reconnection?
+    {
 #ifdef ESP32C3DK
-    // show yellow LED if no connection to MQTT server
-    strip.setPixelColor(0, yellow);
-    // strip.setPixelColor(0, strip.Color(80, 80, 0)); // yellow
+      // show yellow LED if no connection to MQTT server
+      strip.setPixelColor(0, yellow);
+      // strip.setPixelColor(0, strip.Color(80, 80, 0)); // yellow
 
-    strip.show();
+      strip.show();
 #endif
-    // connectMQTT(mqttNode);
+      // connectMQTT(mqttNode);
 #ifdef ESP32C3DK
-    // show green LED if connected to MQTT server
-    // strip.setPixelColor(0, strip.Color(80, 0, 0)); // green
-    strip.setPixelColor(0, green);
-    strip.show();
+      // show green LED if connected to MQTT server
+      // strip.setPixelColor(0, strip.Color(80, 0, 0)); // green
+      strip.setPixelColor(0, green);
+      strip.show();
 #endif
-    setupSubscriptions();
-  }
+      setupSubscriptions();
+    }
 #endif
 
-  // if (magReader.check(throttle.getLastIntCurrentSpeed())) // check for waypoints by reading magnets embedded in track
-  //   uint milepost = magReader.process(throttle.isForward()); waddawedo with 'milepost'?
-  // maybe set milepost in throttle so it can update POL with odometer calcs
+    // if (magReader.check(throttle.getLastIntCurrentSpeed())) // check for waypoints by reading magnets embedded in track
+    //   uint milepost = magReader.process(throttle.isForward()); waddawedo with 'milepost'?
+    // maybe set milepost in throttle so it can update POL with odometer calcs
 
 #ifdef SERIAL_POL // also turn on serial above per this switch
-  uartReader.check();
+    uartReader.check();
 #endif
 
-  // read and process a command from the fifo every 200 ms to not overwhelm the decoder
-  // if (timer200ms.expired)
-  if (timer200ms.expired)
-    commandFifo.pop();
+    // read and process a command from the fifo every 200 ms to not overwhelm the decoder
+    // if (timer200ms.expired)
+    if (timer200ms.expired)
+      commandFifo.pop();
 
-  // process the dynamics once per second
-  if (timer1sec.expired)
-  {
-    // #ifdef SERIAL_ON
-    //     long myStart = millis();
-    // #endif
-    throttle.computeVelocity();
-    // #ifdef SERIAL_ON
-    //     long myDuration = millis() - myStart;
-    //     Serial.print("Duration ");
-    //     Serial.println(myDuration);
-    // #endif
-  }
+    // process the dynamics once per second
+    if (timer1sec.expired)
+    {
+      // #ifdef SERIAL_ON
+      //     long myStart = millis();
+      // #endif
+      throttle.computeVelocity();
+      // #ifdef SERIAL_ON
+      //     long myDuration = millis() - myStart;
+      //     Serial.print("Duration ");
+      //     Serial.println(myDuration);
+      // #endif
+    }
 
-} // end loop
+  } // end loop

@@ -1,17 +1,45 @@
 #pragma once
 
-#include "defines.h"
 #include <stdint.h>
+#include "defines.h"
 #include "Arduino.h"
 #include "ArduinoJson.h"
 #include "UdpTransport.h"
 #include "TelemetryHandler.h" // TBA
-#include <optional>
+// #include <optional> was for optional parameter functions
+#include <functional> // for callbacks
 
 class Throttle
 {
 public:
     Throttle(void);
+
+    // callbacks
+    std::function<void(int, bool)> callbackPushCommand;
+
+    std::function<uint16_t(void)> callbackGetTLPsi;
+    std::function<float(void)> callbackGetEffectiveLocoBrake;
+    std::function<float(void)> callbackGetEffectiveTrainBrake;
+    std::function<uint16_t(void)> callbackGetMainPSI;
+    std::function<void(uint16_t)> callbackSetCompressorFunction;
+    std::function<bool(bool)> callbackBrakeSystemCycle;
+    std::function<void(bool)> callbackConnectAirLine;
+    std::function<void(bool, uint16_t)> callbackConnectAirLine2;
+    std::function<float(bool)> callbackApplyLocoBrake;
+    std::function<float(bool)> callbackApplyTrainBrake;
+    std::function<void(bool)> callbackApplyEmergency;
+    std::function<void(void)> callbackApplyHandbrake;
+    std::function<void(void)> callbackRelease;
+    std::function<void(bool)> callbackSetPMRunning;
+    std::function<bool(void)> callbackLocoBrakeOn;
+    std::function<bool(void)> callbackTrainBrakeOn;
+    std::function<bool(void)> callbackEmergencyBrakeOn;
+    
+    std::function<void(char *)> callbackCommandDCC;
+    std::function<void(int, int, bool)> callbackThrottleDCC;
+    std::function<void(int, int, int)> callbackSetCvDCC;
+
+
 
     void init(void);
     void setControllingIP(IPAddress);
@@ -64,8 +92,8 @@ public:
     void setFunction(char *);
     bool isRunning(void);
     void setWaypoint(uint8_t, bool); // waypoint ID, direction E=true
-    bool inUse() const;             // Getter function (const version is good practice)
-    void inUse(bool inUseValue);    // Setter function
+    bool inUse() const;              // Getter function (const version is good practice)
+    void inUse(bool inUseValue);     // Setter function
     void muMemberCheck();
     void muMemberCheck(bool);
     void muMemberResponse(const char *);
@@ -105,13 +133,19 @@ private:
 
     IPAddress _controllingIP; // the app runs here
 
-    bool _inUse = false;    // true if some app has latched on to this device
+    bool _inUse = false; // true if some app has latched on to this device
     uint16_t _roadNumber = 3;
     String _locoID;
     String _locoType;
     uint16_t _dccAddress = 3;
-     char _leadIpAdr [20];
-    enum MuState {solo=0, lead=1, mid=2, trailing=3};
+    char _leadIpAdr[20];
+    enum MuState
+    {
+        solo = 0,
+        lead = 1,
+        mid = 2,
+        trailing = 3
+    };
     MuState _muState; // v0.26 was uint8_t
     String _muLeadLoco;
     bool _muTrailingUnit; // false = mid, true = trailing unit
@@ -210,5 +244,4 @@ private:
     const float MIN_EFFECTIVE_EMERGENCY_BRAKE_LINE_PRESSURE = 40; // TBD now in BrakeSystem? could be bogus
     const float EMERGENCY_BRAKE_FACTOR = 1.5;                     // to be more effective brake than automatic brake max which is computed to be 1.0
     const int AVERAGE_CAR_TONNAGE = 75;
-
 };
