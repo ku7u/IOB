@@ -1,8 +1,8 @@
-#pragma once
+// #pragma once
 
-#include "Arduino.h"
+// #include "Arduino.h"
 
-void mqttSetup(String mqtt_Server, String iobNode);
-void connectMQTT(String iobNode);
-void setupSubscriptions();
-void callback(char *topic, byte *message, unsigned int length);
+// void mqttSetup(String mqtt_Server, String iobNode);
+// void connectMQTT(String iobNode);
+// void setupSubscriptions();
+// void callback(char *topic, byte *message, unsigned int length);

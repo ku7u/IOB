@@ -944,28 +944,32 @@ void setupMDNS(String locoid)
   mdnsURL = myNode + ".local";
   mdnsURL.toLowerCase();
 
-#ifdef SERIAL_ON
-  Serial.print("myNode ");
-#endif
+  log_d("myNode", myNode.c_str());
+// #ifdef SERIAL_ON
+//   Serial.print("myNode ");
+// #endif
 
-#ifdef SERIAL_ON
-  Serial.println(myNode.c_str());
-#endif
+// #ifdef SERIAL_ON
+//   Serial.println(myNode.c_str());
+// #endif
 
   if (!MDNS.begin(myNode.c_str()))
   {
-#ifdef SERIAL_ON
-    Serial.println("Error starting mDNS");
-#endif
+    log_e("Error starting mDNS");
+
+// #ifdef SERIAL_ON
+//     Serial.println("Error starting mDNS");
+// #endif
 
     return;
   }
 
   // Advertise the service details for device discovery
   MDNS.addService(serviceType, serviceProto, servicePort);
-#ifdef SERIAL_ON
-  Serial.printf("Advertising service: %s.%s on port %d\n", serviceType, serviceProto, servicePort);
-#endif
+  log_i("Advertising service: %s.%s on port %d", serviceType, serviceProto, servicePort);
+// #ifdef SERIAL_ON
+//   Serial.printf("Advertising service: %s.%s on port %d\n", serviceType, serviceProto, servicePort);
+// #endif
   // Retrieve strings from preferences once
   myPrefs.begin("loco");
   String locoId = myPrefs.getString("locoid", "none");
@@ -973,7 +977,8 @@ void setupMDNS(String locoid)
   String locoType = myPrefs.getString("locotype", "none");
   locoType.trim();
   myPrefs.end();
-  Serial.printf("DEBUG: Sending locoID: [%s] Type: [%s]\n", locoId.c_str(), locoType.c_str());
+  log_d("Sending locoID: %s Type: %s", locoId.c_str(), locoType.c_str());
+  // Serial.printf("DEBUG: Sending locoID: [%s] Type: [%s]\n", locoId.c_str(), locoType.c_str());
 
   // Use MDNS.addServiceTxt(serviceType, serviceProto, key, value)
   // Convert Arduino Strings to C-style const char* for the function call
@@ -1156,7 +1161,6 @@ void processPendingCommands()
   PendingCommand cmd;
   while (commands.getNext(cmd))
   {
-    Serial.println("wheeeee!");
     if (strcmp(cmd.topic, "sendstatus") == 0)
     {
       throttle.inUse(true);
@@ -1242,17 +1246,19 @@ void setup()
   // Serial.println("OLS firmware version " + String(olsVersion));
 #endif
 
-#ifdef DEBUG_UDP
-  Serial.println("DEBUG UDP ON");
-#endif
+log_v("Debug UDP on");
+// #ifdef DEBUG_UDP
+//   Serial.println("DEBUG UDP ON");
+// #endif
 
-#ifdef DEBUG_MQTT
-  Serial.println("DEBUG MQTT ON");
-#endif
+// #ifdef DEBUG_MQTT
+//   Serial.println("DEBUG MQTT ON");
+// #endif
 
-#ifdef DEBUG_SPEED
-  Serial.println("DEBUG SPEED ON");
-#endif
+log_v("Debug speed on");
+// #ifdef DEBUG_SPEED
+//   Serial.println("DEBUG SPEED ON");
+// #endif
 
 #ifdef SERIAL_POL // position on layout reader
   Serial1.begin(9600, SERIAL_8N1, HW_SERIAL_PIN);
@@ -1320,14 +1326,14 @@ void setup()
   ElegantOTA.onEnd([](bool success) // Hook into OTA completion
                    {
   if (success) {
-#ifdef SERIAL_ON
-    Serial.println("OTA update finished successfully, restarting...");
-#endif
+// #ifdef SERIAL_ON
+//     Serial.println("OTA update finished successfully, restarting...");
+// #endif
     ESP.restart();
   } else {
-#ifdef SERIAL_ON
-    Serial.println("OTA update failed, not restarting.");
-#endif
+// #ifdef SERIAL_ON
+//     Serial.println("OTA update failed, not restarting.");
+// #endif
   } });
 
   setupMDNS(locoID);
@@ -1384,11 +1390,11 @@ void setup()
   rollcall.begin();
 #endif
 
-
-#ifdef SERIAL_ON
-    Serial.println("end of setup");
-    Serial.println("Firmware version: " + VERSION_STRING);
-#endif
+log_i("Firmware version: %s", VERSION_STRING);
+// #ifdef SERIAL_ON
+//     Serial.println("end of setup");
+//     Serial.println("Firmware version: " + VERSION_STRING);
+// #endif
   } // end setup
 
   /*****************************************************************************/
