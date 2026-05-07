@@ -42,6 +42,7 @@ public:
 
 
     void init(void);
+    void loop(void);
     void setControllingIP(IPAddress);
     void getFunctionPrefs(void);
     void getLocoPrefs(void);
@@ -86,8 +87,6 @@ public:
     void reportCondition(void);
     void reportStatus(void);
     void reportFunctionLabels(void);
-    // void reportMqttDebug(String, float);
-    // void reportMqttDebugString(String, String);
     void setCV(int, int);
     void setFunction(char *);
     bool isRunning(void);

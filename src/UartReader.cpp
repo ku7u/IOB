@@ -1,9 +1,7 @@
 
 #include "UartReader.h"
-#include "PubSubClient.h"
 #include "Throttle.h"
 
-extern PubSubClient client;
 extern HardwareSerial Serial1;
 extern Throttle throttle;
 
@@ -90,10 +88,7 @@ bool UartReader::check()
                         // currentPOL = candidate;
                         itoa(currentPOL, buffer, 10);
                         strcpy(msgChars, buffer);
-#ifdef USING_MQTT
-// is this necessary? or is this just for testing?
-                        client.publish(topicChars, msgChars);
-#endif
+
                         // TBD do something here, this is new info
                         if (inByte == currentPOL)
                         {

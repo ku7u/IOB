@@ -46,13 +46,7 @@ void CommandHandler::loop()
     buf[len] = 0; // <- null terminate
     msg = String((char *)buf).substring(0, len);
 
-#ifdef SERIAL_ON
-    Serial.printf("[CommandHandler] Received %s having %d bytes from %s:%u\n",
-                  buf,
-                  len,
-                  ip.toString().c_str(),
-                  port);
-#endif
+    log_d("Receivd %s having %d bytes from %s:%d", buf, len, ip.toString().c_str(), port);
 
     // Parse the JSON
     JsonDocument doc;

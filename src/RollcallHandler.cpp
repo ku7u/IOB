@@ -30,13 +30,7 @@ void RollcallHandler::loop()
     //   senderIP  = device that sent rollcall multicast
     //   senderPort= their UDP port
 
-#ifdef SERIAL_ON
-    Serial.printf("[Rollcall] Received %s having %d bytes from %s:%u\n",
-                  buf,
-                  len,
-                  senderIP.toString().c_str(),
-                  senderPort);
-#endif
+    log_d("Received %s having %d bytes from %s:%d", buf, len, senderIP.toString().c_str(), senderPort);
 
     // -----------------------------------------------
     //  DEVICE SENDS UNICAST RESPONSE BACK TO SENDER
@@ -54,23 +48,12 @@ void RollcallHandler::loop()
     serializeJson(doc, jsonBuf);
 
     // bool ok = _transport.send(senderIP, senderPort,
-    bool ok = _transport.send(senderIP, 
+    bool ok = _transport.send(senderIP,
                               (const uint8_t *)jsonBuf,
                               strlen(jsonBuf));
 
     if (ok)
-    {
-#ifdef SERIAL_ON
-        Serial.printf("[Rollcall] Sent response %s to %s:%u\n",
-                      jsonBuf,
-                      senderIP.toString().c_str(),
-                      50005);
-#endif
-    }
+        log_d("Sent response %s to %s:%d", jsonBuf, senderIP.toString().c_str(), 50005);
     else
-    {
-#ifdef SERIAL_ON
-        Serial.println("[Rollcall] Failed to send reply");
-#endif
-    }
+        log_d("Failed to send reply");
 }

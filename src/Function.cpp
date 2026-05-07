@@ -19,11 +19,11 @@ void setFunction(int function, bool onOff)
     uint8_t byte1;
     uint8_t byte2;
     char dummyChars[31];
-    
+
     byte2 = 0;
 
     // int roadNum = throttle.getRoadNumber(); //TBD this is lame, do it once somehow, or include in parameter list
-    int roadNum = throttle.getDccAddress(); 
+    int roadNum = throttle.getDccAddress();
 
     if ((function > 29) || (function < 0))
         return;
@@ -50,22 +50,29 @@ void setFunction(int function, bool onOff)
     }
 
     // build the command string
-    String dummyString = "f ";
-    dummyString.concat(String(roadNum) + " ");
-    dummyString.concat(String(byte1));
+    // String dummyString = "f ";
+    // dummyString.concat(String(roadNum) + " ");
+    // dummyString.concat(String(byte1));
+
+    // if (function >= 13)
+    // {
+    //     dummyString.concat(" ");
+    //     dummyString.concat(String(byte2));
+    // }
+
+    // strcpy(dummyChars, dummyString.c_str());
+    // SerialCommand::parse(dummyChars);
 
     if (function >= 13)
     {
-        dummyString.concat(" ");
-        dummyString.concat(String(byte2));
+        snprintf(dummyChars, sizeof(dummyChars), "f %d %u %u", roadNum, byte1, byte2);
     }
-
-    strcpy(dummyChars, dummyString.c_str());
+    else
+    {
+        snprintf(dummyChars, sizeof(dummyChars), "f %d %u", roadNum, byte1);
+    }
     SerialCommand::parse(dummyChars);
-    // if (callbackCommandFifoDCCFunction) callbackCommandFifoDCCFunction(dummyChars);
-
 }
-
 
 // void startStop(bool start)
 // {

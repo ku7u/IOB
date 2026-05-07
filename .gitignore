@@ -12,3 +12,9 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
+
+# Ignore Doxygen output folders
+html/
+latex/
+doxygen_docs/
+*.tag

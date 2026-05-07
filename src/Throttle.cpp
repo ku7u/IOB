@@ -1,3 +1,14 @@
+/**
+ * @file Throttle.cpp
+ * @author George Hofmann
+ * @brief
+ * @version 0.1
+ * @date 2026-05-05
+ *
+ * @copyright Copyright (c) 2026
+ *
+ */
+
 #include <iostream>
 #include "WiFi.h"
 #include "Arduino.h"
@@ -5,22 +16,10 @@
 #include "Throttle.h"
 #include "Preferences.h"
 #include <WiFiUdp.h> // UDP
-// #include "BrakeSystem.h"
-// #include "SerialCommand.h"
-// #include "Function.h"
-// #include "PubSubClient.h"
-// #include "MQTT.h"
+
 // #include <optional> was using to enable optional function null parms
 
-// #ifdef USING_MQTT
-// extern PubSubClient client;
-// #endif
-
-#ifdef USING_UDP
-// extern WiFiUDP udp; // UDP
 extern WiFiUDP udpCommand;
-// extern WiFiUDP udpTelemetry;
-#endif
 
 // Constructor
 Throttle::Throttle(void)
@@ -73,6 +72,12 @@ void Throttle::init()
     // commandFifo.pushCommand(functionNotchDown, 0);
     if (callbackPushCommand)
         callbackPushCommand(functionNotchDown, 0);
+}
+
+void Throttle::loop()
+{
+    computeVelocity();
+    return;
 }
 
 void Throttle::setControllingIP(IPAddress ip)
@@ -160,13 +165,8 @@ void Throttle::getFunctionPrefs(void)
     functionBrakeSqueal = myPrefs.getInt("brakesqueal", -1);
     myPrefs.end();
 
-    // bs.setCompressorFunction(functionCompressor);
     if (callbackSetCompressorFunction)
         callbackSetCompressorFunction(functionCompressor);
-#ifdef DEBUG_CALLBACK
-    else
-        Serial.println("Callback failed");
-#endif
 }
 
 void Throttle::report() // TBR TBD obsolete
@@ -188,9 +188,6 @@ void Throttle::report() // TBR TBD obsolete
     x.concat(_muState);
     // x.concat("\"}");
     x.concat("}");
-    // #ifdef USING_MQTT
-    //     client.publish(topicChars, x.c_str());
-    // #endif
 }
 
 uint32_t Throttle::getTime()
@@ -267,7 +264,6 @@ void Throttle::pmOnOff(bool onOff)
         _opMode = off;
 
         // do something to the brake system TBD
-        // bs.cycle(false); // v027
         if (callbackBrakeSystemCycle)
             callbackBrakeSystemCycle(false);
 
@@ -287,13 +283,6 @@ void Throttle::pmOnOff(bool onOff)
                 JsonObject obj = kv.value();
                 const char *muIP = obj["muip"];
 
-#ifdef USING_MQTT
-                // strcpy(topicChars, _commandTopic.c_str());
-                // strcat(topicChars, kv.key().c_str());
-                // strcat(topicChars, "/startstop");
-                // client.publish(topicChars, "0");
-
-#elif defined(USING_UDP)
                 JsonDocument doc;
                 String jsonString;
                 doc["topic"] = "startstop";
@@ -303,9 +292,6 @@ void Throttle::pmOnOff(bool onOff)
                 udpCommand.beginPacket(muIP, COMMAND_PORT);
                 udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
                 udpCommand.endPacket();
-#ifdef DEBUG_UDP
-#endif
-#endif
             }
         }
     }
@@ -316,24 +302,14 @@ void Throttle::pmOnOff(bool onOff)
         // bs.applyEmmergency(false);
         if (callbackApplyEmergency)
             callbackApplyEmergency(false);
-#ifdef DEBUG_CALLBACK
-        else
-            Serial.println("Callback failed");
-#endif
+
         // _independentBrake = bs.applyLocoBrake(false);
         if (callbackApplyLocoBrake)
             _independentBrake = callbackApplyLocoBrake(false);
-#ifdef DEBUG_CALLBACK
-        else
-            Serial.println("Callback failed");
-#endif
+
         // _trainBrake = bs.applyTrainBrake(false);
         if (callbackApplyTrainBrake)
             _trainBrake = callbackApplyTrainBrake(false);
-#ifdef DEBUG_CALLBACK
-        else
-            Serial.println("Callback failed");
-#endif
 
         // _independentBrake = 0;
         // _trainBrake = 0;
@@ -390,16 +366,10 @@ void Throttle::pmOnOff(bool onOff)
 
             doc["value"] = myIP;
             serializeJson(doc, docString);
-#ifdef DEBUG_UDP
-            Serial.println("[pmOnOff] docString: " + docString + " to " + String(muip));
-#endif
 
             udpCommand.beginPacket(muip, COMMAND_PORT);
             udpCommand.write((uint8_t *)docString.c_str(), strlen(docString.c_str()));
             udpCommand.endPacket();
-#ifdef DEBUG_UDP
-            Serial.println("[pmOnOff] command sent: " + docString + " to: " + muip);
-#endif
         }
         // we have sent commands to all known trailing locos
         // they will respond asynchronously
@@ -411,21 +381,13 @@ void Throttle::pmOnOff(bool onOff)
     // commandFifo.pushCommand(functionPM, onOff);
     if (callbackPushCommand)
         callbackPushCommand(functionPM, onOff);
-#ifdef DEBUG_CALLBACK
-    else
-        Serial.println("Callback failed");
-#endif
+
     // commandFifo.pushCommand(functionNotchingEnable, onOff); // TBD can't turn off PM unless this is here WMNS
     if (callbackPushCommand)
         callbackPushCommand(functionNotchingEnable, onOff);
     reportStatus();
 
     // TBD TBA add code here to start/stop all mued locos, or might just leave this as an operator task, like real world
-
-    // #ifdef USING_MQTT
-    //         client.publish(topicChars, msgChars);
-    // #endif
-    //     }
 }
 
 void Throttle::headlight(int offDimBright)
@@ -438,28 +400,22 @@ void Throttle::headlight(int offDimBright)
 
     if (offDimBright == 0)
     {
-        // commandFifo.pushCommand(functionHeadlightDim, false);
         if (callbackPushCommand)
             callbackPushCommand(functionHeadlightDim, false);
-        // commandFifo.pushCommand(functionHeadlightBright, false);
         if (callbackPushCommand)
             callbackPushCommand(functionHeadlightBright, false);
     }
     else if (offDimBright == 1)
     {
-        // commandFifo.pushCommand(functionHeadlightDim, true);
         if (callbackPushCommand)
             callbackPushCommand(functionHeadlightDim, true);
-        // commandFifo.pushCommand(functionHeadlightBright, false);
         if (callbackPushCommand)
             callbackPushCommand(functionHeadlightBright, false);
     }
     else if (offDimBright == 2)
     {
-        // commandFifo.pushCommand(functionHeadlightDim, false);
         if (callbackPushCommand)
             callbackPushCommand(functionHeadlightDim, false);
-        // commandFifo.pushCommand(functionHeadlightBright, true);
         if (callbackPushCommand)
             callbackPushCommand(functionHeadlightBright, true);
     }
@@ -472,28 +428,22 @@ void Throttle::rearlight(int offDimBright)
     case solo:
         if (offDimBright == 0)
         {
-            // commandFifo.pushCommand(functionRearlightDim, false);
             if (callbackPushCommand)
                 callbackPushCommand(functionRearlightDim, false);
-            // commandFifo.pushCommand(functionRearlightBright, false);
             if (callbackPushCommand)
                 callbackPushCommand(functionRearlightBright, false);
         }
         else if (offDimBright == 1)
         {
-            // commandFifo.pushCommand(functionRearlightDim, true);
             if (callbackPushCommand)
                 callbackPushCommand(functionRearlightDim, true);
-            // commandFifo.pushCommand(functionRearlightBright, false);
             if (callbackPushCommand)
                 callbackPushCommand(functionRearlightBright, false);
         }
         else if (offDimBright == 2)
         {
-            // commandFifo.pushCommand(functionRearlightDim, false);
             if (callbackPushCommand)
                 callbackPushCommand(functionRearlightDim, false);
-            // commandFifo.pushCommand(functionRearlightBright, true);
             if (callbackPushCommand)
                 callbackPushCommand(functionRearlightBright, true);
         }
@@ -543,28 +493,22 @@ void Throttle::rearlight(int offDimBright)
         {
             if (offDimBright == 0)
             {
-                // commandFifo.pushCommand(functionHeadlightDim, false);
                 if (callbackPushCommand)
                     callbackPushCommand(functionHeadlightDim, false);
-                // commandFifo.pushCommand(functionHeadlightBright, false);
                 if (callbackPushCommand)
                     callbackPushCommand(functionRearlightBright, false);
             }
             else if (offDimBright == 1)
             {
-                // commandFifo.pushCommand(functionHeadlightDim, true);
                 if (callbackPushCommand)
                     callbackPushCommand(functionHeadlightDim, true);
-                // commandFifo.pushCommand(functionHeadlightBright, false);
                 if (callbackPushCommand)
                     callbackPushCommand(functionRearlightBright, false);
             }
             else if (offDimBright == 2)
             {
-                // commandFifo.pushCommand(functionHeadlightDim, false);
                 if (callbackPushCommand)
                     callbackPushCommand(functionHeadlightDim, false);
-                // commandFifo.pushCommand(functionHeadlightBright, true);
                 if (callbackPushCommand)
                     callbackPushCommand(functionRearlightBright, true);
             }
@@ -573,88 +517,31 @@ void Throttle::rearlight(int offDimBright)
         {
             if (offDimBright == 0)
             {
-                // commandFifo.pushCommand(functionRearlightDim, false);
                 if (callbackPushCommand)
                     callbackPushCommand(functionRearlightDim, false);
-                // commandFifo.pushCommand(functionRearlightBright, false);
                 if (callbackPushCommand)
                     callbackPushCommand(functionRearlightBright, false);
             }
             else if (offDimBright == 1)
             {
-                // commandFifo.pushCommand(functionRearlightDim, true);
                 if (callbackPushCommand)
                     callbackPushCommand(functionRearlightDim, true);
-                // commandFifo.pushCommand(functionRearlightBright, false);
                 if (callbackPushCommand)
                     callbackPushCommand(functionRearlightBright, false);
             }
             else if (offDimBright == 2)
             {
-                // commandFifo.pushCommand(functionRearlightDim, false);
                 if (callbackPushCommand)
                     callbackPushCommand(functionRearlightDim, false);
-                // commandFifo.pushCommand(functionRearlightBright, true);
                 if (callbackPushCommand)
                     callbackPushCommand(functionRearlightBright, true);
             }
         }
     }
-
-    // if ((_muState == mid) || (_muState == lead)) // no rear lights for lead or mid consist locos v 0.18
-    //     return;
-
-    // else if ((_muState == trailing) && (_muReversed)) // if reversed the headlight is the rearlight
-    // {
-    //     if (offDimBright == 0)
-    //     {
-    //         commandFifo.pushCommand(functionHeadlightDim, false);
-    //         commandFifo.pushCommand(functionHeadlightBright, false);
-    //     }
-    //     else if (offDimBright == 1)
-    //     {
-    //         commandFifo.pushCommand(functionHeadlightDim, true);
-    //         commandFifo.pushCommand(functionHeadlightBright, false);
-    //     }
-    //     else if (offDimBright == 2)
-    //     {
-    //         commandFifo.pushCommand(functionHeadlightDim, false);
-    //         commandFifo.pushCommand(functionHeadlightBright, true);
-    //     }
-    //     return;
-    // }
-
-    // _rearlight = offDimBright;
-
-    // if (offDimBright == 0)
-    // {
-    //     commandFifo.pushCommand(functionRearlightDim, false);
-    //     commandFifo.pushCommand(functionRearlightBright, false);
-    // }
-    // else if (offDimBright == 1)
-    // {
-    //     commandFifo.pushCommand(functionRearlightDim, true);
-    //     commandFifo.pushCommand(functionRearlightBright, false);
-    // }
-    // else if (offDimBright == 2)
-    // {
-    //     commandFifo.pushCommand(functionRearlightDim, false);
-    //     commandFifo.pushCommand(functionRearlightBright, true);
-    // }
 }
 
 void Throttle::panicStop()
 {
-    // char dccCommandChars[30];
-    // char buffer[10];
-    // itoa(_dccAddress, buffer, 10);
-
-    // strcpy(dccCommandChars, "t 1 ");
-    // strcat(dccCommandChars, buffer);
-    // strcat(dccCommandChars, " 0");
-    // SerialCommand::parse(dccCommandChars);
-    // if (callbackCommandDCC)
-    //     callbackCommandDCC(dccCommandChars);
     if (callbackThrottleDCC)
         callbackThrottleDCC(_dccAddress, 0, 1);
 #ifdef DEBUG_CALLBACK
@@ -718,19 +605,7 @@ void Throttle::setDirection(int direction)
         _neutral = true;
 
     // send a speed command with zero speed just to set the current direction correctly in loco
-    // String dummyString = "t 1 ";
-    // dummyString.concat(String(_dccAddress) + " ");
-    // dummyString.concat(String(0) + " "); // zero speed
 
-    // if (_direction)
-    //     dummyString.concat("1");
-    // else
-    //     dummyString.concat("0");
-
-    // strcpy(dummyChars, dummyString.c_str());
-    // SerialCommand::parse(dummyChars);
-    // if (callbackCommandDCC)
-    //     callbackCommandDCC(dummyChars);
     if (callbackThrottleDCC)
         callbackThrottleDCC(_dccAddress, 0, _direction);
 }
@@ -753,7 +628,6 @@ void Throttle::setTrainData(char *traindata)
     JsonDocument doc;
 
     // Deserialize the JSON document coming from candidate
-    // DeserializationError error = deserializeJson(doc, jsonMsg);
     deserializeJson(doc, traindata);
 
     int length = doc["length"];
@@ -769,22 +643,11 @@ void Throttle::setLBrake(bool applying)
     else
         _opMode = idle;
 
-    // commandFifo.pushCommand(functionIndependentBrake, applying);
     if (callbackPushCommand)
         callbackPushCommand(functionIndependentBrake, applying);
-#ifdef DEBUG_MQTT
-    // reportMqttDebug("locoBrake ", applying);
-#endif
 
-    // _independentBrake = bs.applyLocoBrake(applying);
     if (callbackApplyLocoBrake)
         _independentBrake = callbackApplyLocoBrake(applying);
-#ifdef DEBUG_CALLBACK
-    else
-        Serial.println("Callback failed");
-#endif
-
-    // if ()  TBD TBD TBD this might be very bad
 }
 
 void Throttle::setABrake(bool applying)
@@ -794,14 +657,9 @@ void Throttle::setABrake(bool applying)
     else
         _opMode = idle;
 
-    // _trainBrake = bs.applyTrainBrake(applying);
     if (callbackApplyTrainBrake)
         _trainBrake = callbackApplyTrainBrake(applying);
-#ifdef DEBUG_CALLBACK
-    else
-        Serial.println("Callback failed");
-#endif
-    // commandFifo.pushCommand(functionTrainBrake, applying);
+
     if (callbackPushCommand)
         callbackPushCommand(functionTrainBrake, applying);
 }
@@ -814,24 +672,14 @@ void Throttle::setEBrake(bool applying)
         _opMode = idle;
     // TBD how to reset trainline pressure
 
-    // bs.applyEmmergency(applying);
     if (callbackApplyEmergency)
         callbackApplyEmergency(applying);
-#ifdef DEBUG_CALLBACK
-    else
-        Serial.println("Callback failed");
-#endif
-    // _trainBrake = bs.getEffectiveTrainBrake();
+
     if (callbackGetEffectiveTrainBrake)
         _trainBrake = callbackGetEffectiveTrainBrake();
-#ifdef DEBUG_CALLBACK
-    else
-        Serial.println("Callback failed");
-#endif
-    // _independentBrake = bs.getEffectiveLocoBrake();
+
     if (callbackGetEffectiveTrainBrake)
         _independentBrake = callbackGetEffectiveTrainBrake();
-    // commandFifo.pushCommand(functionEmergencyBrake, applying);
     if (callbackPushCommand)
         callbackPushCommand(functionEmergencyBrake, applying);
 }
@@ -842,18 +690,13 @@ void Throttle::trainline(bool connect)
 {
     if (connect)
     {
-        // bs.connectAirLine(true, _carCount);
         if (callbackConnectAirLine)
             callbackConnectAirLine2(true, _carCount);
-#ifdef DEBUG_CALLBACK
-        else
-            Serial.println("Callback failed");
-#endif
+
         _trainlineConnected = true;
     }
     else
     {
-        // bs.connectAirLine(false);
         if (callbackConnectAirLine)
             callbackConnectAirLine(false);
         _trainlineConnected = false;
@@ -863,10 +706,6 @@ void Throttle::trainline(bool connect)
 void Throttle::manualNotch(bool up)
 // this routine just sets the notch to be later processed in computeVelocity
 {
-#ifdef SERIAL_ON
-    Serial.println("(manualNotch) " + up);
-#endif
-
     uint32_t now;
 
     if (!_running) // nothing to do here, move along
@@ -882,10 +721,8 @@ void Throttle::manualNotch(bool up)
         if (_notch == 8)
             return;
         _opMode = powered;
-        // commandFifo.pushCommand(functionNotchUp, true);
         if (callbackPushCommand)
             callbackPushCommand(functionNotchUp, true);
-        // commandFifo.pushCommand(functionNotchUp, false);
         if (callbackPushCommand)
             callbackPushCommand(functionNotchUp, false);
         _notch++;
@@ -894,27 +731,14 @@ void Throttle::manualNotch(bool up)
     // release the brakes
     {
         _opMode = idle;
-        // if (bs.emergencyBrakeOn())
         if (callbackEmergencyBrakeOn())
             setEBrake(false);
-#ifdef DEBUG_CALLBACK
-        else
-            Serial.println("Callback failed");
-#endif
-        // if (bs.trainBrakeOn())
+
         if (callbackTrainBrakeOn())
             setABrake(false);
-#ifdef DEBUG_CALLBACK
-        else
-            Serial.println("Callback failed");
-#endif
-        // if (bs.locoBrakeOn())
+
         if (callbackLocoBrakeOn())
             setLBrake(false);
-#ifdef DEBUG_CALLBACK
-        else
-            Serial.println("Callback failed");
-#endif
     }
     else if (!up && _opMode == powered)
     // notching down
@@ -922,29 +746,20 @@ void Throttle::manualNotch(bool up)
         if (_notch == 0)
             return;
 
-        // commandFifo.pushCommand(functionNotchDown, true);
         if (callbackPushCommand)
             callbackPushCommand(functionNotchDown, true);
-        // commandFifo.pushCommand(functionNotchDown, false);
         if (callbackPushCommand)
             callbackPushCommand(functionNotchDown, false);
         _notch--;
         if (_notch == 0)
         {
             _opMode = idle;
-            // TBD adding next two lines as test to fix the hanging notch 1 issue
-            // not an issue anymore, so delete these 012325 gfh
-            // commandFifo.pushCommand(functionNotchDown, true); // this didn't work
-            // commandFifo.pushCommand(functionNotchDown, false);
         }
     }
     else if (!up && ((_opMode == idle) || (_opMode == braking)))
     // incrementally apply brakes
     {
         setLBrake(true);
-        // #ifdef SERIAL_ON
-        //         Serial.println("after setLBrake");
-        // #endif
         if (_trainlineConnected)
             setABrake(true);
         return; // so that notch is not redundantly returned to throttle
@@ -973,9 +788,6 @@ void Throttle::reportNotch()
     char msgChars[20];
     strcpy(msgChars, buffer);
 
-#ifdef USING_MQTT
-    // client.publish(topicChars, msgChars);
-#elif defined(USING_UDP)
     JsonDocument doc;
     String jsonString;
     doc["topic"] = "notch";
@@ -983,10 +795,7 @@ void Throttle::reportNotch()
     serializeJson(doc, jsonString);
 
     // udp publish via telemetry
-    // telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
-    // telemetry.sendTelemetry(jsonString.c_str());
     telemetry.sendTelemetry(_controllingIP, TELEMETRY_PORT, jsonString.c_str());
-#endif
 }
 
 void Throttle::longPress(bool up)
@@ -1001,13 +810,10 @@ void Throttle::longPress(bool up)
         reportNotch();
 
         // release all brakes
-        // if (bs.emergencyBrakeOn())
         if (callbackEmergencyBrakeOn())
             setEBrake(false);
-        // if (bs.trainBrakeOn())
         if (callbackTrainBrakeOn())
             setABrake(false);
-        // if (bs.locoBrakeOn())
         if (callbackLocoBrakeOn())
             setLBrake(false);
     }
@@ -1039,9 +845,6 @@ void Throttle::longPress(bool up)
         else
             strcpy(msgChars, "0");
 
-#ifdef USING_MQTT
-        // client.publish(topicChars, msgChars);
-#elif defined(USING_UDP)
         JsonDocument doc;
         String jsonString;
         doc["topic"] = "reverser";
@@ -1052,10 +855,7 @@ void Throttle::longPress(bool up)
         serializeJson(doc, jsonString);
 
         // udp publish via telemetry
-        // telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
-        // telemetry.sendTelemetry(jsonString.c_str());
         telemetry.sendTelemetry(_controllingIP, TELEMETRY_PORT, jsonString.c_str());
-#endif
     }
     else if (!up && _opMode == powered)
     // straight to zero
@@ -1094,63 +894,34 @@ void Throttle::computeVelocity(void)
     static uint16_t lastTrainlinePSI;
     static uint8_t startupCounter;
 
-#ifdef DEBUG_SPEED
-    // Serial.println("computeVelocity");
-#endif
-
     if (!_running)
     {
         startupCounter = 0;
-        // bs.setPMRunning(false);
         if (callbackSetPMRunning)
             callbackSetPMRunning(false);
-#ifdef DEBUG_CALLBACK
-        else
-            Serial.println("Callback failed");
-#endif
     }
 
     if (startupCounter < 15)
         startupCounter++;
     else if (startupCounter == 15)
     {
-        // bs.setPMRunning(true);
         if (callbackSetPMRunning)
             callbackSetPMRunning(true);
         startupCounter++;
     }
 
-    // bool compressorRunning = bs.cycle(true); // v027
     bool compressorRunning = callbackBrakeSystemCycle(true); // v027
     if ((!_running) || ((_muState == mid) || (_muState == trailing)))
         return;
 
-    // _trainlinePSI = bs.getTrainlinePSI();
     if (callbackGetTLPsi)
         _trainlinePSI = callbackGetTLPsi();
-#ifdef DEBUG_CALLBACK
-    else
-        Serial.println("Callback failed");
-#endif
-    // _trainBrake = bs.getEffectiveTrainBrake();
+
     if (callbackGetEffectiveTrainBrake)
         _trainBrake = callbackGetEffectiveTrainBrake();
-#ifdef DEBUG_CALLBACK
-    else
-        Serial.println("Callback failed");
-#endif
-    // _independentBrake = bs.getEffectiveLocoBrake();
+
     if (callbackGetEffectiveLocoBrake)
         _independentBrake = callbackGetEffectiveLocoBrake();
-#ifdef DEBUG_CALLBACK
-    else
-        Serial.println("Callback failed");
-#endif
-    // Serial.println("bs");delay(1000); ////////////////////////////////////////////////////////////////////////////
-
-#ifdef DEBUG_MQTT
-    // reportMqttDebug("trainBrake ", _trainBrake);
-#endif
 
     if (_trainlinePSI != lastTrainlinePSI)
     {
@@ -1160,16 +931,13 @@ void Throttle::computeVelocity(void)
     else if ((_mph == 0) && compressorRunning)
         reportStatus();
 
-    consistHorsepower = _horsepower + _muHorsepower; // v0.26 ff
+    consistHorsepower = _horsepower + _muHorsepower; // v0.26 ff  TBD check this...thought we already amalgamated mu hp containing lead
     consistMass = _locoMass + _muLocoMass;
     consistTractiveEffort = _tractiveEffort + _muTractiveEffort;
     _horsepowerAtIdle = consistHorsepower / 100;
 
     if (_neutral == true)
     {
-#ifdef DEBUG_SPEED
-        Serial.println("(computeVelocity) returning 2 (neutral)" + _neutral);
-#endif
         return; // if in neutral don't waste time in here
     }
 
@@ -1201,8 +969,6 @@ void Throttle::computeVelocity(void)
 
 #ifdef DEBUG_SPEED
     log_d("_mph: %s", String(_mph));
-    // Serial.println("(computeVelocity) _mph:  " + String(_mph));
-// Serial.println(_mph);
 #endif
 
     // compute the tractive force
@@ -1211,8 +977,6 @@ void Throttle::computeVelocity(void)
     else
     {
         tractiveForce = effectiveHP * 308 / (_mph * 1); // TBD REALITY_FACTOR goes here to replace the 1
-        // if (tractiveForce > _tractiveEffort)
-        //     tractiveForce = _tractiveEffort; // cap it
         if (tractiveForce > consistTractiveEffort)
             tractiveForce = consistTractiveEffort; // cap it
     }
@@ -1221,7 +985,6 @@ void Throttle::computeVelocity(void)
     if (_currentSpeed <= 0)
     {
         dragForce = 0;
-        // startingForce = 20 * ((_locoMass * 32 / 2000) + _tonnage); // convert from slugs to lbs to tons
         startingForce = 20 * ((consistMass * 32 / 2000) + _tonnage); // convert from slugs to lbs to tons
         if (startingForce >= tractiveForce)
             tractiveForce = 0;
@@ -1238,9 +1001,6 @@ void Throttle::computeVelocity(void)
     log_d("_tonnage: %d", _tonnage);
     log_d("_locoMass: %d", _locoMass);
     log_d("startingForce: %d", startingForce);
-    // Serial.println("(computeVelocity) _tonnage: " + _tonnage);
-    // Serial.println("(computeVelocity) _locoMass: " + _locoMass);
-    // Serial.println("computeVelocity) startingForce: " + startingForce);
 #endif
 
     // this routine attempts to simulate spooling up
@@ -1252,7 +1012,6 @@ void Throttle::computeVelocity(void)
 
 #ifdef DEBUG_SPEED
     log_d("tractiveForce: %d", tractiveForce);
-    // Serial.println("(compuuteVelocity) tractiveForce: " + tractiveForce);
 #endif
 
     // compute the drag forces
@@ -1261,7 +1020,6 @@ void Throttle::computeVelocity(void)
 
 #ifdef DEBUG_SPEED
     log_d("variableLocoDragForce: %d", variableLocoDragForce);
-    // Serial.println("computeVelocity) variableLocoDragForce: " + variableLocoDragForce);
 #endif
 
     // consider brake forces if any
@@ -1270,10 +1028,6 @@ void Throttle::computeVelocity(void)
     if (_trainlineConnected)
     {
         trainBrakeForce = (_trainBrake)*_tonnage * 2000 * TRAIN_BRAKE_FRICTION_COEFICIENT; // v 0.11
-
-        // emergencyBrakeForce = ((MIN_EFFECTIVE_EMERGENCY_BRAKE_LINE_PRESSURE / TRAINLINE_SET_PSI) * (_locoMass * 32 + _tonnage * 2000.) * TRAIN_BRAKE_FRICTION_COEFICIENT) * _emergencyBrake; // v 0.11 was .2
-        // emergencyBrakeForce = (EMERGENCY_BRAKE_FACTOR * (_locoMass * 32. + _tonnage * 2000.) * TRAIN_BRAKE_FRICTION_COEFICIENT) * _emergencyBrake; // v 0.11 was .2
-        // emergencyBrakeForce = EMERGENCY_BRAKE_FACTOR * _tonnage * 2000. * TRAIN_BRAKE_FRICTION_COEFICIENT * _emergencyBrake; // v 0.25
     }
     else
     {
@@ -1283,16 +1037,8 @@ void Throttle::computeVelocity(void)
 #ifdef DEBUG_SPEED
     log_d("dragForce: %d", dragForce);
     log_d("independentBrake: %d independentBrakeForce: %d", _independentBrake, independentBrakeForce);
-    // Serial.println("(computeVelocity) dragForce: " + dragForce);
-    // Serial.print("independentBrake and ...Force ");
-    // Serial.print(_independentBrake);
-    // Serial.print("   ");
-    // Serial.println(independentBrakeForce);
 #endif
 
-    // if (_emergencyBrake == 1) // v 0.13
-    //     accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - emergencyBrakeForce) / (consistMass + (_tonnage * 2000 / 32));
-    // else
     accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - trainBrakeForce) / (consistMass + (_tonnage * 2000 / 32));
 
     if (accel > MAX_ACCEL)
@@ -1300,7 +1046,6 @@ void Throttle::computeVelocity(void)
 
 #ifdef DEBUG_SPEED
     log_d("accel: %d", accel);
-    // Serial.println("(computeVelocity) accel: " + accel);
 #endif
 
     // integrate acceleration to get speed, here in fps, ultimately required by decoder
@@ -1313,7 +1058,6 @@ void Throttle::computeVelocity(void)
         _currentSpeed = lastCurrentSpeed;
 
     // integrate speed to obtain distance in feet, converted to miles when sent later
-    // d = velocity x time but since here v is ft/sec, time is 1 (sec) so d = v x 1
     _odometer = _odometer + abs(_currentSpeed); // TBD on this (seems to work)
 
     // get the appropriate calibrated and interpolated speed compensation value for the decoder
@@ -1326,9 +1070,6 @@ void Throttle::computeVelocity(void)
 #ifdef DEBUG_SPEED
     log_d("_currentSpeed: %d", _currentSpeed);
     log_d("_currentSpeed factored: %d", intCurrentSpeed);
-    // Serial.println("(computeVelocity) _currentSpeed: " + _currentSpeed);
-    // Serial.println("(computeVelocity) _currentSpeed factored: " + intCurrentSpeed);
-    // Serial.print('\n');
 #endif
 
     if (_mph > 0)
@@ -1340,33 +1081,8 @@ void Throttle::computeVelocity(void)
 
         lastIntCurrentSpeed = intCurrentSpeed;
 
-        // build the command string
-        // char buffer[20];
-        // strcpy(dummyChars, "t 1 ");
-
-        // itoa(_dccAddress, buffer, 10);
-        // strcat(dummyChars, buffer);
-        // strcat(dummyChars, " ");
-
-        // itoa(intCurrentSpeed, buffer, 10);
-        // strcat(dummyChars, buffer);
-        // strcat(dummyChars, " ");
-
-        // if (_direction)
-        //     strcat(dummyChars, "1");
-        // else
-        //     strcat(dummyChars, "0");
-
-        // SerialCommand::parse(dummyChars);
-        // if (callbackCommandDCC)
-        //     callbackCommandDCC(dummyChars);
-
         if (callbackThrottleDCC)
             callbackThrottleDCC(_dccAddress, intCurrentSpeed, _direction);
-// #ifdef DEBUG_CALLBACK
-//         else
-//             Serial.println("[computeVelocity] callback failed");
-// #endif
     }
 
     // send back odometer data to operator
@@ -1402,20 +1118,11 @@ void Throttle::calibrate(int speed)
     // user is canceling
     if (speed == 0)
     {
-        // String stopString = "t 1 ";
-        // stopString.concat(String(_dccAddress) + " ");
-        // stopString.concat(String(0) + " ");
-        // stopString.concat("1");
-        // strcpy(dummyChars, stopString.c_str());
-        // // SerialCommand::parse(dummyChars);
-        // if (callbackCommandDCC)
-        //     callbackCommandDCC(dummyChars);
 
         if (callbackThrottleDCC)
             callbackThrottleDCC(_dccAddress, 0, true);
 
         _calibrationStage = 0;
-        // commandFifo.pushCommand(functionBell, false);
         if (callbackPushCommand)
             callbackPushCommand(functionBell, false);
         return;
@@ -1556,19 +1263,9 @@ void Throttle::calibrate(int speed)
         }
         else
         {
-            // dummyString.concat(String(0) + " "); // end of movement
             dccVal = 0;
         }
 
-        // if (speed >= 0) // forward or reverse
-        //     dummyString.concat("1");
-        // else
-        //     dummyString.concat("0");
-
-        // strcpy(dummyChars, dummyString.c_str());
-        // SerialCommand::parse(dummyChars);
-        // if (callbackCommandDCC)
-        //     callbackCommandDCC(dummyChars);
         if (callbackThrottleDCC)
             callbackThrottleDCC(_dccAddress, dccVal, (speed >= 0));
     }
@@ -1651,20 +1348,13 @@ void Throttle::muSetState(const char *jsonMsg)
             serializeJson(doc, jsonString);
 
             // send the parameters to lead loco to affect its performance
-#ifdef USING_MQTT
-            // client.publish(topicChars, msgChars);
 
-            // // unsubscribe from lead loco messages
-            // muSubscribe(false);
-#elif defined(USING_UDP)
             udpCommand.beginPacket(leadIpAdr, COMMAND_PORT);
             udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
             udpCommand.endPacket();
             // TBD something about unsubscribe?
 #ifdef DEBUG_UDP
-            log_d("Unicast sent: %s to: %s", jsonString, String(leadIpAdr));
-            // Serial.println("[muSetState] unicast sent: " + jsonString + " to: " + String(leadIpAdr));
-#endif
+            log_d("Unicast sent: %s to: %s", jsonString.c_str(), String(leadIpAdr).c_str());
 #endif
         }
 
@@ -1679,18 +1369,13 @@ void Throttle::muSetState(const char *jsonMsg)
     // case 2 falls through into 3
     case 2: // mid
     case 3: // trailing
-        // if (_muState != 0) // only allowed if coming from not mued  TBD this is questionable v0.26 commented this
-        //     return;
 
         _muState = static_cast<Throttle::MuState>(commandedState);
         _consistMember = true; // tested every 60 seconds
 
-        // const char *mull;    v 0.22
-        // mull = doc["leadID"];
         _muLeadLoco = String(mull);
         // send my id, mass, hp and tractive effort to lead now
-        // muReport(_muLeadLoco.c_str(), leadIpAdr);
-        // muReport(mull, leadIpAdr);
+
         muReport(leadIpAdr);
 
         // subscribe to lead loco messages for speed, direction and notch
@@ -1738,10 +1423,6 @@ void Throttle::muReport(const char *leadIpAdr) // v0.26
 
         String jsonString = "";
 
-#ifndef USING_MQTT
-        // strcpy(topicChars, "muperformance");
-        // strcpy(topicChars, "muLocoData");
-#endif
         JsonDocument doc;
         doc["topic"] = topicChars;
         doc["id"] = _locoID.c_str();
@@ -1780,28 +1461,18 @@ void Throttle::muReport(const char *leadIpAdr) // v0.26
         strcat(msgChars, "}");
 
         // send the parameters to lead loco to affect its performance
-#ifdef USING_MQTT
-        // client.publish(topicChars, msgChars);
-
-        // // subscribe to the lead messages
-        // muSubscribe(true);
-
-#elif defined(USING_UDP)
-        // #ifdef DEBUG_UDP
-        //         Serial.println("(muReport) 3");
-        // #endif
         udpCommand.beginPacket(leadIpAdr, COMMAND_PORT);
         udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
         udpCommand.endPacket();
 
 #ifdef DEBUG_UDP
-        log_d("Sent unicast: %s to: %s", jsonString, String(leadIpAdr));
-        // Serial.println("[muReport] sent unicast: " + jsonString + " to: " + String(leadIpAdr));
-#endif
+        log_d("Sent unicast: %s to: %s", jsonString.c_str(), String(leadIpAdr));
 #endif
     }
 }
 
+
+// TBD this is likely obsolete along with calls to it
 void Throttle::muSubscribe(bool subUnsub)
 {
     // v026 changed all of this to handle the parameter
@@ -1814,27 +1485,11 @@ void Throttle::muSubscribe(bool subUnsub)
     strcat(subscription, _muLeadLoco.c_str());
     strcat(subscription, "/status");
 
-#ifdef USING_MQTT
-    // if (subUnsub)
-    //     // client.subscribe(subscription, 1);
-    //     client.subscribe(subscription, 0); // TBD testing QOS effect 7/12/24
-    // else
-    //     client.unsubscribe(subscription);
-#endif
-
     // subscribe to lead loco messages for headlight
     // strcpy(subscription, _feedbackTopic.c_str());
     strcpy(subscription, _commandTopic.c_str()); // v 0.17
     strcat(subscription, _muLeadLoco.c_str());
     strcat(subscription, "/headlight");
-
-#ifdef USING_MQTT
-    // if (subUnsub)
-    //     // client.subscribe(subscription, 1);
-    //     client.subscribe(subscription, 0); // TBD testing QOS effect 7/12/24
-    // else
-    //     client.unsubscribe(subscription);
-#endif
 
     // subscribe to lead loco messages for rearlight
     // strcpy(subscription, _feedbackTopic.c_str());
@@ -1842,29 +1497,23 @@ void Throttle::muSubscribe(bool subUnsub)
     strcat(subscription, _muLeadLoco.c_str());
     strcat(subscription, "/rearlight");
 
-    // #ifdef USING_MQTT
-    // if (subUnsub)
-    //     // client.subscribe(subscription, 1);
-    //     client.subscribe(subscription, 0); // TBD testing QOS effect 7/12/24
-    // else
-    //     client.unsubscribe(subscription);
-    // #endif
-
 } // muSubscribe
 
+
+/**
+ * @brief Set the performance characteristics of the lead MU unit.
+ * 
+ *  Runs in response to muLocoData message from trailing loco(s).
+ *  Set muState to 1 if adding trailers.
+ *  Set muState to 0 if depleting trailers
+ *  Lead unit keeps track of the consist in muDoc and stores in Preferences for future use TBD is there a need to store? yes there is, can't broadcast so need ip addrs.
+ *  Also saves trailers hp, mass and tractive effort to be added to lead unit parameters
+ *  Do nothing else
+ * 
+ * @param jsonMsg 
+ */
 void Throttle::muSetPerformance(const char *jsonMsg)
 {
-    // TBD
-    // v 0.20 complete
-
-    // runs in response to muLocoData message from trailing loco(s)
-    // set muState to 1 if adding trailers
-    // set muState to 0 if depleting trailers
-    // lead unit keeps track of the consist in muDoc and stores in Preferences for future use TBD is there a need to store? yes there is, can't broadcast so need ip addrs.
-    // also saves trailers hp, mass and tractive effort to be added to lead unit parameters
-    // do nothing else
-
-    // v 0.26 using saved json doc
     // if coming in here, mustate = 1 then add to the existing json doc
     // else clear the existing and start a new one although the existing should already be clear
 
@@ -1874,7 +1523,8 @@ void Throttle::muSetPerformance(const char *jsonMsg)
     Preferences myPrefs;
     JsonDocument doc;
     String consistString;
-    StaticJsonDocument<200> doc1;
+    // StaticJsonDocument<200> doc1;
+    JsonDocument doc1;
     String jsonString;
 
 #ifdef DEBUG_UDP
@@ -1924,9 +1574,7 @@ void Throttle::muSetPerformance(const char *jsonMsg)
         myPrefs.end();
 
         // turn off PM on the mued loco
-#ifdef USING_MQTT
-        // client.publish(topicChars, "0");
-#else
+
         jsonString = "";
 
         doc1["topic"] = "startstop";
@@ -1936,9 +1584,7 @@ void Throttle::muSetPerformance(const char *jsonMsg)
         udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
         udpCommand.endPacket();
 #ifdef DEBUG_UDP
-        log_d("Command sent: %s to: %s", jsonString, muIP);
-        // Serial.println("[muSetPerformance] command sent: " + jsonString + " to: " + muIP);
-#endif
+        log_d("Command sent: %s to: %s", jsonString.c_str(), muIP);
 #endif
 
         muSumPerformanceValues();
@@ -1952,9 +1598,7 @@ void Throttle::muSetPerformance(const char *jsonMsg)
         // separate logic in startup proc to start mued locos TBD
         if (_running)
         {
-#ifdef USING_MQTT
-            // client.publish(topicChars, "1");
-#else
+
             jsonString = "";
 
             doc1["topic"] = "startstop";
@@ -1965,9 +1609,7 @@ void Throttle::muSetPerformance(const char *jsonMsg)
             udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
             udpCommand.endPacket();
 #ifdef DEBUG_UDP
-            log_d("Lead running, command sent: %s to: %s", jsonString, muIP);
-            // Serial.println("[muSetPerformance] lead running, command sent: " + jsonString + " to: " + muIP);
-#endif
+            log_d("Lead running, command sent: %s to: %s", jsonString.c_str(), muIP);
 #endif
         }
 
@@ -2003,10 +1645,14 @@ void Throttle::muSetPerformance(const char *jsonMsg)
     }
 }
 
+
+/**
+ * @brief Receive speed messages from lead unit, set this unit's speed to match.
+ * 
+ * @param jsonMsg 
+ */
 void Throttle::muSetSpeed(const char *jsonMsg)
 {
-    // receive speed messages from lead unit, set this unit's speed to match
-
     static bool lastBrake;
     float lastOdo = 0.; // odometer update
 
@@ -2019,10 +1665,7 @@ void Throttle::muSetSpeed(const char *jsonMsg)
     DeserializationError error = deserializeJson(doc, jsonMsg);
     if (error)
     {
-#ifdef SERIAL_ON
         log_e("Error");
-        // Serial.println("muSetSpeed error");
-#endif
         return;
     }
 
@@ -2045,16 +1688,6 @@ void Throttle::muSetSpeed(const char *jsonMsg)
 
         return;
     }
-
-    // wiggle the value to outsmart BEMF
-    // TBD in testing, this did not seem to be necessary using LokSound5 with BEMF in use
-    // if (muMPH > .5)
-    // {
-    //     if (alternateSeconds)
-    //         muMPH += .25; // v0.26 was .5 both places
-    //     else
-    //         muMPH -= .25;
-    // }
 
     // retrieve direction, 1=fwd, 0=rev
     bool direction = doc["dir"];
@@ -2093,33 +1726,18 @@ void Throttle::muSetSpeed(const char *jsonMsg)
     if (dccFPS > 126)
         dccFPS = 126;
 
-    // char buffer[20];
-    // char dccCommandChars[30];
-    // strcpy(dccCommandChars, "t 1 ");
-    // itoa(_dccAddress, buffer, 10);
-    // strcat(dccCommandChars, buffer);
-    // strcat(dccCommandChars, " ");
-    // itoa(dccFPS, buffer, 10);
-    // strcat(dccCommandChars, buffer);
-    // strcat(dccCommandChars, " ");
-
-    // if (direction)
-    //     strcat(dccCommandChars, "1");
-    // else
-    //     strcat(dccCommandChars, "0");
-
-    // SerialCommand::parse(dccCommandChars);
-    // if (callbackCommandDCC)
-    //     callbackCommandDCC(dccCommandChars);
     if (callbackThrottleDCC)
         callbackThrottleDCC(_dccAddress, dccFPS, direction);
 }
 
+
+/**
+ * @brief Sends static condition to app whenever app opens throttle fragment.
+ * 
+ * This sets the state of various views in the app fragment.
+ */
 void Throttle::reportCondition()
 {
-    // sends static condition to app whenever app opens throttle fragment
-    // this sets the state of various views in the fragment
-
     String jsonString = "";
 
     char topicChars[TOPIC_CHAR_SIZE];
@@ -2220,34 +1838,29 @@ void Throttle::reportCondition()
     doc["tons"] = charTonnage;
     serializeJson(doc, jsonString);
 
-#ifdef USING_MQTT
-    // client.publish(topicChars, msgChars);
-#elif defined(USING_UDP)
     // udp publish via telemetry
 #ifdef DEBUG_UDP
-    log_d("Sending %s", jsonString);
-    // Serial.println("[reportCondition] sending " + jsonString);
+    log_d("Sending %s", jsonString.c_str());
 #endif
-    // telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
-    // telemetry.sendTelemetry(jsonString.c_str());
     telemetry.sendTelemetry(_controllingIP, TELEMETRY_PORT, jsonString.c_str());
-#endif
 }
 
+
+/**
+ * @brief Reports various current values back to the app for display there.
+ * 
+ * The msg is in json format.
+ * 
+ */
 void Throttle::reportStatus()
 {
-    // reports various current values back to the app for display there
-    // the mqtt msg is in json format
-
     String jsonString = "";
 
-    // _trainlinePSI = bs.getTrainlinePSI();
     if (callbackGetTLPsi)
         _trainlinePSI = callbackGetTLPsi();
 #ifdef DEBUG_CALLBACK
     else
         log_e("Callback failed");
-    // Serial.println("Callback failed");
 #endif
 
     int intSpeedoSpeed = _mph * 10;
@@ -2271,16 +1884,13 @@ void Throttle::reportStatus()
 #ifdef DEBUG_CALLBACK
     else
         log_e("Callback failed");
-    // Serial.println("Callback failed");
 #endif
     uint16_t mainPsi;
-    // uint16_t mainPsi = bs.getMainPSI();
     if (callbackGetMainPSI)
         mainPsi = callbackGetMainPSI();
 #ifdef DEBUG_CALLBACK
     else
         log_e("Callback failed");
-    // Serial.println("Callback failed");
 #endif
     // round to 1, 2 decimal places
     float speedo2 = round(speedoSpeed * 10.f) / 10.f;
@@ -2327,16 +1937,10 @@ void Throttle::reportStatus()
     }
     serializeJson(doc, jsonString);
 
-#ifdef USING_MQTT
-    // client.publish(topicChars, jsonString.c_str());
-#elif defined(USING_UDP)
     // udp publish via telemetry
-    // telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
-    // telemetry.sendTelemetry(jsonString.c_str());
     telemetry.sendTelemetry(_controllingIP, TELEMETRY_PORT, jsonString.c_str());
 #ifdef DEBUG_UDP
-    log_d("Sent telemetry: %s to: %s ", jsonString, _controllingIP);
-    // Serial.println("[reportStatus] Sent telemetry: " + jsonString + " to: " + _controllingIP);
+    log_d("Sent telemetry: %s to: %s ", jsonString.c_str(), _controllingIP.toString().c_str());
 #endif
 
     if (_muState == lead) // check for lead unit
@@ -2360,57 +1964,22 @@ void Throttle::reportStatus()
             udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
             udpCommand.endPacket();
 #ifdef DEBUG_UDP
-            log_d("Sent nicast to trailer: %s to: %s", jsonString, muip);
-            // Serial.println("[reportStatus] Sent unicast to trailer: " + jsonString + " to: " + muip);
+            log_d("Sent nicast to trailer: %s to: %s", jsonString.c_str(), muip);
 #endif
         }
-#endif
+    }
 }
-}
 
-// void Throttle::reportMqttDebug(String parameter, float value) // v 0.25
-// {
-//     // report debug messages via mqtt
-//     char topicChars[TOPIC_CHAR_SIZE];
-//     strcpy(topicChars, _feedbackTopic.c_str());
-//     strcat(topicChars, _locoID.c_str());
-//     strcat(topicChars, "/debug/");
-//     strcat(topicChars, parameter.c_str());
 
-//     char msgChars[40];
-//     char charValue[20];
-
-//     dtostrf(value, 8, 2, charValue);
-//     strcpy(msgChars, charValue);
-
-// #ifdef USING_MQTT
-//     client.publish(topicChars, msgChars);
-// #endif
-// }
-
-// void Throttle::reportMqttDebugString(String parameter, String data) // v 0.25
-// {
-//     // report debug messages via mqtt
-//     char topicChars[TOPIC_CHAR_SIZE];
-//     strcpy(topicChars, _feedbackTopic.c_str());
-//     strcat(topicChars, _locoID.c_str());
-//     strcat(topicChars, "/debug/");
-//     strcat(topicChars, parameter.c_str());
-
-//     char msgChars[400];
-
-//     strcpy(msgChars, data.c_str());
-
-// #ifdef USING_MQTT
-//     client.publish(topicChars, msgChars);
-// #endif
-// }
-
+/**
+ * @brief Send function labels to the app for display there.
+ * @details 
+ * Reports all of the configured function labels to the app for display there.
+ * Called whenever sendStatus is requested by the app.
+ * 
+ */
 void Throttle::reportFunctionLabels()
 {
-    // reports all of the configured function labels to the app for display there
-    // called whenever sendStatus is requested by the app
-
     char topicChars[40];
     Preferences myPrefs;
 
@@ -2419,35 +1988,9 @@ void Throttle::reportFunctionLabels()
     strcat(topicChars, "/functionLabels");
 
     char msgChars[1024]; // TBD limit the labels (elsewhere) to 30 characters
-    // String iString;
-    // String labelString;
-
-    // strcpy(msgChars, "{");
-    // // open the spiff
-    // myPrefs.begin("functions", true);
-    // for (int i = 0; i < 29; i++)
-    // {
-    //     // convert i to string
-    //     iString = "f" + String(i);
-    //     // get the string from spiff
-    //     labelString = myPrefs.getString(iString.c_str(), "");
-    //     // // build the string including the i string
-    //     strcat(msgChars, "\"");
-    //     strncat(msgChars, iString.c_str(), 3);
-    //     strcat(msgChars, "\":\"");
-    //     // concat the label
-    //     strncat(msgChars, labelString.c_str(), 10);
-    //     strcat(msgChars, "\"");
-    //     if (i < 28)
-    //         strcat(msgChars, ",");
-    // }
-    // myPrefs.end();
-
-    // strcat(msgChars, "}");
-
     // following from chatGPT 12/07/25
     // places the labels into a json array, {"labels":["label1","label2"...]}
-    StaticJsonDocument<2048> doc; // enough for 29 labels
+    JsonDocument doc; // enough for 29 labels
 
     doc["topic"] = "functionLabels";
 
@@ -2465,18 +2008,9 @@ void Throttle::reportFunctionLabels()
     String output;
     serializeJson(doc, output);
 
-#ifdef USING_MQTT
-    // client.publish(topicChars, output.c_str());
-#elif defined(USING_UDP)
-    // TBA UDP
-    // udp publish via telemetry
-    // telemetry.setTarget(_controllingIP, 50003); // TBD this is ridiculous, fix in TelemetryHandler and remove this line
-    // telemetry.sendTelemetry(output.c_str());
     telemetry.sendTelemetry(_controllingIP, TELEMETRY_PORT, output.c_str());
 #ifdef DEBUG_UDP
-    log_d("Output: %s", output);
-    // Serial.println("[reportFunctionLabels] " + output);
-#endif
+    log_d("Output: %s", output.c_str());
 #endif
 }
 
@@ -2528,26 +2062,6 @@ uint16_t Throttle::interpolateSpeedFactor(float fps)
 
 void Throttle::setCV(int cv, int value)
 {
-    // char dummyChars[31];
-
-    // // build the command string
-    // char buffer[20];
-    // strcpy(dummyChars, "w ");
-
-    // itoa(_dccAddress, buffer, 10);
-    // strcat(dummyChars, buffer);
-    // strcat(dummyChars, " ");
-
-    // itoa(cv, buffer, 10);
-    // strcat(dummyChars, buffer);
-    // strcat(dummyChars, " ");
-
-    // itoa(value, buffer, 10);
-    // strcat(dummyChars, buffer);
-
-    // SerialCommand::parse(dummyChars);
-    // if (callbackCommandDCC)
-    //     callbackCommandDCC(dummyChars);
     if (callbackSetCvDCC)
         callbackSetCvDCC(_dccAddress, cv, value);
 }
@@ -2569,6 +2083,14 @@ void Throttle::setFunction(char *jsonMsg)
         callbackPushCommand(function, state);
 }
 
+
+/**
+ * @brief Turn on brake squeal sound.
+ * 
+ * @details Squeal on/off must be commanded because builtin decoder functionality is not available here.
+ * 
+ * @param on 
+ */
 void Throttle::brakeSqueal(bool on)
 {
     static bool squealOn;
@@ -2607,6 +2129,11 @@ void Throttle::brakeSqueal(bool on)
     return;
 }
 
+
+/**
+ * @brief Sum horsepower, mass and tractive effort for the MU lashup.
+ * 
+ */
 void Throttle::muSumPerformanceValues() // v0.26
 {
     // ref: https://arduinojson.org/v7/api/jsonobject/begin_end/
@@ -2617,9 +2144,6 @@ void Throttle::muSumPerformanceValues() // v0.26
 
     if (_muState == solo)
     {
-        // #ifdef DEBUG_MQTT
-        //         reportMqttDebug("combinedHP", (float)_muHorsepower);
-        // #endif
         return;
     }
 
@@ -2639,22 +2163,23 @@ void Throttle::muSumPerformanceValues() // v0.26
         uint32_t value32 = variant.as<uint32_t>();
         _muTractiveEffort = _muTractiveEffort + value32;
     }
-
-    // #ifdef DEBUG_MQTT
-    //     reportMqttDebug("combinedHP", (float)_muHorsepower);
-    // #endif
 }
 
+
+/**
+ * @brief Process an MU affirmation from the lead unit.
+ * 
+ * @details Runs on a trailing loco in the consist in response to the message sent by lead after muMemberCheck() message was sent to it.
+ * Normally runs once per minute if consisted and lead is replying.
+ * If the parameter is true then the lead affirms this loco is in the consist.
+ * If false the lead loco wants nothing to do with this loco.
+ * If false this loco removes itself from the consist by setting _muState to solo.
+ * If no response from lead was received then muMemberCheck will set _muState to solo.
+ * 
+ * @param consistMember 
+ */
 void Throttle::muMemberCheck(bool consistMember)
 {
-
-    // this runs on a trailing loco in the consist in response to the message sent by lead after muMemberCheck() message was sent to it
-    // normally runs once per minute if consisted and lead is replying
-    // if the parameter is true then the lead affirms this loco is in the consist
-    // if false the lead loco wants nothing to do with this loco
-    // if false this loco removes itself from the consist by setting _muState to solo
-    // if no response from lead was received then muMemberCheck will set _muState to solo
-
     Preferences myPrefs;
 
     if ((_muState == solo) || (_muState == lead))
@@ -2672,16 +2197,25 @@ void Throttle::muMemberCheck(bool consistMember)
     }
 }
 
+
+
+/** 
+ * @brief Manages consist membership for trailing locomotives.
+ * 
+ * @details This runs on any loco trailing the lead in a consist. If a loco believes 
+ * it is in a consist (_muState = mid or trailing), it runs this code once 
+ * per minute.
+ * 
+ * The routine follows this logic:
+ * - Sends a message to the lead engine asking for confirmation.
+ * - Sets the boolean @c consistMember flag.
+ * - Processes the lead's reply (affirmative, negative, or timeout).
+ * 
+ * If the response is affirmative, the flag is cleared. If negative or 
+ * timed out, @c _muState is reset to @c solo.
+ */
 void Throttle::muMemberCheck()
 {
-    // this runs on any loco trailing the lead in a consist
-    // if a loco believes that it is in a consist (_muState = mid or trailing) then it runs this code once per minute
-    // the message is sent to the lead engine asking for confirmation and then sets a flag, consistMember (bool)
-    // the lead will reply affirmative, negative or not at all
-    // if affirmative this loco will clear the flag
-    // if negative this loco will reset its _muState to solo
-    // if missing after another period has expired and the flag is still set then this loco resets _muState to solo
-
     String jsonString = "";
     Preferences myPrefs;
 
@@ -2692,9 +2226,6 @@ void Throttle::muMemberCheck()
     {
         _muState = solo;
         log_e("No response, terminating");
-        //         #ifdef SERIAL_ON
-        //         Serial.println("[muMemberCheck] no response, terminating");
-        // #endif
         // save in prefs
         myPrefs.begin("loco");
         myPrefs.putUInt("mustate", _muState);
@@ -2718,13 +2249,16 @@ void Throttle::muMemberCheck()
     udpCommand.endPacket();
 }
 
+/**
+ * @brief Runs on lead loco in response to membercheck udp command from supposed consist member.
+ * 
+ * @details This function checks the incoming ip address against those stored for members in muDoc.
+ * If found in the list return true, else false in another udp message.
+ * 
+ * @param muip - The ip address of the following consisted loco>
+ */
 void Throttle::muMemberResponse(const char *muip)
 {
-    // this runs on lead
-    // in response to membercheck udp command from supposed consist member
-    // this function checks the incoming ip address against those stored for members in muDoc
-    // if found in the list return true, else false in another udp message
-
     bool isMember = false;
     String jsonString;
     char isMemberChar[12]; // this is bullshit
@@ -2733,10 +2267,6 @@ void Throttle::muMemberResponse(const char *muip)
     char buffer[512]; // Make sure this is large enough for your JSON
     serializeJsonPretty(muDoc, buffer);
     log_i("JSON Output:\n%s", buffer);
-    // #ifdef SERIAL_ON
-    //     serializeJsonPretty(muDoc, Serial);
-    //     Serial.println(); // Add a newline at the end for readability
-    // #endif
 
     JsonObject root = muDoc.as<JsonObject>();
 
