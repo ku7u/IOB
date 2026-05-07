@@ -4,9 +4,6 @@
 
 void Fifo::pushCommand(int myFunction, bool myBool)
 {
-#ifdef SERIAL_ON
-    Serial.println("[pushCommand] " + String(myFunction) + " " + String(myBool));
-#endif    
     _functionParms myParms;
     myParms.functionID = myFunction;
     myParms.onOff = myBool;
@@ -23,7 +20,6 @@ void Fifo::pop()
     {
         myParms = myQ.front();
         setFunction(myParms.functionID, myParms.onOff);
-        // Serial.println("pop");
         myQ.pop();
     }
 }

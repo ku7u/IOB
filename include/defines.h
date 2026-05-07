@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 // this file is included in every file that needs one of these constants or macros
 
 // version
@@ -39,21 +41,12 @@ constexpr const char* olsVersion = "0.38 more udp sub (" __DATE__ " " __TIME__ "
 
 // one or the other or neither, not both
 // enable serial for testing, turn off otherwise
-#define SERIAL_ON
+// #define SERIAL_ON
 
 // enable serial input for position on layout uart
 // #define SERIAL_POL
 
-// select between MQTT or UDP
-// #define USING_MQTT
 #define USING_UDP
-
-#if defined(USING_MQTT) && defined(USING_UDP)
-    #error "Cannot define both USING_MQTT and USING_UDP"
-#endif
-
-// enable MQTT debugging
-// #define DEBUG_MQTT
 
 // debug tool for throttle
 // #define DEBUG_SPEED

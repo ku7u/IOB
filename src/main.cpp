@@ -1,3 +1,10 @@
+/**
+ * @file main.cpp
+ * @author  George F. Hofmann
+ * @copyright 2026
+ * @date 5/5/2026
+ *
+ */
 
 /* issues  (version changes on upload to github)
 MU code still needs performance handoff to lead
@@ -215,7 +222,6 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include <iostream>
 #include "nvs_flash.h"
 #include "Preferences.h"
-#include "PubSubClient.h"
 #include "WiFi.h"
 #include "FS.h"
 #include "SPIFFS.h"
@@ -234,23 +240,20 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include "MultiTimer.h"
 #include "time.h"
 #include "ArduinoJson.h"
-#include "Adafruit_NeoPixel.h"
 #include "defines.h"
 #include "BrakeSystem.h"
 #include "UartReader.h"
 #include "HardwareSerial.h"
 #include "WiFiConfigurator.h"
+#include "Wiring.h"
+#include "DCCFormatter.h"
 
-#ifdef USING_MQTT
-#include "MQTT.h"
-#elif defined(USING_UDP)
 #include <WiFiUdp.h>      // UDP
 #include "udpTransport.h" // TBR
 #include "UdpTransport.h"
 #include "RollcallHandler.h"
 #include "CommandHandler.h"   // TBA
 #include "TelemetryHandler.h" // TBA
-#endif
 
 using namespace std;
 
@@ -258,7 +261,6 @@ using namespace std;
 #undef RGB_BUILTIN
 #endif
 #define RGB_BUILTIN 10
-// #define RGB_BRIGHTNESS 10
 
 Preferences myPrefs;
 
@@ -267,7 +269,6 @@ WiFiClient espClient;
 // bool eraseSSID = false;
 String mdnsURL;
 AsyncWebServer server(80);
-// WiFiConfigurator wifiConfig(server); // this was the previous method
 WiFiConfigurator wifiConfigurator(server); // defaults: SoftAP "IOB_AP", prefs ns "wifi_conf"
 
 // for mDNS discovery process
@@ -283,10 +284,6 @@ WiFiUDP udp;
 // dedicated ports for rollcall, commands and telemetry
 WiFiUDP udpCommand;
 WiFiUDP udpTelemetry;
-WiFiUDP udpRollcall;
-// extern const int ROLLCALL_PORT = 50001;  // Port this ESP32 listens on for rollcall
-// extern const int COMMAND_PORT = 50002;   // commands to me use this
-// extern const int TELEMETRY_PORT = 50003; // speed, etc. telementry from lead loco in consist
 
 UdpTransport rollcallPort(ROLLCALL_PORT);   // only for rollcall queries, multicast
 UdpTransport commandPort(COMMAND_PORT);     // commands are sent to this port, unicast
@@ -299,21 +296,15 @@ const char *ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 0;
 const int daylightOffset_sec = 0;
 
-// mqtt
-#ifdef USING_MQTT
-PubSubClient client(espClient);
-String mqttServer = "192.168.99.99"; // TBD fix this
-String mqttNode = "OLSdevice";
-#endif
 String topicCommandLeftEnd;
 String topicFeedbackLeftEnd;
 
 Fifo commandFifo;
 BrakeSystem bs;
 UartReader uartReader;
+DCCFormatter df;
 
 // --- UDP handlers and throttle (intertwingled) ---
-// TelemetryHandler telemetry(telemetryPort);   // declared in throttle object, not needed here
 Throttle throttle; // requires telemetry object
 #ifdef USING_UDP
 CommandHandler commands(commandPort, throttle); // requires throttle object
@@ -324,15 +315,6 @@ Train train;
 
 // position on layout
 MagnetReader magReader(LEFT_HED_PIN, RIGHT_HED_PIN);
-
-// neoPixel on C3 mini
-#ifdef ESP32C3DK
-Adafruit_NeoPixel strip(1, 10, NEO_GRB + NEO_KHZ800);
-uint32_t red;
-uint32_t yellow;
-uint32_t green;
-uint32_t blue;
-#endif
 
 // functions
 String headlightFunction;
@@ -347,9 +329,6 @@ MultiTimer timer60000ms(60000);
 
 volatile RegisterList mainRegs(MAX_MAIN_REGISTERS); // create list of registers for MAX_MAIN_REGISTER Main Track Packets
 volatile RegisterList progRegs(2);                  // create a shorter list of only two registers for Program Track Packets
-
-// CurrentMonitor mainMonitor(CURRENT_MONITOR_PIN_MAIN, "<p2>"); // create monitor for current on Main Track   //TBD remove current monitor
-// CurrentMonitor progMonitor(CURRENT_MONITOR_PIN_PROG, "<p3>"); // create monitor for current on Program Track
 
 /*
 gfh changes to use the ESP timers
@@ -404,8 +383,6 @@ portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 void IRAM_ATTR onTimer0()
 {
   portENTER_CRITICAL_ISR(&timerMux);
-  // digitalWrite(DCC_SIGNAL_PIN_MAIN, !digitalRead(DCC_SIGNAL_PIN_MAIN));
-  // digitalWrite(DCC_SIGNAL_PIN_MAIN_2, !digitalRead(DCC_SIGNAL_PIN_MAIN));
 
   // the motor driver does not like both inputs to be zero simultaneously, takes 40 usec to recover
   if (digitalRead(DCC_SIGNAL_PIN_MAIN))
@@ -477,9 +454,7 @@ void getGeneralPrefs()
 {
   // get the stored configuration values, defaults are the second parameter in the list
   myPrefs.begin("general", true);
-#ifdef USING_MQTT
-  mqttServer = myPrefs.getString("mqttserver", "192.168.0.9");
-#endif
+
   topicCommandLeftEnd = myPrefs.getString("commandtopic", "cmd/ols/");
   topicFeedbackLeftEnd = myPrefs.getString("feedbacktopic", "tlm/ols/");
   // eraseSSID = myPrefs.getBool("erasessid", false);
@@ -491,9 +466,7 @@ void getGeneralPrefs()
 // this function converts placeholders in index.html into active data values
 String processorIndex(const String &var)
 {
-  // Serial.println("Processor var: " + var); // Debug
   if (var == "version")
-    // return olsVersion;
     return VERSION_STRING;
 
   return String(); // in case nothing matched
@@ -504,9 +477,6 @@ String processorIndex(const String &var)
 String processorNetwork(const String &var)
 {
   String returnString = ""; // this is unnecessary, just troubleshooting, can be reset back to original returns
-
-  // Serial.print("Template variable: ");
-  // Serial.println(var);
 
   if (var == "IP")
     // return WiFi.localIP().toString();
@@ -523,12 +493,6 @@ String processorNetwork(const String &var)
   else if (var == "MDNS")
     // return mdnsURL;
     returnString = mdnsURL;
-#ifdef USING_MQTT
-  else if (var == "MQ")
-    return mqttServer;
-  else if (var == "MQTTSERVERIPADR")
-    return mqttServer;
-#endif
   else if (var == "TOPICCOMMANDLEFTEND")
   {
     topicCommandLeftEnd.replace("%", "");
@@ -610,7 +574,6 @@ String processorCalibrationparms(const String &var)
 // this function converts placeholders in functions.html into active data values
 String processorFunctions(const String &var)
 {
-  // Serial.println(var);
   String returnVal;
   returnVal = "";
 
@@ -738,10 +701,6 @@ void setupWeb()
     if (request->hasParam("NetworkParm"))
     {
       myPrefs.begin("general", false);
-#ifdef USING_MQTT
-      mqttServer = request->getParam("mqttserver")->value();
-      myPrefs.putString("mqttserver", mqttServer);
-#endif
       topicCommandLeftEnd = request->getParam("commandtopic")->value();
       myPrefs.putString("commandtopic", topicCommandLeftEnd);
       topicFeedbackLeftEnd = request->getParam("feedbacktopic")->value();
@@ -941,28 +900,18 @@ void setupMDNS(String locoid)
   mdnsURL = myNode + ".local";
   mdnsURL.toLowerCase();
 
-#ifdef SERIAL_ON
-  Serial.print("myNode ");
-#endif
-
-#ifdef SERIAL_ON
-  Serial.println(myNode.c_str());
-#endif
+  log_d("myNode", myNode.c_str());
 
   if (!MDNS.begin(myNode.c_str()))
   {
-#ifdef SERIAL_ON
-    Serial.println("Error starting mDNS");
-#endif
-
+    log_e("Error starting mDNS");
     return;
   }
 
   // Advertise the service details for device discovery
   MDNS.addService(serviceType, serviceProto, servicePort);
-#ifdef SERIAL_ON
-  Serial.printf("Advertising service: %s.%s on port %d\n", serviceType, serviceProto, servicePort);
-#endif
+  log_i("Advertising service: %s.%s on port %d", serviceType, serviceProto, servicePort);
+
   // Retrieve strings from preferences once
   myPrefs.begin("loco");
   String locoId = myPrefs.getString("locoid", "none");
@@ -970,18 +919,12 @@ void setupMDNS(String locoid)
   String locoType = myPrefs.getString("locotype", "none");
   locoType.trim();
   myPrefs.end();
-  Serial.printf("DEBUG: Sending locoID: [%s] Type: [%s]\n", locoId.c_str(), locoType.c_str());
+  log_d("Sending locoID: %s Type: %s", locoId.c_str(), locoType.c_str());
 
   // Use MDNS.addServiceTxt(serviceType, serviceProto, key, value)
   // Convert Arduino Strings to C-style const char* for the function call
   MDNS.addServiceTxt(serviceType, serviceProto, "locoID", locoId.c_str());
   MDNS.addServiceTxt(serviceType, serviceProto, "type", locoType.c_str());
-
-  //   delay(5000);
-  //   MDNS.end(); // TBD TBD TBD
-  // #ifdef SERIAL_ON
-  //   Serial.println("[setupMDNS] ended");
-  // #endif
 }
 
 const char *getSubstringAfterLastSlash(const char *input)
@@ -994,166 +937,11 @@ const char *getSubstringAfterLastSlash(const char *input)
   return input; // no slash found, return the whole string
 }
 
-/*****************************************************************************/
-// #ifndef USING_MQTT
-// void processUdpCommand()
-// {
-//   // call something in the throttle object
-//   bool b;
-//   // const char *s;
-//   String msg;
-
-//   char buf[128];
-//   int len = udpCommand.read(buf, sizeof(buf) - 1);
-//   if (len > 0)
-//   {
-//     buf[len] = 0;
-//     msg = String(buf);
-// #ifdef DEBUG_UDP
-//     Serial.println("(main) received command: " + msg);
-// #endif
-//   }
-
-//   // Parse the JSON
-//   StaticJsonDocument<256> doc;
-//   DeserializationError error = deserializeJson(doc, buf);
-
-//   if (error)
-//   {
-// #ifdef DEBUG_UDP
-//     Serial.print("JSON parse failed: ");
-//     Serial.println(error.c_str());
-// #endif
-//     return;
-//   }
-
-//   // Check required fields
-//   // if (doc["id"].isNull() || doc["topic"].isNull())
-//   // {
-//   //   Serial.println("Missing or null JSON field. Exiting.");
-//   //   return;
-//   // }
-
-//   // Extract fields
-//   // const char *id = doc["id"];
-//   const char *topic = doc["topic"];
-//   const char *value = doc["value"]; // TBD why const or not? required const for arduinoJson 7.x
-
-//   JsonVariant valueVariant = doc["value"];
-
-//   // #ifdef DEBUG_UDP
-//   //   Serial.println("Parsed values:");
-//   //   // Serial.printf("  id: %s\n", id ? id : "<null>");   // id may be useful as a troubleshooting aid
-//   //   Serial.printf("  topic: %s\n", topic ? topic : "<null>");
-//   //   Serial.printf("  value: %s\n", value ? value : "<null>");
-//   // #endif
-
-//   const char *shortTopic = getSubstringAfterLastSlash(topic);
-
-//   // bool boolVal = (strcmp(value, "1") ? false : true); // strcmp returns 0 if true which is dumb
-
-//   if (strcmp(shortTopic, "sendstatus") == 0)
-//   {
-//     throttle.reportCondition();
-//     throttle.reportStatus();
-//   }
-//   else if (strcmp(shortTopic, "startstop") == 0)
-//     throttle.pmOnOff(strcmp(value, "1") ? false : true);
-//   else if (strcmp(shortTopic, "stop") == 0)
-//     throttle.panicStop();
-//   else if (strcmp(shortTopic, "bell") == 0)
-//     throttle.bell(strcmp(value, "1") ? false : true);
-//   else if (strcmp(shortTopic, "horn") == 0)
-//     throttle.horn(strcmp(value, "1") ? false : true);
-//   else if (strcmp(shortTopic, "headlight") == 0)
-//     throttle.headlight(atoi(value));
-//   else if (strcmp(shortTopic, "rearlight") == 0)
-//     throttle.rearlight(atoi(value));
-//   else if (strcmp(shortTopic, "notch") == 0)
-//     throttle.manualNotch(strcmp(value, "1") ? false : true);
-//   else if (strcmp(shortTopic, "longpress") == 0)
-//     throttle.longPress(strcmp(value, "1") ? false : true);
-//   else if (strcmp(shortTopic, "ibrake") == 0)
-//     throttle.setLBrake(strcmp(value, "1") ? false : true);
-//   else if (strcmp(shortTopic, "tbrake") == 0)
-//     throttle.setABrake(strcmp(value, "1") ? false : true);
-//   else if (strcmp(shortTopic, "trainline") == 0)
-//     throttle.trainline(strcmp(value, "1") ? false : true);
-//   else if (strcmp(shortTopic, "carcount") == 0)
-//     throttle.setCarCount(atoi(value));
-//   else if (strcmp(shortTopic, "reportlabels") == 0)
-//     throttle.reportFunctionLabels();
-//   else if (strcmp(shortTopic, "calibrate") == 0)
-//     throttle.calibrate(atoi(value));
-
-//   else if (strcmp(shortTopic, "report") == 0)
-//     throttle.report();
-//   else if (strcmp(shortTopic, "reverser") == 0)
-//     throttle.setDirection(atoi(value));
-
-//   // mu processing
-//   else if (strcmp(shortTopic, "setmustate") == 0)
-//   {
-//     // a loco is chosen to be mued to a lead, value is a json string that includes lead id,
-//     static char buffer[256];
-//     serializeJson(valueVariant, buffer, sizeof(buffer));
-//     throttle.muSetState(buffer);
-//   }
-//   else if (strcmp(shortTopic, "muperformance") == 0)
-//   {
-//     // a loco is chosen to be mued to a lead, value is a json string that includes lead id,
-//     // static char buffer[256];
-//     // serializeJson(valueVariant, buffer, sizeof(buffer));
-//     // throttle.muSetPerformance(buffer);
-//     throttle.muSetPerformance(msg.c_str());
-//   }
-//   else if (strcmp(shortTopic, "muReport") == 0)
-//     throttle.muReport(value, "0.0.0.0"); // second parameter is a clumsy temporary dummy
-// }
-// #endif
-
-/*****************************************************************************/
-#ifdef USING_UDP
-void processUdpTelemetry()
-// this routine would receive the speed telemetry from lead loco and process if in a consist
-{
-  char buf[128];
-  int len = udpTelemetry.read(buf, sizeof(buf) - 1);
-  if (len > 0)
-  {
-    buf[len] = 0;
-    String msg = String(buf);
-#ifdef DEBUG_UDP
-    Serial.println("(main) received telemetry: " + msg);
-#endif
-  }
-}
-#endif
-
-/*****************************************************************************/
-#ifdef ESP32C3DK
-
-void setupNeoPixels(int numLamps)
-{
-  // start neoPixels and set all to blue
-  // neoPixels must be wired in order of devices, first nP is device 1
-  strip.begin();
-  green = strip.gamma32(strip.ColorHSV(0, 200, 30));
-  yellow = strip.gamma32(strip.ColorHSV((65536 / 6), 255, 70)); // a little brighter and yellower
-  red = strip.gamma32(strip.ColorHSV(65536 / 3, 200, 70));
-  blue = strip.gamma32(strip.ColorHSV(65536 * 2 / 3, 200, 70));
-  for (int i = 0; i < numLamps; i++)
-    strip.setPixelColor(i, red);
-  strip.show();
-}
-#endif
-
 void processPendingCommands()
 {
   PendingCommand cmd;
   while (commands.getNext(cmd))
   {
-    Serial.println("wheeeee!");
     if (strcmp(cmd.topic, "sendstatus") == 0)
     {
       throttle.inUse(true);
@@ -1212,10 +1000,6 @@ void setup()
 
   nvs_flash_init();
 
-#ifdef ESP32C3DK
-  setupNeoPixels(1);
-#endif
-
 #ifdef ESP32CF
   // don't leave unused pins floating
   // TBD
@@ -1229,8 +1013,8 @@ void setup()
   pinMode(9, INPUT_PULLDOWN);
 #endif
 
-// #ifdef SERIAL_ON
-#if defined(SERIAL_ON) || defined(DEBUG_UDP) || defined(DEBUG_MQTT) || defined(DEBUG_SPEED)
+// #ifdef SERIAL_ON TBD probably remove all of this, typically displaced by log_x statements
+#if defined(SERIAL_ON) || defined(DEBUG_UDP) || defined(DEBUG_SPEED)
   Serial.begin(115200);
   Serial.println("SERIAL ON");
   // see USB build flags in platformio.ini - set to zeroes to make it all work for C3F
@@ -1239,17 +1023,9 @@ void setup()
   // Serial.println("OLS firmware version " + String(olsVersion));
 #endif
 
-#ifdef DEBUG_UDP
-  Serial.println("DEBUG UDP ON");
-#endif
+  log_v("Debug UDP on");
 
-#ifdef DEBUG_MQTT
-  Serial.println("DEBUG MQTT ON");
-#endif
-
-#ifdef DEBUG_SPEED
-  Serial.println("DEBUG SPEED ON");
-#endif
+  log_v("Debug speed on");
 
 #ifdef SERIAL_POL // position on layout reader
   Serial1.begin(9600, SERIAL_8N1, HW_SERIAL_PIN);
@@ -1300,15 +1076,6 @@ void setup()
   */
   // bool res = wm.autoConnect(); // auto generated AP name from chipid
 
-#ifdef ESP32C3DK
-  // show yellow LED if connected to wifi
-  strip.setPixelColor(0, yellow);
-  strip.show();
-  // also workaround for pins 20, 21
-  // pinMode(DCC_SIGNAL_PIN_MAIN, OUTPUT);  // TBD this may be necessary
-  // pinMode(DCC_SIGNAL_PIN_MAIN_2, OUTPUT);  // TBD and this
-#endif
-
   WiFi.setSleep(false);        // trying to avoid latency  TBD v0282
   WiFi.setAutoReconnect(true); // TBD v0282 could lead to stuck device https://esp32.com/viewtopic.php?f=19&t=39116
 
@@ -1317,14 +1084,9 @@ void setup()
   ElegantOTA.onEnd([](bool success) // Hook into OTA completion
                    {
   if (success) {
-#ifdef SERIAL_ON
-    Serial.println("OTA update finished successfully, restarting...");
-#endif
-    ESP.restart();
+    // ESP.restart(); not needed in V3
   } else {
-#ifdef SERIAL_ON
-    Serial.println("OTA update failed, not restarting.");
-#endif
+    log_e("OTA update failed, not restarting");
   } });
 
   setupMDNS(locoID);
@@ -1348,11 +1110,8 @@ void setup()
   timerAlarmWrite(pulseTimer1, DCC_ZERO_BIT_TOTAL_DURATION_TIMER1, true);
   timerAlarmEnable(pulseTimer1);
 
-// MQTT
-#ifdef USING_MQTT
-  mqttNode = "OLS" + locoID;
-  mqttSetup(mqttServer, mqttNode);
-#endif
+  // define all the callbacks, must be prior to getLocoPrefs
+  connectSystems(throttle, bs, commandFifo, df);
 
   throttle.getLocoPrefs();
   throttle.getFunctionPrefs();
@@ -1361,25 +1120,16 @@ void setup()
   // time is used in throttle object to set trainline psi after extended shutdown
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
-// MQTT
-#ifdef USING_MQTT
-  connectMQTT(mqttNode);
-  setupSubscriptions();
-#endif
-
   pinMode(LEFT_HED_PIN, INPUT_PULLDOWN); // TBD
 
-#if defined(USING_UDP)
   rollcallPort.begin();
   commandPort.begin();
   // telemetryPort.begin();
 
   rollcall.begin();
-#endif
-#ifdef SERIAL_ON
-  Serial.println("end of setup");
-  Serial.println("Firmware version: " + VERSION_STRING);
-#endif
+
+  log_i("Firmware version: %s", VERSION_STRING.c_str());
+
 } // end setup
 
 /*****************************************************************************/
@@ -1393,50 +1143,10 @@ void loop()
   IPAddress sender;
   uint16_t senderPort;
 
-  // TESTING ----------------------------------------------------------------
-#ifdef USING_UDP
-  // rollcall.loop();
   commands.loop();
-  // telemetry.loop();
   processPendingCommands();
-#endif
-  // TESTING ----------------------------------------------------------------
 
-  // following for udp testing
-  // #ifndef USING_MQTT
-  //   // int packetSize = udpRollcall.parsePacket();
-  // #ifdef DEBUG_UDP
-  //   if (packetSize)
-  //     Serial.printf("Received packet of size %d from %s:%d\n",
-  //                   packetSize,
-  //                   udp.remoteIP().toString().c_str(),
-  //                   udp.remotePort());
-  // #endif
-  // respond to rollcall with a unicast message containing loco data
-  // processUdpRollcall();
 
-  //   if (udpCommand.parsePacket())
-  //   {
-  // #ifdef DEBUG_UDP
-  //     Serial.println("parsed a command packet");
-  // #endif
-  //     // these are commands from the app
-  //     processUdpCommand();
-  //   }
-
-#ifdef USING_UDP
-  // if (udpTelemetry.parsePacket())
-  // {
-  //   // #ifdef DEBUG_UDP
-  //   //     Serial.println("parsed a telemetry packet");
-  //   // #endif
-  //   // handle telemetry packet, these are speed reports from lead loco in consist
-  //   processUdpTelemetry();
-  // }
-#endif
-
-  // process the mqtt input
-  // client.loop();
 
   if (timer60000ms.expired)
   {
@@ -1445,31 +1155,9 @@ void loop()
     //   String myFreeHeap = String(freeHeap);
     //   unsigned long maxAllocHeap = ESP.getMaxAllocHeap();
     //   String myMaxAllocHeap = String(maxAllocHeap);
-    //   throttle.reportMqttDebugString(myFreeHeap, "freeHeap");
-    //   throttle.reportMqttDebugString(myMaxAllocHeap, "maxAllocHeap");
     throttle.muMemberCheck();
   }
 
-#ifdef USING_MQTT
-  if (!client.loop()) // I took this out for a reason, caused some issue on reconnection?
-  {
-#ifdef ESP32C3DK
-    // show yellow LED if no connection to MQTT server
-    strip.setPixelColor(0, yellow);
-    // strip.setPixelColor(0, strip.Color(80, 80, 0)); // yellow
-
-    strip.show();
-#endif
-    // connectMQTT(mqttNode);
-#ifdef ESP32C3DK
-    // show green LED if connected to MQTT server
-    // strip.setPixelColor(0, strip.Color(80, 0, 0)); // green
-    strip.setPixelColor(0, green);
-    strip.show();
-#endif
-    setupSubscriptions();
-  }
-#endif
 
   // if (magReader.check(throttle.getLastIntCurrentSpeed())) // check for waypoints by reading magnets embedded in track
   //   uint milepost = magReader.process(throttle.isForward()); waddawedo with 'milepost'?
@@ -1487,10 +1175,7 @@ void loop()
   // process the dynamics once per second
   if (timer1sec.expired)
   {
-    // #ifdef SERIAL_ON
-    //     long myStart = millis();
-    // #endif
-    throttle.computeVelocity();
+    throttle.loop();
     // #ifdef SERIAL_ON
     //     long myDuration = millis() - myStart;
     //     Serial.print("Duration ");

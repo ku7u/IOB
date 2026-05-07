@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 
 // #include "Arduino.h"
 // #include "Throttle.h"
@@ -22,3 +23,4 @@ extern uint16_t functionEmergencyBrake;
 
 void setFunction(int function, bool onOff);
 void startStop(bool start);
+

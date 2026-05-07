@@ -10,6 +10,8 @@ The app begins its session by sending a mDNS request to the network. All powered
 
 Each node's response to the mDNS request includes the loco ID, such as 'GN416', its type, such as 'EMD SD9', and its IP address. The latter is used for further communication from the app to the specific node.
 
+The service advertisement feature of mDNS is used in the loco. It is sent on bootup.
+
 After a loco is chosen in the app UDP unicast messages are used bidirectionally between app and loco. 
 
 The MU scheme
