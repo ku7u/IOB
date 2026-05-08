@@ -7,9 +7,13 @@
 #include "Fifo.h"
 #include "SerialCommand.h"
 #include "DCCFormatter.h"
+#include "Function.h"
 
 void connectSystems(Throttle &t, BrakeSystem &b, Fifo &f, DCCFormatter &d)
 {
+
+    // Handshake: Throttle is cast to the ILocoStatus interface automatically
+    setLocoStatusProvider(&t);
 
     // define all the callbacks
     // DCC commands
@@ -28,7 +32,7 @@ void connectSystems(Throttle &t, BrakeSystem &b, Fifo &f, DCCFormatter &d)
     {
         d.setThrottle(dccAddress, function, onOff);
     };
- 
+
     t.callbackSetCvDCC = [&](int dccAddress, int cv, int value)
     {
         d.setCV(dccAddress, cv, value);
@@ -63,13 +67,13 @@ void connectSystems(Throttle &t, BrakeSystem &b, Fifo &f, DCCFormatter &d)
     {
         b.setCompressorFunction(id);
     };
-    
+
     t.callbackBrakeSystemCycle = [&](bool state) -> bool
     {
         bool val = b.cycle(state);
         return val;
     };
-    
+
     t.callbackConnectAirLine = [&](bool connecting)
     {
         b.connectAirLine(connecting);

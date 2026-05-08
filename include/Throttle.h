@@ -4,12 +4,13 @@
 #include "defines.h"
 #include "Arduino.h"
 #include "ArduinoJson.h"
+#include "ILocoStatus.h"
 #include "UdpTransport.h"
 #include "TelemetryHandler.h" // TBA
 // #include <optional> was for optional parameter functions
 #include <functional> // for callbacks
 
-class Throttle
+class Throttle : public ILocoStatus  // inherits the interface
 {
 public:
     Throttle(void);

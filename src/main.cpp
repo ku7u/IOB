@@ -1079,15 +1079,19 @@ void setup()
   WiFi.setSleep(false);        // trying to avoid latency  TBD v0282
   WiFi.setAutoReconnect(true); // TBD v0282 could lead to stuck device https://esp32.com/viewtopic.php?f=19&t=39116
 
+  ElegantOTA.setAutoReboot(true); // Ensure this is enabled
   ElegantOTA.begin(&server); // Start ElegantOTA
 
   ElegantOTA.onEnd([](bool success) // Hook into OTA completion
                    {
   if (success) {
-    // ESP.restart(); not needed in V3
+      // log_i("OTA Success. Manual rebooting...");
+      // delay(2000); 
+      // ESP.restart();
   } else {
     log_e("OTA update failed, not restarting");
   } });
+
 
   setupMDNS(locoID);
 
@@ -1138,6 +1142,8 @@ void loop()
   timer1sec.tick();
   timer200ms.tick();
   timer60000ms.tick();
+
+  ElegantOTA.loop();
 
   uint8_t buf[256];
   IPAddress sender;
