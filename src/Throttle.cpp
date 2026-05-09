@@ -63,15 +63,12 @@ void Throttle::inUse(bool inUseValue)
 
 void Throttle::init()
 {
-    // commandFifo.pushCommand(functionNotchingEnable, true);
-    if (callbackPushCommand)
-        callbackPushCommand(functionNotchingEnable, true);
-    // commandFifo.pushCommand(functionNotchUp, 0);
-    if (callbackPushCommand)
-        callbackPushCommand(functionNotchUp, 0);
-    // commandFifo.pushCommand(functionNotchDown, 0);
-    if (callbackPushCommand)
-        callbackPushCommand(functionNotchDown, 0);
+    if (_dcc)
+    {
+        _dcc->pushCommand(functionNotchingEnable, true);
+        _dcc->pushCommand(functionNotchUp, 0);
+        _dcc->pushCommand(functionNotchDown, 0);
+    }
 }
 
 void Throttle::loop()
@@ -165,8 +162,10 @@ void Throttle::getFunctionPrefs(void)
     functionBrakeSqueal = myPrefs.getInt("brakesqueal", -1);
     myPrefs.end();
 
-    if (callbackSetCompressorFunction)
-        callbackSetCompressorFunction(functionCompressor);
+    // if (callbackSetCompressorFunction)
+    //     callbackSetCompressorFunction(functionCompressor);
+    if (_brakes)
+        _brakes->setCompressorFunction(functionCompressor);
 }
 
 void Throttle::report() // TBR TBD obsolete
@@ -264,13 +263,10 @@ void Throttle::pmOnOff(bool onOff)
         _opMode = off;
 
         // do something to the brake system TBD
-        if (callbackBrakeSystemCycle)
-            callbackBrakeSystemCycle(false);
-
-#ifdef DEBUG_CALLBACK
-        else
-            Serial.println("Callback failed");
-#endif
+        // if (callbackBrakeSystemCycle)
+        //     callbackBrakeSystemCycle(false);
+        if (_brakes)
+            _brakes->cycle(false);
 
         // turn off PM on the mued loco(s) if this loco is a lead
         if (_muState == lead)
@@ -300,16 +296,22 @@ void Throttle::pmOnOff(bool onOff)
         _opMode = idle;
         // in case the brakes were left on at last shutdown
         // bs.applyEmmergency(false);
-        if (callbackApplyEmergency)
-            callbackApplyEmergency(false);
+        // if (callbackApplyEmergency)
+        //     callbackApplyEmergency(false);
+        if (_brakes)
+            _brakes->applyEmmergency(false);
 
         // _independentBrake = bs.applyLocoBrake(false);
-        if (callbackApplyLocoBrake)
-            _independentBrake = callbackApplyLocoBrake(false);
+        // if (callbackApplyLocoBrake)
+        //     _independentBrake = callbackApplyLocoBrake(false);
+        if (_brakes)
+            _brakes->applyLocoBrake(false);
 
         // _trainBrake = bs.applyTrainBrake(false);
-        if (callbackApplyTrainBrake)
-            _trainBrake = callbackApplyTrainBrake(false);
+        // if (callbackApplyTrainBrake)
+        // _trainBrake = callbackApplyTrainBrake(false);
+        if (_brakes)
+            _brakes->applyTrainBrake(false);
 
         // _independentBrake = 0;
         // _trainBrake = 0;
@@ -378,13 +380,12 @@ void Throttle::pmOnOff(bool onOff)
         muDoc.clear();
     }
 
-    // commandFifo.pushCommand(functionPM, onOff);
-    if (callbackPushCommand)
-        callbackPushCommand(functionPM, onOff);
+    if (_dcc)
+    {
+        _dcc->pushCommand(functionPM, onOff);
+        _dcc->pushCommand(functionNotchingEnable, onOff);
+    }
 
-    // commandFifo.pushCommand(functionNotchingEnable, onOff); // TBD can't turn off PM unless this is here WMNS
-    if (callbackPushCommand)
-        callbackPushCommand(functionNotchingEnable, onOff);
     reportStatus();
 
     // TBD TBA add code here to start/stop all mued locos, or might just leave this as an operator task, like real world
@@ -398,26 +399,23 @@ void Throttle::headlight(int offDimBright)
 
     _headlight = offDimBright;
 
-    if (offDimBright == 0)
+    if (_dcc)
     {
-        if (callbackPushCommand)
-            callbackPushCommand(functionHeadlightDim, false);
-        if (callbackPushCommand)
-            callbackPushCommand(functionHeadlightBright, false);
-    }
-    else if (offDimBright == 1)
-    {
-        if (callbackPushCommand)
-            callbackPushCommand(functionHeadlightDim, true);
-        if (callbackPushCommand)
-            callbackPushCommand(functionHeadlightBright, false);
-    }
-    else if (offDimBright == 2)
-    {
-        if (callbackPushCommand)
-            callbackPushCommand(functionHeadlightDim, false);
-        if (callbackPushCommand)
-            callbackPushCommand(functionHeadlightBright, true);
+        if (offDimBright == 0)
+        {
+            _dcc->pushCommand(functionHeadlightDim, false);
+            _dcc->pushCommand(functionHeadlightBright, false);
+        }
+        else if (offDimBright == 1)
+        {
+            _dcc->pushCommand(functionHeadlightDim, true);
+            _dcc->pushCommand(functionHeadlightBright, false);
+        }
+        else if (offDimBright == 2)
+        {
+            _dcc->pushCommand(functionHeadlightDim, false);
+            _dcc->pushCommand(functionHeadlightBright, true);
+        }
     }
 }
 
@@ -426,26 +424,37 @@ void Throttle::rearlight(int offDimBright)
     switch (_muState)
     {
     case solo:
-        if (offDimBright == 0)
+        if (_dcc)
         {
-            if (callbackPushCommand)
-                callbackPushCommand(functionRearlightDim, false);
-            if (callbackPushCommand)
-                callbackPushCommand(functionRearlightBright, false);
-        }
-        else if (offDimBright == 1)
-        {
-            if (callbackPushCommand)
-                callbackPushCommand(functionRearlightDim, true);
-            if (callbackPushCommand)
-                callbackPushCommand(functionRearlightBright, false);
-        }
-        else if (offDimBright == 2)
-        {
-            if (callbackPushCommand)
-                callbackPushCommand(functionRearlightDim, false);
-            if (callbackPushCommand)
-                callbackPushCommand(functionRearlightBright, true);
+            if (offDimBright == 0)
+            {
+                // if (callbackPushCommand)
+                //     callbackPushCommand(functionRearlightDim, false);
+                _dcc->pushCommand(functionRearlightDim, false);
+                // if (callbackPushCommand)
+                //     callbackPushCommand(functionRearlightBright, false);
+                _dcc->pushCommand(functionRearlightBright, false);
+            }
+            else if (offDimBright == 1)
+            {
+                // if (callbackPushCommand)
+                //     callbackPushCommand(functionRearlightDim, true);
+                _dcc->pushCommand(functionRearlightDim, true);
+
+                // if (callbackPushCommand)
+                //     callbackPushCommand(functionRearlightBright, false);
+                _dcc->pushCommand(functionRearlightBright, false);
+            }
+            else if (offDimBright == 2)
+            {
+                // if (callbackPushCommand)
+                //     callbackPushCommand(functionRearlightDim, false);
+                _dcc->pushCommand(functionRearlightDim, false);
+
+                // if (callbackPushCommand)
+                //     callbackPushCommand(functionRearlightBright, true);
+                _dcc->pushCommand(functionRearlightBright, true);
+            }
         }
         break;
 
@@ -491,50 +500,74 @@ void Throttle::rearlight(int offDimBright)
     case trailing:
         if (_muReversed) // the rear facing light is the physical headlight
         {
-            if (offDimBright == 0)
+            if (_dcc)
             {
-                if (callbackPushCommand)
-                    callbackPushCommand(functionHeadlightDim, false);
-                if (callbackPushCommand)
-                    callbackPushCommand(functionRearlightBright, false);
-            }
-            else if (offDimBright == 1)
-            {
-                if (callbackPushCommand)
-                    callbackPushCommand(functionHeadlightDim, true);
-                if (callbackPushCommand)
-                    callbackPushCommand(functionRearlightBright, false);
-            }
-            else if (offDimBright == 2)
-            {
-                if (callbackPushCommand)
-                    callbackPushCommand(functionHeadlightDim, false);
-                if (callbackPushCommand)
-                    callbackPushCommand(functionRearlightBright, true);
+                if (offDimBright == 0)
+                {
+                    // if (callbackPushCommand)
+                    //     callbackPushCommand(functionHeadlightDim, false);
+                    _dcc->pushCommand(functionHeadlightDim, false);
+
+                    // if (callbackPushCommand)
+                    //     callbackPushCommand(functionRearlightBright, false);
+                    _dcc->pushCommand(functionRearlightBright, false);
+                }
+                else if (offDimBright == 1)
+                {
+                    // if (callbackPushCommand)
+                    //     callbackPushCommand(functionHeadlightDim, true);
+                    _dcc->pushCommand(functionHeadlightDim, true);
+
+                    // if (callbackPushCommand)
+                    //     callbackPushCommand(functionRearlightBright, false);
+                    _dcc->pushCommand(functionRearlightBright, false);
+                }
+                else if (offDimBright == 2)
+                {
+                    // if (callbackPushCommand)
+                    //     callbackPushCommand(functionHeadlightDim, false);
+                    _dcc->pushCommand(functionHeadlightDim, false);
+
+                    // if (callbackPushCommand)
+                    //     callbackPushCommand(functionRearlightBright, true);
+                    _dcc->pushCommand(functionRearlightBright, true);
+                }
             }
         }
         else // not reversed so the rear facing light is the physical rearlight
         {
-            if (offDimBright == 0)
+            if (_dcc)
             {
-                if (callbackPushCommand)
-                    callbackPushCommand(functionRearlightDim, false);
-                if (callbackPushCommand)
-                    callbackPushCommand(functionRearlightBright, false);
-            }
-            else if (offDimBright == 1)
-            {
-                if (callbackPushCommand)
-                    callbackPushCommand(functionRearlightDim, true);
-                if (callbackPushCommand)
-                    callbackPushCommand(functionRearlightBright, false);
-            }
-            else if (offDimBright == 2)
-            {
-                if (callbackPushCommand)
-                    callbackPushCommand(functionRearlightDim, false);
-                if (callbackPushCommand)
-                    callbackPushCommand(functionRearlightBright, true);
+                if (offDimBright == 0)
+                {
+                    // if (callbackPushCommand)
+                    //     callbackPushCommand(functionRearlightDim, false);
+                    _dcc->pushCommand(functionRearlightDim, false);
+
+                    // if (callbackPushCommand)
+                    //     callbackPushCommand(functionRearlightBright, false);
+                    _dcc->pushCommand(functionRearlightBright, false);
+                }
+                else if (offDimBright == 1)
+                {
+                    // if (callbackPushCommand)
+                    //     callbackPushCommand(functionRearlightDim, true);
+                    _dcc->pushCommand(functionRearlightDim, true);
+
+                    // if (callbackPushCommand)
+                    //     callbackPushCommand(functionRearlightBright, false);
+                    _dcc->pushCommand(functionRearlightBright, false);
+                }
+                else if (offDimBright == 2)
+                {
+                    // if (callbackPushCommand)
+                    //     callbackPushCommand(functionRearlightDim, false);
+                    _dcc->pushCommand(functionRearlightDim, false);
+
+                    // if (callbackPushCommand)
+                    //     callbackPushCommand(functionRearlightBright, true);
+                    _dcc->pushCommand(functionRearlightBright, true);
+                }
             }
         }
     }
@@ -542,8 +575,10 @@ void Throttle::rearlight(int offDimBright)
 
 void Throttle::panicStop()
 {
-    if (callbackThrottleDCC)
-        callbackThrottleDCC(_dccAddress, 0, 1);
+    // if (callbackThrottleDCC)
+    //     callbackThrottleDCC(_dccAddress, 0, 1);
+    if (_dcc)
+        _dcc->setThrottle(_dccAddress, 0, 1);
 #ifdef DEBUG_CALLBACK
     else
         Serial.println("Callback failed");
@@ -563,8 +598,10 @@ void Throttle::bell(bool onOff)
     if (_running)
     {
         // commandFifo.pushCommand(functionBell, onOff);
-        if (callbackPushCommand)
-            callbackPushCommand(functionBell, onOff);
+        // if (callbackPushCommand)
+        //     callbackPushCommand(functionBell, onOff);
+        if (_dcc)
+            _dcc->pushCommand(functionBell, onOff);
         _bell = onOff;
     }
 }
@@ -575,8 +612,10 @@ void Throttle::horn(bool onOff)
     if (_running)
     {
         // commandFifo.pushCommand(functionHorn, onOff);
-        if (callbackPushCommand)
-            callbackPushCommand(functionHorn, onOff);
+        // if (callbackPushCommand)
+        //     callbackPushCommand(functionHorn, onOff);
+        if (_dcc)
+            _dcc->pushCommand(functionHorn, onOff);
     }
 }
 
@@ -606,8 +645,10 @@ void Throttle::setDirection(int direction)
 
     // send a speed command with zero speed just to set the current direction correctly in loco
 
-    if (callbackThrottleDCC)
-        callbackThrottleDCC(_dccAddress, 0, _direction);
+    // if (callbackThrottleDCC)
+    //     callbackThrottleDCC(_dccAddress, 0, _direction);
+    if (_dcc)
+        _dcc->setThrottle(_dccAddress, 0, _direction);
 }
 
 void Throttle::setCarCount(uint16_t carcount)
@@ -643,11 +684,15 @@ void Throttle::setLBrake(bool applying)
     else
         _opMode = idle;
 
-    if (callbackPushCommand)
-        callbackPushCommand(functionIndependentBrake, applying);
+    // if (callbackPushCommand)
+    //     callbackPushCommand(functionIndependentBrake, applying);
+    if (_dcc)
+        _dcc->pushCommand(functionIndependentBrake, applying);
 
-    if (callbackApplyLocoBrake)
-        _independentBrake = callbackApplyLocoBrake(applying);
+    // if (callbackApplyLocoBrake)
+    //     _independentBrake = callbackApplyLocoBrake(applying);
+    if (_brakes)
+        _brakes->applyLocoBrake(applying);
 }
 
 void Throttle::setABrake(bool applying)
@@ -657,11 +702,15 @@ void Throttle::setABrake(bool applying)
     else
         _opMode = idle;
 
-    if (callbackApplyTrainBrake)
-        _trainBrake = callbackApplyTrainBrake(applying);
+    // if (callbackApplyTrainBrake)
+    //     _trainBrake = callbackApplyTrainBrake(applying);
+    if (_brakes)
+        _brakes->applyTrainBrake(applying);
 
-    if (callbackPushCommand)
-        callbackPushCommand(functionTrainBrake, applying);
+    // if (callbackPushCommand)
+    //     callbackPushCommand(functionTrainBrake, applying);
+    if (_dcc)
+        _dcc->pushCommand(functionTrainBrake, applying);
 }
 
 void Throttle::setEBrake(bool applying)
@@ -672,16 +721,25 @@ void Throttle::setEBrake(bool applying)
         _opMode = idle;
     // TBD how to reset trainline pressure
 
-    if (callbackApplyEmergency)
-        callbackApplyEmergency(applying);
+    // if (callbackApplyEmergency)
+    // callbackApplyEmergency(applying);
+    if (_brakes)
+        _brakes->applyEmmergency(applying);
 
-    if (callbackGetEffectiveTrainBrake)
-        _trainBrake = callbackGetEffectiveTrainBrake();
+    // if (callbackGetEffectiveTrainBrake)
+    //     _trainBrake = callbackGetEffectiveTrainBrake();
+    if (_brakes)
+        _trainBrake = _brakes->getEffectiveTrainBrake();
 
-    if (callbackGetEffectiveTrainBrake)
-        _independentBrake = callbackGetEffectiveTrainBrake();
-    if (callbackPushCommand)
-        callbackPushCommand(functionEmergencyBrake, applying);
+    // if (callbackGetEffectiveTrainBrake)
+    //     _independentBrake = callbackGetEffectiveTrainBrake();
+    if (_brakes)
+        _independentBrake = _brakes->getEffectiveLocoBrake(); // TBD notice typo on previous line re train brake
+
+    // if (callbackPushCommand)
+    //     callbackPushCommand(functionEmergencyBrake, applying);
+    if (_dcc)
+        _dcc->pushCommand(functionEmergencyBrake, applying);
 }
 
 void Throttle::trainline(bool connect)
@@ -690,15 +748,18 @@ void Throttle::trainline(bool connect)
 {
     if (connect)
     {
-        if (callbackConnectAirLine)
-            callbackConnectAirLine2(true, _carCount);
+        // if (callbackConnectAirLine)
+        //     callbackConnectAirLine2(true, _carCount);
 
         _trainlineConnected = true;
     }
     else
     {
-        if (callbackConnectAirLine)
-            callbackConnectAirLine(false);
+        // if (callbackConnectAirLine)
+        //     callbackConnectAirLine(false);
+        if (_brakes)
+            _brakes->connectAirLine(false);
+
         _trainlineConnected = false;
     }
 }
@@ -721,24 +782,36 @@ void Throttle::manualNotch(bool up)
         if (_notch == 8)
             return;
         _opMode = powered;
-        if (callbackPushCommand)
-            callbackPushCommand(functionNotchUp, true);
-        if (callbackPushCommand)
-            callbackPushCommand(functionNotchUp, false);
+        if (_dcc)
+        {
+            // if (callbackPushCommand)
+            //     callbackPushCommand(functionNotchUp, true);
+            _dcc->pushCommand(functionNotchUp, true);
+            // if (callbackPushCommand)
+            // callbackPushCommand(functionNotchUp, false);
+            _dcc->pushCommand(functionNotchUp, false);
+        } // TBD not sure about placement here
         _notch++;
     }
     else if (up && _opMode == braking)
     // release the brakes
     {
         _opMode = idle;
-        if (callbackEmergencyBrakeOn())
-            setEBrake(false);
+        // if (callbackEmergencyBrakeOn())
+        if (_brakes)
+        {
+            if (_brakes->emergencyBrakeOn())
+                setEBrake(false);
 
-        if (callbackTrainBrakeOn())
-            setABrake(false);
+            // if (callbackTrainBrakeOn())
 
-        if (callbackLocoBrakeOn())
-            setLBrake(false);
+            if (_brakes->trainBrakeOn())
+                setABrake(false);
+
+            // if (callbackLocoBrakeOn())
+            if (_brakes->locoBrakeOn())
+                setLBrake(false);
+        }
     }
     else if (!up && _opMode == powered)
     // notching down
@@ -746,10 +819,15 @@ void Throttle::manualNotch(bool up)
         if (_notch == 0)
             return;
 
-        if (callbackPushCommand)
-            callbackPushCommand(functionNotchDown, true);
-        if (callbackPushCommand)
-            callbackPushCommand(functionNotchDown, false);
+        if (_dcc)
+        {
+            // if (callbackPushCommand)
+            //     callbackPushCommand(functionNotchDown, true);
+            _dcc->pushCommand(functionNotchDown, true);
+            // if (callbackPushCommand)
+            // callbackPushCommand(functionNotchDown, false);
+            _dcc->pushCommand(functionNotchDown, false);
+        }
         _notch--;
         if (_notch == 0)
         {
@@ -810,12 +888,18 @@ void Throttle::longPress(bool up)
         reportNotch();
 
         // release all brakes
-        if (callbackEmergencyBrakeOn())
-            setEBrake(false);
-        if (callbackTrainBrakeOn())
-            setABrake(false);
-        if (callbackLocoBrakeOn())
-            setLBrake(false);
+        if (_brakes)
+        {
+            // if (callbackEmergencyBrakeOn())
+            if (_brakes->emergencyBrakeOn())
+                setEBrake(false);
+            // if (callbackTrainBrakeOn())
+            if (_brakes->trainBrakeOn())
+                setABrake(false);
+            // if (callbackLocoBrakeOn())
+            if (_brakes->locoBrakeOn())
+                setLBrake(false);
+        }
     }
 
     if (up && (_opMode == idle) && (_currentSpeed == 0))
@@ -897,38 +981,53 @@ void Throttle::computeVelocity(void)
     if (!_running)
     {
         startupCounter = 0;
-        if (callbackSetPMRunning)
-            callbackSetPMRunning(false);
+        // if (callbackSetPMRunning)
+        // callbackSetPMRunning(false);
+        if (_brakes)
+            _brakes->setPMRunning(false);
     }
 
     if (startupCounter < 15)
         startupCounter++;
     else if (startupCounter == 15)
     {
-        if (callbackSetPMRunning)
-            callbackSetPMRunning(true);
+        // if (callbackSetPMRunning)
+        // callbackSetPMRunning(true);
+        if (_brakes)
+            _brakes->setPMRunning(true);
         startupCounter++;
     }
 
-    bool compressorRunning = callbackBrakeSystemCycle(true); // v027
+    // bool compressorRunning = callbackBrakeSystemCycle(true); // v027
+    // if (_brakes) bool compressorRunning = _brakes->cycle(true);
+    if (_brakes)
+        _compressorRunning = _brakes->cycle(true);
+
     if ((!_running) || ((_muState == mid) || (_muState == trailing)))
         return;
 
-    if (callbackGetTLPsi)
-        _trainlinePSI = callbackGetTLPsi();
+    if (_brakes)
+    {
+        // if (callbackGetTLPsi)
+        //     _trainlinePSI = callbackGetTLPsi();
+        _trainlinePSI = _brakes->getTrainlinePSI();
 
-    if (callbackGetEffectiveTrainBrake)
-        _trainBrake = callbackGetEffectiveTrainBrake();
+        // if (callbackGetEffectiveTrainBrake)
+        //     _trainBrake = callbackGetEffectiveTrainBrake();
+        _trainBrake = _brakes->getEffectiveTrainBrake();
 
-    if (callbackGetEffectiveLocoBrake)
-        _independentBrake = callbackGetEffectiveLocoBrake();
+        // if (callbackGetEffectiveLocoBrake)
+        //     _independentBrake = callbackGetEffectiveLocoBrake();
+        _independentBrake = _brakes->getEffectiveLocoBrake();
+    }
 
     if (_trainlinePSI != lastTrainlinePSI)
     {
         reportStatus();
         lastTrainlinePSI = _trainlinePSI;
     }
-    else if ((_mph == 0) && compressorRunning)
+    // else if ((_mph == 0) && compressorRunning)
+    else if ((_mph == 0) && _compressorRunning)
         reportStatus();
 
     consistHorsepower = _horsepower + _muHorsepower; // v0.26 ff  TBD check this...thought we already amalgamated mu hp containing lead
@@ -1081,8 +1180,10 @@ void Throttle::computeVelocity(void)
 
         lastIntCurrentSpeed = intCurrentSpeed;
 
-        if (callbackThrottleDCC)
-            callbackThrottleDCC(_dccAddress, intCurrentSpeed, _direction);
+        // if (callbackThrottleDCC)
+        //     callbackThrottleDCC(_dccAddress, intCurrentSpeed, _direction);
+        if (_dcc)
+            _dcc->setThrottle(_dccAddress, intCurrentSpeed, _direction);
     }
 
     // send back odometer data to operator
@@ -1119,12 +1220,16 @@ void Throttle::calibrate(int speed)
     if (speed == 0)
     {
 
-        if (callbackThrottleDCC)
-            callbackThrottleDCC(_dccAddress, 0, true);
+        // if (callbackThrottleDCC)
+        //     callbackThrottleDCC(_dccAddress, 0, true);
+        if (_dcc)
+            _dcc->setThrottle(_dccAddress, 0, true);
 
         _calibrationStage = 0;
-        if (callbackPushCommand)
-            callbackPushCommand(functionBell, false);
+        // if (callbackPushCommand)
+        //     callbackPushCommand(functionBell, false);
+        if (_dcc)
+            _dcc->pushCommand(functionBell, false);
         return;
     }
 
@@ -1235,8 +1340,10 @@ void Throttle::calibrate(int speed)
         myPrefs.end();
 
         // commandFifo.pushCommand(functionBell, false);
-        if (callbackPushCommand)
-            callbackPushCommand(functionBell, false);
+        // if (callbackPushCommand)
+        //     callbackPushCommand(functionBell, false);
+        if (_dcc)
+            _dcc->pushCommand(functionBell, false);
         getLocoPrefs(); // read storage into variables
     }
     else if (_calibrationStage == 1)
@@ -1244,8 +1351,10 @@ void Throttle::calibrate(int speed)
     {
         _calibrationTimer = millis();
         // commandFifo.pushCommand(functionBell, true);
-        if (callbackPushCommand)
-            callbackPushCommand(functionBell, true);
+        // if (callbackPushCommand)
+        //     callbackPushCommand(functionBell, true);
+        if (_dcc)
+            _dcc->pushCommand(functionBell, true);
     }
 
     if (_calibrationStage != 1) // either starting movement or stopping (0 or 2)
@@ -1266,8 +1375,10 @@ void Throttle::calibrate(int speed)
             dccVal = 0;
         }
 
-        if (callbackThrottleDCC)
-            callbackThrottleDCC(_dccAddress, dccVal, (speed >= 0));
+        // if (callbackThrottleDCC)
+        //     callbackThrottleDCC(_dccAddress, dccVal, (speed >= 0));
+        if (_dcc)
+            _dcc->setThrottle(_dccAddress, dccVal, (speed >= 0));
     }
 
     if (++_calibrationStage == 3)
@@ -1471,7 +1582,6 @@ void Throttle::muReport(const char *leadIpAdr) // v0.26
     }
 }
 
-
 // TBD this is likely obsolete along with calls to it
 void Throttle::muSubscribe(bool subUnsub)
 {
@@ -1499,18 +1609,17 @@ void Throttle::muSubscribe(bool subUnsub)
 
 } // muSubscribe
 
-
 /**
  * @brief Set the performance characteristics of the lead MU unit.
- * 
+ *
  *  Runs in response to muLocoData message from trailing loco(s).
  *  Set muState to 1 if adding trailers.
  *  Set muState to 0 if depleting trailers
  *  Lead unit keeps track of the consist in muDoc and stores in Preferences for future use TBD is there a need to store? yes there is, can't broadcast so need ip addrs.
  *  Also saves trailers hp, mass and tractive effort to be added to lead unit parameters
  *  Do nothing else
- * 
- * @param jsonMsg 
+ *
+ * @param jsonMsg
  */
 void Throttle::muSetPerformance(const char *jsonMsg)
 {
@@ -1645,11 +1754,10 @@ void Throttle::muSetPerformance(const char *jsonMsg)
     }
 }
 
-
 /**
  * @brief Receive speed messages from lead unit, set this unit's speed to match.
- * 
- * @param jsonMsg 
+ *
+ * @param jsonMsg
  */
 void Throttle::muSetSpeed(const char *jsonMsg)
 {
@@ -1705,8 +1813,10 @@ void Throttle::muSetSpeed(const char *jsonMsg)
     bool brk = doc["brk"];
     if (brk != lastBrake)
         // commandFifo.pushCommand(functionIndependentBrake, brk);
-        if (callbackPushCommand)
-            callbackPushCommand(functionIndependentBrake, brk);
+        // if (callbackPushCommand)
+        //     callbackPushCommand(functionIndependentBrake, brk);
+        if (_dcc)
+            _dcc->pushCommand(functionIndependentBrake, brk);
     lastBrake = brk;
 
     float odo = doc["odo"]; // TBD not working v0285
@@ -1726,14 +1836,15 @@ void Throttle::muSetSpeed(const char *jsonMsg)
     if (dccFPS > 126)
         dccFPS = 126;
 
-    if (callbackThrottleDCC)
-        callbackThrottleDCC(_dccAddress, dccFPS, direction);
+    // if (callbackThrottleDCC)
+    //     callbackThrottleDCC(_dccAddress, dccFPS, direction);
+    if (_dcc)
+        _dcc->setThrottle(_dccAddress, dccFPS, direction);
 }
-
 
 /**
  * @brief Sends static condition to app whenever app opens throttle fragment.
- * 
+ *
  * This sets the state of various views in the app fragment.
  */
 void Throttle::reportCondition()
@@ -1845,23 +1956,20 @@ void Throttle::reportCondition()
     telemetry.sendTelemetry(_controllingIP, TELEMETRY_PORT, jsonString.c_str());
 }
 
-
 /**
  * @brief Reports various current values back to the app for display there.
- * 
+ *
  * The msg is in json format.
- * 
+ *
  */
 void Throttle::reportStatus()
 {
     String jsonString = "";
 
-    if (callbackGetTLPsi)
-        _trainlinePSI = callbackGetTLPsi();
-#ifdef DEBUG_CALLBACK
-    else
-        log_e("Callback failed");
-#endif
+    // if (callbackGetTLPsi)
+    //     _trainlinePSI = callbackGetTLPsi();
+    if (_brakes)
+        _trainlinePSI = _brakes->getTrainlinePSI();
 
     int intSpeedoSpeed = _mph * 10;
     float speedoSpeed = intSpeedoSpeed / 10.; // to get tenths of mph
@@ -1876,22 +1984,22 @@ void Throttle::reportStatus()
     char charOdo[10];
     char charPsi[10];
     bool locoBrkOn;
+    uint16_t mainPsi;
 
     JsonDocument doc;
-    // bool locoBrkOn = bs.locoBrakeOn();
-    if (callbackLocoBrakeOn)
-        locoBrkOn = callbackLocoBrakeOn();
-#ifdef DEBUG_CALLBACK
-    else
-        log_e("Callback failed");
-#endif
-    uint16_t mainPsi;
-    if (callbackGetMainPSI)
-        mainPsi = callbackGetMainPSI();
-#ifdef DEBUG_CALLBACK
-    else
-        log_e("Callback failed");
-#endif
+
+    if (_brakes)
+    {
+        // bool locoBrkOn = bs.locoBrakeOn();
+        // if (callbackLocoBrakeOn)
+        //     locoBrkOn = callbackLocoBrakeOn();
+        locoBrkOn = _brakes->locoBrakeOn();
+
+        // if (callbackGetMainPSI)
+        //     mainPsi = callbackGetMainPSI();
+        mainPsi = _brakes->getMainPSI();
+    }
+
     // round to 1, 2 decimal places
     float speedo2 = round(speedoSpeed * 10.f) / 10.f;
     float odo2 = round((_odometer * 100.) / 5280.) / 100.0f;
@@ -1970,13 +2078,12 @@ void Throttle::reportStatus()
     }
 }
 
-
 /**
  * @brief Send function labels to the app for display there.
- * @details 
+ * @details
  * Reports all of the configured function labels to the app for display there.
  * Called whenever sendStatus is requested by the app.
- * 
+ *
  */
 void Throttle::reportFunctionLabels()
 {
@@ -2062,8 +2169,10 @@ uint16_t Throttle::interpolateSpeedFactor(float fps)
 
 void Throttle::setCV(int cv, int value)
 {
-    if (callbackSetCvDCC)
-        callbackSetCvDCC(_dccAddress, cv, value);
+    // if (callbackSetCvDCC)
+    //     callbackSetCvDCC(_dccAddress, cv, value);
+    if (_dcc)
+        _dcc->setCV(_dccAddress, cv, value);
 }
 
 void Throttle::setFunction(char *jsonMsg)
@@ -2079,17 +2188,18 @@ void Throttle::setFunction(char *jsonMsg)
     bool state = doc["s"];
 
     // commandFifo.pushCommand(function, state);
-    if (callbackPushCommand)
-        callbackPushCommand(function, state);
+    // if (callbackPushCommand)
+    //     callbackPushCommand(function, state);
+    if (_dcc)
+        _dcc->pushCommand(function, state);
 }
-
 
 /**
  * @brief Turn on brake squeal sound.
- * 
+ *
  * @details Squeal on/off must be commanded because builtin decoder functionality is not available here.
- * 
- * @param on 
+ *
+ * @param on
  */
 void Throttle::brakeSqueal(bool on)
 {
@@ -2110,8 +2220,10 @@ void Throttle::brakeSqueal(bool on)
         if (_independentBrake > 40) // for light braking, no sound
         {
             // commandFifo.pushCommand(functionBrakeSqueal, true);
-            if (callbackPushCommand)
-                callbackPushCommand(functionBrakeSqueal, true);
+            // if (callbackPushCommand)
+            //     callbackPushCommand(functionBrakeSqueal, true);
+            if (_dcc)
+                _dcc->pushCommand(functionBrakeSqueal, true);
             squealOn = true;
         }
     }
@@ -2121,18 +2233,20 @@ void Throttle::brakeSqueal(bool on)
     {
         // turn off the sound
         // commandFifo.pushCommand(functionBrakeSqueal, false);
-        if (callbackPushCommand)
-            callbackPushCommand(functionBrakeSqueal, false);
+        // if (callbackPushCommand)
+        // callbackPushCommand(functionBrakeSqueal, false);
+        if (_dcc)
+            _dcc->pushCommand(functionBrakeSqueal, false);
+
         squealOn = false;
     }
 
     return;
 }
 
-
 /**
  * @brief Sum horsepower, mass and tractive effort for the MU lashup.
- * 
+ *
  */
 void Throttle::muSumPerformanceValues() // v0.26
 {
@@ -2165,18 +2279,17 @@ void Throttle::muSumPerformanceValues() // v0.26
     }
 }
 
-
 /**
  * @brief Process an MU affirmation from the lead unit.
- * 
+ *
  * @details Runs on a trailing loco in the consist in response to the message sent by lead after muMemberCheck() message was sent to it.
  * Normally runs once per minute if consisted and lead is replying.
  * If the parameter is true then the lead affirms this loco is in the consist.
  * If false the lead loco wants nothing to do with this loco.
  * If false this loco removes itself from the consist by setting _muState to solo.
  * If no response from lead was received then muMemberCheck will set _muState to solo.
- * 
- * @param consistMember 
+ *
+ * @param consistMember
  */
 void Throttle::muMemberCheck(bool consistMember)
 {
@@ -2197,21 +2310,19 @@ void Throttle::muMemberCheck(bool consistMember)
     }
 }
 
-
-
-/** 
+/**
  * @brief Manages consist membership for trailing locomotives.
- * 
- * @details This runs on any loco trailing the lead in a consist. If a loco believes 
- * it is in a consist (_muState = mid or trailing), it runs this code once 
+ *
+ * @details This runs on any loco trailing the lead in a consist. If a loco believes
+ * it is in a consist (_muState = mid or trailing), it runs this code once
  * per minute.
- * 
+ *
  * The routine follows this logic:
  * - Sends a message to the lead engine asking for confirmation.
  * - Sets the boolean @c consistMember flag.
  * - Processes the lead's reply (affirmative, negative, or timeout).
- * 
- * If the response is affirmative, the flag is cleared. If negative or 
+ *
+ * If the response is affirmative, the flag is cleared. If negative or
  * timed out, @c _muState is reset to @c solo.
  */
 void Throttle::muMemberCheck()
@@ -2251,10 +2362,10 @@ void Throttle::muMemberCheck()
 
 /**
  * @brief Runs on lead loco in response to membercheck udp command from supposed consist member.
- * 
+ *
  * @details This function checks the incoming ip address against those stored for members in muDoc.
  * If found in the list return true, else false in another udp message.
- * 
+ *
  * @param muip - The ip address of the following consisted loco>
  */
 void Throttle::muMemberResponse(const char *muip)

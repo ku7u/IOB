@@ -46,20 +46,23 @@ bool BrakeSystem::cycle(bool pmRunning)
     // turn off compressor if PM shutdown
     if (!pmRunning && _compressorRunning)
     {
-        if (callbackPushCommand) callbackPushCommand(_functionCompressor, false);
+        // if (callbackPushCommand) callbackPushCommand(_functionCompressor, false);
+        if (_dcc) _dcc->pushCommand(_functionCompressor, false);
         _compressorRunning = false;
         return false;
     }
     // turn on compressor if needed
     else if (pmRunning && _startupComplete && (_compressorRunning == false) && (_mainPSI < MAIN_MIN_PSI))
     {
-        if (callbackPushCommand) callbackPushCommand(_functionCompressor, true);
+        // if (callbackPushCommand) callbackPushCommand(_functionCompressor, true);
+        if (_dcc) _dcc->pushCommand(_functionCompressor, true);
         _compressorRunning = true;
     }
     // or turn it off if not needed
     else if ((_compressorRunning == true) && (_mainPSI >= MAIN_MAX_PSI))
     {
-        if (callbackPushCommand) callbackPushCommand(_functionCompressor, 0);
+        // if (callbackPushCommand) callbackPushCommand(_functionCompressor, 0);
+        if (_dcc) _dcc->pushCommand(_functionCompressor, 0);
         _compressorRunning = false;
     }
 
