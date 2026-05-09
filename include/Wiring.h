@@ -8,6 +8,7 @@ class Fifo;
 class SerialCommand;
 class DCCFormatter;
 
+
 // One function to rule them all
 void connectSystems(Throttle& t, BrakeSystem& b, Fifo& f, DCCFormatter& d);
 

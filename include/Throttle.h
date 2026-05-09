@@ -4,42 +4,18 @@
 #include "defines.h"
 #include "Arduino.h"
 #include "ArduinoJson.h"
+#include "ILocoStatus.h"
+#include "IBrakeSystem.h"
+#include "IDccHardware.h"
 #include "UdpTransport.h"
 #include "TelemetryHandler.h" // TBA
-// #include <optional> was for optional parameter functions
-#include <functional> // for callbacks
 
-class Throttle
+class Throttle : public ILocoStatus // inherits the interface
 {
 public:
     Throttle(void);
-
-    // callbacks
-    std::function<void(int, bool)> callbackPushCommand;
-
-    std::function<uint16_t(void)> callbackGetTLPsi;
-    std::function<float(void)> callbackGetEffectiveLocoBrake;
-    std::function<float(void)> callbackGetEffectiveTrainBrake;
-    std::function<uint16_t(void)> callbackGetMainPSI;
-    std::function<void(uint16_t)> callbackSetCompressorFunction;
-    std::function<bool(bool)> callbackBrakeSystemCycle;
-    std::function<void(bool)> callbackConnectAirLine;
-    std::function<void(bool, uint16_t)> callbackConnectAirLine2;
-    std::function<float(bool)> callbackApplyLocoBrake;
-    std::function<float(bool)> callbackApplyTrainBrake;
-    std::function<void(bool)> callbackApplyEmergency;
-    std::function<void(void)> callbackApplyHandbrake;
-    std::function<void(void)> callbackRelease;
-    std::function<void(bool)> callbackSetPMRunning;
-    std::function<bool(void)> callbackLocoBrakeOn;
-    std::function<bool(void)> callbackTrainBrakeOn;
-    std::function<bool(void)> callbackEmergencyBrakeOn;
-    
-    std::function<void(char *)> callbackCommandDCC;
-    std::function<void(int, int, bool)> callbackThrottleDCC;
-    std::function<void(int, int, int)> callbackSetCvDCC;
-
-
+    void setBrakeSystem(IBrakeSystem *b) { _brakes = b; }
+    void setDccHardware(IDccHardware *d) { _dcc = d; }
 
     void init(void);
     void loop(void);
@@ -82,7 +58,6 @@ public:
     void queryMuTrailer(void);
     void muSetPerformance(const char *);
     void muSubscribe(bool);
-    // void muReport(const char *, const char *);
     void muReport(const char *);
     void reportCondition(void);
     void reportStatus(void);
@@ -114,6 +89,9 @@ public:
     int functionBrakeSqueal;
 
 private:
+    IBrakeSystem *_brakes = nullptr; // One pointer instead of 15 wires
+    IDccHardware *_dcc = nullptr;    // One pointer replaces the rest
+
     uint32_t getTime(void);
     void brakeSqueal(bool);
     void setEBrake(bool);

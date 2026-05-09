@@ -128,16 +128,15 @@ void CommandHandler::loop()
         serializeJson(valueVariant, buffer, sizeof(buffer));
         _throttle.muSetState(buffer);
     }
-    // else if (strcmp(shortTopic, "muperformance") == 0)
     else if (strcmp(shortTopic, "muLocoData") == 0)
+    // a loco is chosen to be mued to a lead, value is a json string that includes lead id,
+    // static char buffer[256];
     {
-        // a loco is chosen to be mued to a lead, value is a json string that includes lead id,
-        static char buffer[256];
-        // serializeJson(valueVariant, buffer, sizeof(buffer));
-        // throttle.muSetPerformance(buffer);
         _throttle.muSetPerformance(msg.c_str());
     }
-    else if (strcmp(topic, "muReport") == 0)
+    // else if (strcmp(topic, "muReport") == 0)
+    else if (strcmp(topic, "muQueryTrailers") == 0)
+    // trailing units send their hp, mass, te, mu status to lead
         _throttle.muReport(value);
 
     else if (strcmp(topic, "muMemberCheck") == 0)

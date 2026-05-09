@@ -8,10 +8,14 @@
 #include "RBot.h"
 #include "SerialCommand.h"
 #include "Function.h"
-#include "Throttle.h"
-// #include "Fifo.h"
+#include "ILocoStatus.h"
 
-extern Throttle throttle;
+static ILocoStatus *_loco = nullptr; // The "Plug"
+
+void setLocoStatusProvider(ILocoStatus *provider)
+{
+    _loco = provider;
+}
 
 void setFunction(int function, bool onOff)
 {
@@ -22,8 +26,11 @@ void setFunction(int function, bool onOff)
 
     byte2 = 0;
 
-    // int roadNum = throttle.getRoadNumber(); //TBD this is lame, do it once somehow, or include in parameter list
-    int roadNum = throttle.getDccAddress();
+    if (!_loco)
+        return;
+
+    // int roadNum = throttle.getDccAddress();
+    int roadNum = _loco->getDccAddress();
 
     if ((function > 29) || (function < 0))
         return;
@@ -49,19 +56,6 @@ void setFunction(int function, bool onOff)
                 fMap[25] * 16 + fMap[26] * 32 + fMap[27] * 64 + fMap[28] * 128;
     }
 
-    // build the command string
-    // String dummyString = "f ";
-    // dummyString.concat(String(roadNum) + " ");
-    // dummyString.concat(String(byte1));
-
-    // if (function >= 13)
-    // {
-    //     dummyString.concat(" ");
-    //     dummyString.concat(String(byte2));
-    // }
-
-    // strcpy(dummyChars, dummyString.c_str());
-    // SerialCommand::parse(dummyChars);
 
     if (function >= 13)
     {
