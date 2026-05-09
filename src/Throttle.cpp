@@ -338,7 +338,7 @@ void Throttle::pmOnOff(bool onOff)
 
         // syncronization scheme - run at powerup
         // use saved data in muDoc to query each loco that should be in consist
-        // send individual query requesting mu status from muReport in the trailer
+        // send individual query (muQueryTrailers) requesting mu status from muReport in the trailer
         // receive muLocoData responses
         // polled locos must respond whether they think they are in consist or not, reply contains muState
         // if muState > 1 keep in muDoc, update performance
@@ -354,7 +354,8 @@ void Throttle::pmOnOff(bool onOff)
 
         String myIP = WiFi.localIP().toString();
         JsonDocument doc;
-        doc["topic"] = "muReport";
+        // doc["topic"] = "muReport";
+        doc["topic"] = "muQueryTrailers";
         String docString;
 
         // Iterate key-value pairs at top level
@@ -1386,26 +1387,29 @@ void Throttle::calibrate(int speed)
 
 } // calibrate
 
+/**
+ * @brief Set mu state either mued or not
+ * 
+ * from MU fragment on app select trailing locos
+ *  command is sent only to the selected trailing loco
+ * 
+ *  when selected send mustate command to trailing unit for direction, position, lead loco id
+ *  in response trailing unit replies with muLocoData topic including HP and mass of loco
+ *  lead unit will then send startup command to trailing unit, just in case not running and also to ease operator loading
+ *  lead unit will keep track of the trailers and display those on throttle
+ *
+ *  messages causing change of mu state will be sent to this loco address and are processed here
+ *  mu states:
+ *  solo or 0 - not mued so leave consist and inform lead if was mid or trailing
+ *  lead or 1 - mued as lead, look for incoming hp and mass values from locos in consist NOPE TBD why nope?
+ *  mid or 2 - mued as mid, send hp and mass values to lead
+ *  trailing or 3 - mued as trailing, send hp and mass values to lead
+ *
+ *  json format {muState:"", leadID:"", reversed:""} 
+ * @param jsonMsg 
+ */
 void Throttle::muSetState(const char *jsonMsg)
 {
-
-    /*  from MU fragment on app select trailing locos
-        command is sent only to the selected trailing loco
-
-        when selected send mustate command to trailing unit for direction, position, lead loco id
-        in response trailing unit replies with muLocoData topic including HP and mass of loco
-        lead unit will then send startup command to trailing unit, just in case not running and also to ease operator loading
-        lead unit will keep track of the trailers and display those on throttle
-
-        messages causing change of mu state will be sent to this loco address and are processed here
-        mu states:
-         solo or 0 - not mued so leave consist and inform lead if was mid or trailing
-         lead or 1 - mued as lead, look for incoming hp and mass values from locos in consist NOPE TBD why nope?
-         mid or 2 - mued as mid, send hp and mass values to lead
-         trailing or 3 - mued as trailing, send hp and mass values to lead
-
-        json format
-        {muState:"", leadID:"", reversed:""} */
 
     Preferences myPrefs;
     JsonDocument doc;
@@ -1487,6 +1491,7 @@ void Throttle::muSetState(const char *jsonMsg)
         _muLeadLoco = String(mull);
         // send my id, mass, hp and tractive effort to lead now
 
+        log_d("leadIPAdr %s", leadIpAdr);
         muReport(leadIpAdr);
 
         // subscribe to lead loco messages for speed, direction and notch
@@ -1518,16 +1523,17 @@ void Throttle::muReport(const char *leadIpAdr) // v0.26
     // the lead will build a roster of all candidates received
     // all received candidates will be included in loco speed status messages
     // a candidate will only respond to speed status messages that include its id, and will change its mu status to not mued if missing
-
+    // Run at startup of lead unit via message to query for any mu trailing locos
+    // Also run from muSetState which is initiated by the app
     if ((_muState == mid) || (_muState == trailing))
     {
-
         String muIP = WiFi.localIP().toString();
 
         char topicChars[TOPIC_CHAR_SIZE];
         strcpy(topicChars, _commandTopic.c_str());
         strcat(topicChars, _muLeadLoco.c_str());
-        strcat(topicChars, "/muperformance");
+        // strcat(topicChars, "/muperformance");
+        strcat(topicChars, "/muLocoData");
 
         char msgChars[256]; // myID, locomass, hp, tractive effort
         char buffer[100];
