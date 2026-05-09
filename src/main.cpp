@@ -2,7 +2,7 @@
  * @file main.cpp
  * @author  George F. Hofmann
  * @copyright 2026
- * @date 5/5/2026
+ * @date 5/9/2026
  *
  */
 
@@ -1041,9 +1041,6 @@ void setup()
   String locoID = myPrefs.getString("locoid", "new");
   myPrefs.end();
 
-  // WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
-  // WiFiManager wm;
-
   // using AI generated wificonfigurator object
   // it presents a soft AP that will display a captive portal page to the user
   // the captive page shows the ip address if already connected
@@ -1057,24 +1054,6 @@ void setup()
   setupWeb(); // how to interact with each of the web pages
 
   server.begin(); // this is the web server
-
-  // Automatically connect using saved credentials,
-  // if connection fails, it starts an access point with the the chip ID as the name,
-  // then goes into a blocking loop awaiting configuration and will return success result
-
-  /* #ifdef SSID_KILL // v 0.23 ff
-    // force a reconnection to wifi AP
-    eraseSSID = true;
-  #endif
-    if (eraseSSID)
-    {
-      myPrefs.begin("general", false);
-      myPrefs.putBool("erasessid", false);
-      myPrefs.end();
-      wm.resetSettings(); // wipes saved connection settings
-    }
-  */
-  // bool res = wm.autoConnect(); // auto generated AP name from chipid
 
   WiFi.setSleep(false);        // trying to avoid latency  TBD v0282
   WiFi.setAutoReconnect(true); // TBD v0282 could lead to stuck device https://esp32.com/viewtopic.php?f=19&t=39116

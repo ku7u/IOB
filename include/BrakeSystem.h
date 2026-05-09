@@ -4,16 +4,12 @@
 #include "IBrakeSystem.h"
 #include "IDccHardware.h"
 
-// #include <functional> // for callbacks
 
 class BrakeSystem : public IBrakeSystem
 {
 public:
     BrakeSystem(void);
     void setDccHardware(IDccHardware *d) { _dcc = d; }
-
-    // callbacks
-    // std::function<void(int, bool)> callbackPushCommand;
 
     uint16_t getTrainlinePSI(void);
     uint16_t getEffectiveLocoBrake(void); // TBD should be float?

@@ -9,10 +9,6 @@
 #include "SerialCommand.h"
 #include "Function.h"
 #include "ILocoStatus.h"
-// #include "Throttle.h"
-// #include "Fifo.h"
-
-// extern Throttle throttle;
 
 static ILocoStatus *_loco = nullptr; // The "Plug"
 

@@ -9,23 +9,13 @@
 #include "IDccHardware.h"
 #include "UdpTransport.h"
 #include "TelemetryHandler.h" // TBA
-// #include <optional> was for optional parameter functions
-// #include <functional> // for callbacks
 
 class Throttle : public ILocoStatus // inherits the interface
 {
 public:
     Throttle(void);
-
-    // callbacks
-    // std::function<void(int, bool)> callbackPushCommand;
-
     void setBrakeSystem(IBrakeSystem *b) { _brakes = b; }
     void setDccHardware(IDccHardware *d) { _dcc = d; }
-
-    // std::function<void(char *)> callbackCommandDCC;
-    // std::function<void(int, int, bool)> callbackThrottleDCC;
-    // std::function<void(int, int, int)> callbackSetCvDCC;
 
     void init(void);
     void loop(void);
@@ -68,7 +58,6 @@ public:
     void queryMuTrailer(void);
     void muSetPerformance(const char *);
     void muSubscribe(bool);
-    // void muReport(const char *, const char *);
     void muReport(const char *);
     void reportCondition(void);
     void reportStatus(void);
