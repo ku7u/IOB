@@ -36,7 +36,7 @@ private:
     void startSoftAP();
     void stopPortal();
     void setupWebServerRoutes();
-    void serveApSelectPage(AsyncWebServerRequest *req);
+    // void serveApSelectPage(AsyncWebServerRequest *req);
     void handleAPlist(AsyncWebServerRequest *req);
     void handleStatus(AsyncWebServerRequest *req);
     void handleConnect(AsyncWebServerRequest *req);
@@ -44,5 +44,5 @@ private:
     void connectToSavedHouseAP();
     void saveCredentials(const char *ssid, const char *pass);
     String jsonEscape(const String &s);
-    String embeddedApSelectHtml();
+    // String embeddedApSelectHtml();
 };

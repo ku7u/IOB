@@ -255,6 +255,8 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include "CommandHandler.h"   // TBA
 #include "TelemetryHandler.h" // TBA
 
+#include "WebPages.h"
+
 using namespace std;
 
 #ifdef RGB_BUILTIN
@@ -678,19 +680,46 @@ String processorFunctions(const String &var)
 void setupWeb()
 {
 
+  // server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+  //           { request->send(SPIFFS, "/index.html", "text/html", false, processorIndex); });
+  // server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request)
+  //           { request->send(SPIFFS, "/index.html", "text/html", false, processorIndex); });
+  // Serve the root directory
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(SPIFFS, "/index.html", "text/html", false, processorIndex); });
+            {
+    // We wrap the processor in a lambda to ensure the signature matches exactly
+    request->send_P(200, "text/html", index_html, [](const String& var) {
+        return processorIndex(var); 
+    }); });
 
+  // Serve /index.html
   server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(SPIFFS, "/index.html", "text/html", false, processorIndex); });
+            { request->send_P(200, "text/html", index_html, [](const String &var)
+                              { return processorIndex(var); }); });
+
+  // server.on("/functions.html", HTTP_GET, [](AsyncWebServerRequest *request)
+  //           { request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions); });
   server.on("/functions.html", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions); });
+            { request->send_P(200, "text/html", functions_html, [](const String &var)
+                              { return processorFunctions(var); }); });
+
+  // server.on("/locoparms.html", HTTP_GET, [](AsyncWebServerRequest *request)
+  //           { request->send(SPIFFS, "/locoparms.html", "text/html", false, processorLocoparms); });
   server.on("/locoparms.html", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(SPIFFS, "/locoparms.html", "text/html", false, processorLocoparms); });
+            { request->send_P(200, "text/html", locoparms_html, [](const String &var)
+                              { return processorLocoparms(var); }); });
+
+  // server.on("/network.html", HTTP_GET, [](AsyncWebServerRequest *request)
+  //           { request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork); });
   server.on("/network.html", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork); });
+            { request->send_P(200, "text/html", network_html, [](const String &var)
+                              { return processorNetwork(var); }); });
+
+  // server.on("/calibration.html", HTTP_GET, [](AsyncWebServerRequest *request)
+  //           { request->send(SPIFFS, "/calibration.html", "text/html", false, processorCalibrationparms); });
   server.on("/calibration.html", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(SPIFFS, "/calibration.html", "text/html", false, processorCalibrationparms); });
+            { request->send_P(200, "text/html", calibration_html, [](const String &var)
+                              { return processorCalibrationparms(var); }); });
 
   server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -1059,7 +1088,7 @@ void setup()
   WiFi.setAutoReconnect(true); // TBD v0282 could lead to stuck device https://esp32.com/viewtopic.php?f=19&t=39116
 
   ElegantOTA.setAutoReboot(true); // Ensure this is enabled
-  ElegantOTA.begin(&server); // Start ElegantOTA
+  ElegantOTA.begin(&server);      // Start ElegantOTA
 
   ElegantOTA.onEnd([](bool success) // Hook into OTA completion
                    {
@@ -1070,7 +1099,6 @@ void setup()
   } else {
     log_e("OTA update failed, not restarting");
   } });
-
 
   setupMDNS(locoID);
 
@@ -1131,8 +1159,6 @@ void loop()
   commands.loop();
   processPendingCommands();
 
-
-
   if (timer60000ms.expired)
   {
     //   // memory testing
@@ -1142,7 +1168,6 @@ void loop()
     //   String myMaxAllocHeap = String(maxAllocHeap);
     throttle.muMemberCheck();
   }
-
 
   // if (magReader.check(throttle.getLastIntCurrentSpeed())) // check for waypoints by reading magnets embedded in track
   //   uint milepost = magReader.process(throttle.isForward()); waddawedo with 'milepost'?
