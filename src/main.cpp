@@ -256,6 +256,7 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include "TelemetryHandler.h" // TBA
 
 #include "WebPages.h"
+#include <LittleFS.h>
 
 using namespace std;
 
@@ -265,6 +266,10 @@ using namespace std;
 #define RGB_BUILTIN 10
 
 Preferences myPrefs;
+
+// Allocate a "ledger" in memory. 
+// For an ESP32-C3, 4KB (4096) is plenty for hundreds of locomotive settings. (per Gemini)
+JsonDocument config; 
 
 // wifi
 WiFiClient espClient;
@@ -463,6 +468,29 @@ void getGeneralPrefs()
 
   myPrefs.end();
 }
+
+void saveConfig() {
+    File file = LittleFS.open("/config.json", "w");
+    if (file) {
+        serializeJson(config, file);
+        file.close();
+        Serial.println(F("[JSON] Config saved to LittleFS."));
+    }
+}
+
+void loadConfig() {
+    if (!LittleFS.begin(true)) { // true = format if corrupted
+        Serial.println(F("[JSON] LittleFS Mount Failed"));
+        return;
+    }
+    File file = LittleFS.open("/config.json", "r");
+    if (file) {
+        DeserializationError error = deserializeJson(config, file);
+        if (error) Serial.println(F("[JSON] Failed to parse config.json"));
+        file.close();
+    }
+}
+
 
 /*****************************************************************************/
 // this function converts placeholders in index.html into active data values
