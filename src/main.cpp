@@ -679,11 +679,6 @@ String processorFunctions(const String &var)
 // this function handles data entry from the web pages
 void setupWeb()
 {
-
-  // server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-  //           { request->send(SPIFFS, "/index.html", "text/html", false, processorIndex); });
-  // server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request)
-  //           { request->send(SPIFFS, "/index.html", "text/html", false, processorIndex); });
   // Serve the root directory
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -697,26 +692,18 @@ void setupWeb()
             { request->send_P(200, "text/html", index_html, [](const String &var)
                               { return processorIndex(var); }); });
 
-  // server.on("/functions.html", HTTP_GET, [](AsyncWebServerRequest *request)
-  //           { request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions); });
   server.on("/functions.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send_P(200, "text/html", functions_html, [](const String &var)
                               { return processorFunctions(var); }); });
 
-  // server.on("/locoparms.html", HTTP_GET, [](AsyncWebServerRequest *request)
-  //           { request->send(SPIFFS, "/locoparms.html", "text/html", false, processorLocoparms); });
   server.on("/locoparms.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send_P(200, "text/html", locoparms_html, [](const String &var)
                               { return processorLocoparms(var); }); });
 
-  // server.on("/network.html", HTTP_GET, [](AsyncWebServerRequest *request)
-  //           { request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork); });
   server.on("/network.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send_P(200, "text/html", network_html, [](const String &var)
                               { return processorNetwork(var); }); });
 
-  // server.on("/calibration.html", HTTP_GET, [](AsyncWebServerRequest *request)
-  //           { request->send(SPIFFS, "/calibration.html", "text/html", false, processorCalibrationparms); });
   server.on("/calibration.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send_P(200, "text/html", calibration_html, [](const String &var)
                               { return processorCalibrationparms(var); }); });
@@ -735,7 +722,7 @@ void setupWeb()
       topicFeedbackLeftEnd = request->getParam("feedbacktopic")->value();
       myPrefs.putString("feedbacktopic", topicFeedbackLeftEnd);
       myPrefs.end();
-      request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork);
+      request->redirect("/network.html");
     }
     
     else if (request->hasParam("EraseParm"))
@@ -745,7 +732,7 @@ void setupWeb()
       myPrefs.putBool("erasessid", inputParam == "Y");
       myPrefs.end();
       // eraseSSID = inputParam == "Y";
-      request->send(SPIFFS, "/network.html", "text/html", false, processorNetwork);
+      request->redirect("/network.html");
       ESP.restart();  // v 0.23
     }
     
@@ -767,7 +754,7 @@ void setupWeb()
       myPrefs.end();
       
       throttle.getLocoPrefs();
-      request->send(SPIFFS, "/locoparms.html", "text/html", false, processorLocoparms);
+      request->redirect("/locoparms.html");
     }
     
     else if (request->hasParam("calibrationParm"))
@@ -802,7 +789,7 @@ void setupWeb()
       myPrefs.end();
       
       throttle.getLocoPrefs();  // TBD have to add to getLocoPrefs
-      request->send(SPIFFS, "/calibration.html", "text/html", false, processorCalibrationparms);
+      request->redirect("/calibration.html");
     }
 
     else if (request->hasParam("FunctionsParm")) 
@@ -841,14 +828,14 @@ void setupWeb()
       myPrefs.end();
 
       throttle.getFunctionPrefs();
-      request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions);
+      request->redirect("/functions.html");
     }
     else if (request->hasParam("CvParm"))
     {
       String cv = request->getParam("cv")->value();
       String cvValue = request->getParam("cvValue")->value();
       throttle.setCV(cv.toInt(), cvValue.toInt());
-      request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions);
+      request->redirect("/functions.html");
     } 
     else if (request->hasParam("FunctionLabels")) 
     {
@@ -913,10 +900,9 @@ void setupWeb()
       myPrefs.putString("f28", inputMessage);
       myPrefs.end();
       // TBD get all labels
-      request->send(SPIFFS, "/functions.html", "text/html", false, processorFunctions);
+      request->redirect("/functions.html");
     } });
-
-  server.serveStatic("/", SPIFFS, "/"); // chatGPT says this needs to go before the catchall (onNotFound)
+    
 }
 
 /*****************************************************************************/
@@ -1052,9 +1038,12 @@ void setup()
   // Serial.println("OLS firmware version " + String(olsVersion));
 #endif
 
+#ifdef DEBUG_UDP
   log_v("Debug UDP on");
-
+#endif
+#ifdef DEBUG_SPEED
   log_v("Debug speed on");
+#endif
 
 #ifdef SERIAL_POL // position on layout reader
   Serial1.begin(9600, SERIAL_8N1, HW_SERIAL_PIN);
