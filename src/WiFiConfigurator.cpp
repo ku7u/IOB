@@ -16,11 +16,6 @@ WiFiConfigurator::WiFiConfigurator(AsyncWebServer &srv,
 
 void WiFiConfigurator::begin()
 {
-    // if (!SPIFFS.begin(false))
-    // {
-    //     Serial.println("[WiFiConfigurator] SPIFFS mount failed");
-    // }
-
     connectToSavedHouseAP(); // attempt STA
 
     if (WiFi.status() != WL_CONNECTED)
@@ -95,12 +90,9 @@ void WiFiConfigurator::stopPortal()
 
 void WiFiConfigurator::setupWebServerRoutes()
 {
-    // server.on("/apselect.html", HTTP_GET, [this](AsyncWebServerRequest *req)
-    //           { serveApSelectPage(req); });
     server.on("/apselect.html", HTTP_GET, [this](AsyncWebServerRequest *req)
               { req->send_P(200, "text/html", apselect_html); });
 
-    // server.serveStatic("/stylesheet.css", SPIFFS, "/stylesheet.css");
     server.on("/stylesheet.css", HTTP_GET, [](AsyncWebServerRequest *req)
               { req->send_P(200, "text/css", stylesheet_css); });
 
@@ -120,17 +112,6 @@ void WiFiConfigurator::setupWebServerRoutes()
         } });
 }
 
-// void WiFiConfigurator::serveApSelectPage(AsyncWebServerRequest *req)
-// {
-//     if (SPIFFS.exists("/apselect.html"))
-//     {
-//         req->send(SPIFFS, "/apselect.html", "text/html");
-//     }
-//     else
-//     {
-//         req->send(200, "text/html", embeddedApSelectHtml());
-//     }
-// }
 
 void WiFiConfigurator::handleAPlist(AsyncWebServerRequest *req)
 {
@@ -236,27 +217,3 @@ String WiFiConfigurator::jsonEscape(const String &s)
     return out;
 }
 
-// String WiFiConfigurator::embeddedApSelectHtml()
-// {
-//     return R"rawliteral(
-// <!doctype html>
-// <html>
-// <head><meta name="viewport" content="width=device-width, initial-scale=1"><title>WiFi Setup</title></head>
-// <body>
-// <h2>Configure Wi-Fi</h2>
-// <div><input id="ssid" placeholder="SSID"/><input id="password" type="password" placeholder="Password"/><button id="saveBtn">Save & Connect</button></div>
-// <div id="aplist">Scanning...</div>
-// <script>
-// document.getElementById('saveBtn').onclick=function(){
-//     let ssid=document.getElementById('ssid').value;
-//     let pass=document.getElementById('password').value;
-//     if(!ssid){alert('Enter SSID');return;}
-//     fetch('/connect',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
-//     body:'ssid='+encodeURIComponent(ssid)+'&password='+encodeURIComponent(pass)}).then(r=>r.json())
-//     .then(js=>{alert(js.message);}).catch(e=>{alert('Error attempting to connect');});
-// };
-// </script>
-// </body>
-// </html>
-// )rawliteral";
-// }

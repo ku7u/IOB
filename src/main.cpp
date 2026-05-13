@@ -221,10 +221,9 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include <ESPmDNS.h>
 #include <iostream>
 #include "nvs_flash.h"
-#include "Preferences.h"
+// #include "Preferences.h"
 #include "WiFi.h"
 #include "FS.h"
-#include "SPIFFS.h"
 #include "RBot.h"
 #include "Function.h"
 #include "PacketRegister.h"
@@ -265,11 +264,11 @@ using namespace std;
 #endif
 #define RGB_BUILTIN 10
 
-Preferences myPrefs;
+// Preferences myPrefs;
 
-// Allocate a "ledger" in memory. 
+// Allocate a "ledger" in memory.
 // For an ESP32-C3, 4KB (4096) is plenty for hundreds of locomotive settings. (per Gemini)
-JsonDocument config; 
+JsonDocument config;
 
 // wifi
 WiFiClient espClient;
@@ -460,37 +459,153 @@ void IRAM_ATTR onTimer1()
 void getGeneralPrefs()
 {
   // get the stored configuration values, defaults are the second parameter in the list
-  myPrefs.begin("general", true);
+  // myPrefs.begin("general", true);
 
-  topicCommandLeftEnd = myPrefs.getString("commandtopic", "cmd/ols/");
-  topicFeedbackLeftEnd = myPrefs.getString("feedbacktopic", "tlm/ols/");
-  // eraseSSID = myPrefs.getBool("erasessid", false);
+  // topicCommandLeftEnd = myPrefs.getString("commandtopic", "cmd/ols/");
+  // topicFeedbackLeftEnd = myPrefs.getString("feedbacktopic", "tlm/ols/");
+  // // eraseSSID = myPrefs.getBool("erasessid", false);
 
-  myPrefs.end();
+  // myPrefs.end();
+  topicCommandLeftEnd = config["general"]["topicCommandLeftEnd"].as<String>();
+  topicFeedbackLeftEnd = (String)config["general"]["topicFeedbackLeftEnd"].as<String>();
 }
 
-void saveConfig() {
-    File file = LittleFS.open("/config.json", "w");
-    if (file) {
-        serializeJson(config, file);
-        file.close();
-        Serial.println(F("[JSON] Config saved to LittleFS."));
-    }
+/*****************************************************************************/
+// JSON config functions
+void saveConfig()
+{
+  File file = LittleFS.open("/config.json", "w");
+  if (file)
+  {
+    serializeJson(config, file);
+    file.close();
+    Serial.println(F("[JSON] Config saved to LittleFS."));
+  }
 }
 
-void loadConfig() {
-    if (!LittleFS.begin(true)) { // true = format if corrupted
-        Serial.println(F("[JSON] LittleFS Mount Failed"));
-        return;
-    }
-    File file = LittleFS.open("/config.json", "r");
-    if (file) {
-        DeserializationError error = deserializeJson(config, file);
-        if (error) Serial.println(F("[JSON] Failed to parse config.json"));
-        file.close();
-    }
+// A tiny macro helper to keep the seeding code incredibly short
+#define SEED_DEFAULT(group, key, value) \
+  if (!config[group].containsKey(key))  \
+  {                                     \
+    config[group][key] = value;         \
+    needsSave = true;                   \
+  }
+
+void enforceConfigDefaults()
+{
+  bool needsSave = false;
+
+  // --- 1. General Namespace ---
+  SEED_DEFAULT("general", "topicCommandLeftEnd", "loco/1/cmd");
+  SEED_DEFAULT("general", "topicFeedbackLeftEnd", "loco/1/telemetry");
+  SEED_DEFAULT("general", "commandtopic", "cmd/ols/");
+  SEED_DEFAULT("general", "feedbacktopic", "tlm/ols");
+  SEED_DEFAULT("general", "erasessid", 0);
+
+  // --- 2. Locomotive Namespace ---
+  SEED_DEFAULT("loco", "ip", 0);       // TBD
+  SEED_DEFAULT("loco", "type", "Unk"); // TBD
+  SEED_DEFAULT("loco", "dccaddress", 3);
+  SEED_DEFAULT("loco", "locoid", "Unk");
+  SEED_DEFAULT("loco", "locotype", "Unk");
+  SEED_DEFAULT("loco", "horsepower", 1500);
+  SEED_DEFAULT("loco", "locoweight", 250000);
+  SEED_DEFAULT("loco", "tractiveeffort", 60000);
+  SEED_DEFAULT("loco", "odometer", 0.0f);
+  SEED_DEFAULT("loco", "topspeed", 0.0f);
+  SEED_DEFAULT("loco", "lastshuttime", 0U); // TBD for uint32_t
+  SEED_DEFAULT("loco", "mustate", 0);
+  SEED_DEFAULT("loco", "muleadloco", "Unk");
+  SEED_DEFAULT("loco", "mureversed", 0); // TBD for booleans
+
+  // --- 3. Calibration Namespace ---
+  SEED_DEFAULT("calibration", "speed2forward", 1.0f);
+  SEED_DEFAULT("calibration", "speed2reverse", 1.0f);
+  SEED_DEFAULT("calibration", "speed5forward", 1.0f);
+  SEED_DEFAULT("calibration", "speed5reverse", 1.0f);
+  SEED_DEFAULT("calibration", "speed10forward", 1.0f);
+  SEED_DEFAULT("calibration", "speed10reverse", 1.0f);
+  SEED_DEFAULT("calibration", "speed20forward", 1.0f);
+  SEED_DEFAULT("calibration", "speed20reverse", 1.0f);
+  SEED_DEFAULT("calibration", "speed50forward", 1.0f);
+  SEED_DEFAULT("calibration", "speed50reverse", 1.0f);
+
+  // --- 4. Functions Namespace ---
+  SEED_DEFAULT("functions", "headlight", 0);
+  SEED_DEFAULT("functions", "headlightdim", 0);
+  SEED_DEFAULT("functions", "rearlight", 0);
+  SEED_DEFAULT("functions", "rearlightdim", 0);
+  SEED_DEFAULT("functions", "bell", 0);
+  SEED_DEFAULT("functions", "horn", 0);
+  SEED_DEFAULT("functions", "iBrake", 0);
+  SEED_DEFAULT("functions", "tBrake", 0);
+  SEED_DEFAULT("functions", "eBrake", 0);
+  SEED_DEFAULT("functions", "brakesqueal", 0);
+  SEED_DEFAULT("functions", "pm", 0);
+  SEED_DEFAULT("functions", "compressor", 0);
+  SEED_DEFAULT("functions", "notchingEnable", 0);
+  SEED_DEFAULT("functions", "notchUp", 0);
+  SEED_DEFAULT("functions", "notchDown", 0);
+  
+  SEED_DEFAULT("functions", "f0", 0);
+  SEED_DEFAULT("functions", "f1", 1);
+  SEED_DEFAULT("functions", "f2", 2);
+  SEED_DEFAULT("functions", "f3", 3);
+  SEED_DEFAULT("functions", "f4", 4);
+  SEED_DEFAULT("functions", "f5", 5);
+  SEED_DEFAULT("functions", "f6", 6);
+  SEED_DEFAULT("functions", "f7", 7);
+  SEED_DEFAULT("functions", "f8", 8);
+  SEED_DEFAULT("functions", "f9", 9);
+  SEED_DEFAULT("functions", "f10", 10);
+  SEED_DEFAULT("functions", "f11", 11);
+  SEED_DEFAULT("functions", "f12", 12);
+  SEED_DEFAULT("functions", "f13", 13);
+  SEED_DEFAULT("functions", "f14", 14);
+  SEED_DEFAULT("functions", "f15", 15);
+  SEED_DEFAULT("functions", "f16", 16);
+  SEED_DEFAULT("functions", "f17", 17);
+  SEED_DEFAULT("functions", "f18", 18);
+  SEED_DEFAULT("functions", "f19", 19);
+  SEED_DEFAULT("functions", "f20", 20);
+  SEED_DEFAULT("functions", "f21", 21);
+  SEED_DEFAULT("functions", "f22", 22);
+  SEED_DEFAULT("functions", "f23", 23);
+  SEED_DEFAULT("functions", "f24", 24);
+  SEED_DEFAULT("functions", "f25", 25);
+  SEED_DEFAULT("functions", "f26", 26);
+  SEED_DEFAULT("functions", "f27", 27);
+  SEED_DEFAULT("functions", "f28", 28);
+
+  // TBD TBD TBD
+
+  // --- 4. Consist Namespace ---
+  SEED_DEFAULT("Consist", "consist", 0); // TBD
+
+  // If any missing elements were found and fixed, commit the clean schema to flash
+  if (needsSave)
+  {
+    Serial.println(F("[Config] Schema missing elements. Seeding defaults and saving..."));
+    saveConfig();
+  }
 }
 
+void loadConfig()
+{
+  if (!LittleFS.begin(true))
+  { // true = format if corrupted
+    Serial.println(F("[JSON] LittleFS Mount Failed"));
+    return;
+  }
+  File file = LittleFS.open("/config.json", "r");
+  if (file)
+  {
+    DeserializationError error = deserializeJson(config, file);
+    if (error)
+      Serial.println(F("[JSON] Failed to parse config.json"));
+    file.close();
+  }
+}
 
 /*****************************************************************************/
 // this function converts placeholders in index.html into active data values
@@ -547,22 +662,20 @@ String processorLocoparms(const String &var)
   String returnVal;
   returnVal = "";
 
-  myPrefs.begin("loco", true);
   if (var == "ODOMETER")
-    returnVal = String(myPrefs.getFloat("odometer", 0.) / 5280.);
+    return String(config["loco"]["odometer"].as<float>() / 5280.0, 2);
   else if (var == "DCCADDRESS")
-    returnVal = String(myPrefs.getInt("dccaddress", 3));
+    return String(config["loco"]["dccaddress"].as<String>());
   else if (var == "LOCOID")
-    returnVal = myPrefs.getString("locoid", "3");
+    return String(config["loco"]["locoid"].as<String>());
   else if (var == "LOCOTYPE")
-    returnVal = myPrefs.getString("locotype", "none");
+    return String(config["loco"]["locotype"].as<String>());
   else if (var == "HORSEPOWER")
-    returnVal = String(myPrefs.getInt("horsepower", 1500));
+    return String(config["loco"]["horsepower"].as<String>());
   else if (var == "WEIGHT")
-    returnVal = String(myPrefs.getULong("locoweight", 200000));
+    return String(config["loco"]["locoweight"].as<String>());
   else if (var == "TRACTIVEEFFORT")
-    returnVal = String(myPrefs.getLong("tractiveeffort", 70000));
-  myPrefs.end();
+    return String(config["loco"]["tractiveeffort"].as<String>());
 
   return (returnVal);
 }
@@ -574,28 +687,26 @@ String processorCalibrationparms(const String &var)
   String returnVal;
   returnVal = "";
 
-  myPrefs.begin("calibration", true);
   if (var == "SPEED2FORWARD")
-    returnVal = String(myPrefs.getFloat("speed2forward", 1.));
+    return config["calibration"]["speed2forward"];
   else if (var == "SPEED2REVERSE")
-    returnVal = String(myPrefs.getFloat("speed2reverse", 1.));
+    return config["calibration"]["speed2reverse"];
   else if (var == "SPEED5FORWARD")
-    returnVal = String(myPrefs.getFloat("speed5forward", 1.));
+    return config["calibration"]["speed5forward"];
   else if (var == "SPEED5REVERSE")
-    returnVal = String(myPrefs.getFloat("speed5reverse", 1.));
+    return config["calibration"]["speed5reverse"];
   else if (var == "SPEED10FORWARD")
-    returnVal = String(myPrefs.getFloat("speed10forward", 1.));
+    return config["calibration"]["speed10forward"];
   else if (var == "SPEED10REVERSE")
-    returnVal = String(myPrefs.getFloat("speed10reverse", 1.));
+    return config["calibration"]["speed10reverse"];
   else if (var == "SPEED20FORWARD")
-    returnVal = String(myPrefs.getFloat("speed20forward", 1.));
+    return config["calibration"]["speed20forward"];
   else if (var == "SPEED20REVERSE")
-    returnVal = String(myPrefs.getFloat("speed20reverse", 2.));
+    return config["calibration"]["speed20reverse"];
   else if (var == "SPEED50FORWARD")
-    returnVal = String(myPrefs.getFloat("speed50forward", 2.));
+    return config["calibration"]["speed50forward"];
   else if (var == "SPEED50REVERSE")
-    returnVal = String(myPrefs.getFloat("speed50reverse", 2.));
-  myPrefs.end();
+    return config["calibration"]["speed50reverse"];
 
   return (returnVal);
 }
@@ -607,98 +718,97 @@ String processorFunctions(const String &var)
   String returnVal;
   returnVal = "";
 
-  myPrefs.begin("functions", true);
   if (var == "HEADLIGHT")
-    returnVal = String(myPrefs.getInt("headlightBright", 0));
+    return config["functions"]["headlight"].as<String>();
   else if (var == "HEADLIGHTDIM")
-    returnVal = String(myPrefs.getInt("headlightDim", 0));
+    return config["functions"]["headlightdim"].as<String>();
   else if (var == "REARLIGHT")
-    returnVal = String(myPrefs.getInt("rearlightBright", 0));
+    return config["functions"]["rearlight"].as<String>();
   else if (var == "REARLIGHTDIM")
-    returnVal = String(myPrefs.getInt("rearlightDim", 0));
+    return config["functions"]["rearlightdim"].as<String>();
   else if (var == "BELL")
-    returnVal = String(myPrefs.getInt("bell", 1));
+    return config["functions"]["bell"].as<String>();
   else if (var == "HORN")
-    returnVal = String(myPrefs.getInt("horn", 2));
+    return config["functions"]["horn"].as<String>();
   else if (var == "IBRAKE")
-    returnVal = String(myPrefs.getInt("iBrake", 2));
+    return config["functions"]["iBrake"].as<String>();
   else if (var == "TBRAKE")
-    returnVal = String(myPrefs.getInt("tBrake", 2));
+    return config["functions"]["tBrake"].as<String>();
   else if (var == "EBRAKE")
-    returnVal = String(myPrefs.getInt("eBrake", -1));
+    return config["functions"]["eBrake"].as<String>();
   else if (var == "BRAKESQUEAL")
-    returnVal = String(myPrefs.getInt("brakesqueal", -1));
+    return config["functions"]["brakesqueal"].as<String>();
   else if (var == "PM")
-    returnVal = String(myPrefs.getInt("pm", 2));
+    return config["functions"]["pm"].as<String>();
   else if (var == "COMPRESSOR")
-    returnVal = String(myPrefs.getInt("compressor", 2));
+    return config["functions"]["compressor"].as<String>();
   else if (var == "NOTCHINGENABLE")
-    returnVal = String(myPrefs.getInt("notchingEnable", 25));
+    return config["functions"]["notchingEnable"].as<String>();
   else if (var == "NOTCHUP")
-    returnVal = String(myPrefs.getInt("notchUp", 25));
+    return config["functions"]["notchUp"].as<String>();
   else if (var == "NOTCHDOWN")
-    returnVal = String(myPrefs.getInt("notchDown", 25));
+    return config["functions"]["notchDown"].as<String>();
 
   // following are labels for functions 0-28
   else if (var == "F0")
-    returnVal = (myPrefs.getString("f0", "-"));
+    return config["functions"]["f0"].as<String>();
   else if (var == "F1")
-    returnVal = (myPrefs.getString("f1", "-"));
+    return config["functions"]["f1"].as<String>();
   else if (var == "F2")
-    returnVal = (myPrefs.getString("f2", "-"));
+    return config["functions"]["f2"].as<String>();
   else if (var == "F3")
-    returnVal = (myPrefs.getString("f3", "-"));
+    return config["functions"]["f3"].as<String>();
   else if (var == "F4")
-    returnVal = (myPrefs.getString("f4", "-"));
+    return config["functions"]["f4"].as<String>();
   else if (var == "F5")
-    returnVal = (myPrefs.getString("f5", "-"));
+    return config["functions"]["f5"].as<String>();
   else if (var == "F6")
-    returnVal = (myPrefs.getString("f6", "-"));
+    return config["functions"]["f6"].as<String>();
   else if (var == "F7")
-    returnVal = (myPrefs.getString("f7", "-"));
+    return config["functions"]["f7"].as<String>();
   else if (var == "F8")
-    returnVal = (myPrefs.getString("f8", "-"));
+    return config["functions"]["f8"].as<String>();
   else if (var == "F9")
-    returnVal = (myPrefs.getString("f9", "-"));
+    return config["functions"]["f9"].as<String>();
   else if (var == "F10")
-    returnVal = (myPrefs.getString("f10", "-"));
+    return config["functions"]["f10"].as<String>();
   else if (var == "F11")
-    returnVal = (myPrefs.getString("f11", "-"));
+    return config["functions"]["f11"].as<String>();
   else if (var == "F12")
-    returnVal = (myPrefs.getString("f12", "-"));
+    return config["functions"]["f12"].as<String>();
   else if (var == "F13")
-    returnVal = (myPrefs.getString("f13", "-"));
+    return config["functions"]["f13"].as<String>();
   else if (var == "F14")
-    returnVal = (myPrefs.getString("f14", "-"));
+    return config["functions"]["f14"].as<String>();
   else if (var == "F15")
-    returnVal = (myPrefs.getString("f15", "-"));
+    return config["functions"]["f15"].as<String>();
   else if (var == "F16")
-    returnVal = (myPrefs.getString("f16", "-"));
+    return config["functions"]["f16"].as<String>();
   else if (var == "F17")
-    returnVal = (myPrefs.getString("f17", "-"));
+    return config["functions"]["f17"].as<String>();
   else if (var == "F18")
-    returnVal = (myPrefs.getString("f18", "-"));
+    return config["functions"]["f18"].as<String>();
   else if (var == "F19")
-    returnVal = (myPrefs.getString("f19", "-"));
+    return config["functions"]["f19"].as<String>();
   else if (var == "F20")
-    returnVal = (myPrefs.getString("f20", "-"));
+    return config["functions"]["f20"].as<String>();
   else if (var == "F21")
-    returnVal = (myPrefs.getString("f21", "-"));
+    return config["functions"]["f21"].as<String>();
   else if (var == "F22")
-    returnVal = (myPrefs.getString("f22", "-"));
+    return config["functions"]["f22"].as<String>();
   else if (var == "F23")
-    returnVal = (myPrefs.getString("f23", "-"));
+    return config["functions"]["f23"].as<String>();
   else if (var == "F24")
-    returnVal = (myPrefs.getString("f24", "-"));
+    return config["functions"]["f24"].as<String>();
   else if (var == "F25")
-    returnVal = (myPrefs.getString("f25", "-"));
+    return config["functions"]["f25"].as<String>();
   else if (var == "F26")
-    returnVal = (myPrefs.getString("f26", "-"));
+    return config["functions"]["f26"].as<String>();
   else if (var == "F27")
-    returnVal = (myPrefs.getString("f27", "-"));
+    return config["functions"]["f27"].as<String>();
   else if (var == "F28")
-    returnVal = (myPrefs.getString("f28", "-"));
-  myPrefs.end();
+    return config["functions"]["f28"].as<String>();
+  // myPrefs.end();
 
   return (returnVal);
 }
@@ -742,23 +852,27 @@ void setupWeb()
     String inputParam;
     // the hidden param specifies which html file is being accessed
     // if we know that then we know which parameters to expect
-    if (request->hasParam("NetworkParm"))
-    {
-      myPrefs.begin("general", false);
-      topicCommandLeftEnd = request->getParam("commandtopic")->value();
-      myPrefs.putString("commandtopic", topicCommandLeftEnd);
-      topicFeedbackLeftEnd = request->getParam("feedbacktopic")->value();
-      myPrefs.putString("feedbacktopic", topicFeedbackLeftEnd);
-      myPrefs.end();
-      request->redirect("/network.html");
-    }
+    // if (request->hasParam("NetworkParm"))
+    // {
+    //   myPrefs.begin("general", false);
+    //   topicCommandLeftEnd = request->getParam("commandtopic")->value();
+    //   myPrefs.putString("commandtopic", topicCommandLeftEnd);
+    //   topicFeedbackLeftEnd = request->getParam("feedbacktopic")->value();
+    //   myPrefs.putString("feedbacktopic", topicFeedbackLeftEnd);
+    //   myPrefs.end();
+    //   request->redirect("/network.html");
+    // }
     
-    else if (request->hasParam("EraseParm"))
+    if (request->hasParam("EraseParm"))
     {
-      myPrefs.begin("general", false);
-      inputParam = request->getParam("erasessid")->value();
-      myPrefs.putBool("erasessid", inputParam == "Y");
-      myPrefs.end();
+      // myPrefs.begin("general", false);
+      // inputParam = request->getParam("erasessid")->value();
+      // myPrefs.putBool("erasessid", inputParam == "Y");
+      // myPrefs.end();
+
+      config["general"]["erasessid"] = request->getParam("erasessid")->value();
+      saveConfig();
+
       // eraseSSID = inputParam == "Y";
       request->redirect("/network.html");
       ESP.restart();  // v 0.23
@@ -766,98 +880,90 @@ void setupWeb()
     
     else if (request->hasParam("locoparmsParm")) 
     {
-      myPrefs.begin("loco", false);
-      inputMessage = request->getParam("dccaddress")->value();
-      myPrefs.putInt("dccaddress", inputMessage.toInt());  
-      inputMessage = request->getParam("locoid")->value();
-      myPrefs.putString("locoid", inputMessage);
-      inputMessage = request->getParam("locotype")->value();
-      myPrefs.putString("locotype", inputMessage);
-      inputMessage = request->getParam("horsepower")->value();
-      myPrefs.putInt("horsepower", inputMessage.toInt());
-      inputMessage = request->getParam("weight")->value();
-      myPrefs.putULong("locoweight", inputMessage.toInt());
-      inputMessage = request->getParam("tractiveeffort")->value();
-      myPrefs.putLong("tractiveeffort", inputMessage.toInt()); // TBD why float?
-      myPrefs.end();
+      // myPrefs.begin("loco", false);
+      // inputMessage = request->getParam("dccaddress")->value();
+      // myPrefs.putInt("dccaddress", inputMessage.toInt());  
+            
+      // inputMessage = request->getParam("locoid")->value();
+      // myPrefs.putString("locoid", inputMessage);
       
+      // inputMessage = request->getParam("locotype")->value();
+      // myPrefs.putString("locotype", inputMessage);
+      
+      // inputMessage = request->getParam("horsepower")->value();
+      // myPrefs.putInt("horsepower", inputMessage.toInt());
+
+      // inputMessage = request->getParam("weight")->value();
+      // myPrefs.putULong("locoweight", inputMessage.toInt());
+
+      // inputMessage = request->getParam("tractiveeffort")->value();
+      // myPrefs.putLong("tractiveeffort", inputMessage.toInt()); // TBD why float?
+      // myPrefs.end();
+            
+      config["loco"]["dccaddress"] = request->getParam("dccaddress")->value();
+      config["loco"]["locoid"] = request->getParam("locoid")->value();
+      config["loco"]["locotype"] = request->getParam("locotype")->value();
+      config["loco"]["horsepower"] = request->getParam("horsepower")->value().toInt();
+      config["loco"]["locoweight"] = request->getParam("weight")->value().toDouble();
+      config["loco"]["tractiveeffort"] = request->getParam("tractiveeffort")->value().toInt();
+      saveConfig();
+            
       throttle.getLocoPrefs();
       request->redirect("/locoparms.html");
     }
     
     else if (request->hasParam("calibrationParm"))
     {
-      myPrefs.begin("calibration", false);
-      inputMessage = request->getParam("speed2forward")->value();
-      myPrefs.putFloat("speed2forward", inputMessage.toFloat());
-      inputMessage = request->getParam("speed2reverse")->value();
-      myPrefs.putFloat("speed2reverse", inputMessage.toFloat());
+      config["calibration"]["speed2forward"] = request->getParam("speed2forward")->value().toFloat();
+      config["calibration"]["speed2reverse"] = request->getParam("speed2reverse")->value().toFloat();
+      config["calibration"]["speed5forward"] = request->getParam("speed5forward")->value().toFloat();
+      config["calibration"]["speed5reverse"] = request->getParam("speed5reverse")->value().toFloat();
+      config["calibration"]["speed10forward"] = request->getParam("speed10forward")->value().toFloat();
+      config["calibration"]["speed10reverse"] = request->getParam("speed10reverse")->value().toFloat();
+      config["calibration"]["speed20forward"] = request->getParam("speed20forward")->value().toFloat();
+      config["calibration"]["speed20reverse"] = request->getParam("speed20reverse")->value().toFloat();
+      config["calibration"]["speed50forward"] = request->getParam("speed50forward")->value().toFloat();
+      config["calibration"]["speed50reverse"] = request->getParam("speed50reverse")->value().toFloat();
+      saveConfig();
 
-      inputMessage = request->getParam("speed5forward")->value();
-      myPrefs.putFloat("speed5forward", inputMessage.toFloat());
-      inputMessage = request->getParam("speed5reverse")->value();
-      myPrefs.putFloat("speed5reverse", inputMessage.toFloat());
-      
-      inputMessage = request->getParam("speed10forward")->value();
-      myPrefs.putFloat("speed10forward", inputMessage.toFloat());
-      inputMessage = request->getParam("speed10reverse")->value();
-      myPrefs.putFloat("speed10reverse", inputMessage.toFloat());
-      
-      
-      inputMessage = request->getParam("speed20forward")->value();
-      myPrefs.putFloat("speed20forward", inputMessage.toFloat());
-      inputMessage = request->getParam("speed20reverse")->value();
-      myPrefs.putFloat("speed20reverse", inputMessage.toFloat());
-      
-      inputMessage = request->getParam("speed50forward")->value();
-      myPrefs.putFloat("speed50forward", inputMessage.toFloat());
-      inputMessage = request->getParam("speed50reverse")->value();
-      myPrefs.putFloat("speed50reverse", inputMessage.toFloat());
-      
-      myPrefs.end();
-      
       throttle.getLocoPrefs();  // TBD have to add to getLocoPrefs
       request->redirect("/calibration.html");
     }
 
-    else if (request->hasParam("FunctionsParm")) 
-    {
-      myPrefs.begin("functions", false);
-      inputMessage = request->getParam("headlight")->value();
-      myPrefs.putInt("headlightBright", inputMessage.toInt());
-      inputMessage = request->getParam("rearlight")->value();
-      myPrefs.putInt("rearlightBright", inputMessage.toInt());
-      inputMessage = request->getParam("headlightdim")->value();
-      myPrefs.putInt("headlightDim", inputMessage.toInt());
-      inputMessage = request->getParam("rearlightdim")->value();
-      myPrefs.putInt("rearlightDim", inputMessage.toInt());
-      inputMessage = request->getParam("bell")->value();
-      myPrefs.putInt("bell", inputMessage.toInt());
-      inputMessage = request->getParam("horn")->value();
-      myPrefs.putInt("horn", inputMessage.toInt());
-      inputMessage = request->getParam("ibrake")->value();
-      myPrefs.putInt("iBrake", inputMessage.toInt());
-      inputMessage = request->getParam("tbrake")->value();
-      myPrefs.putInt("tBrake", inputMessage.toInt());
-      inputMessage = request->getParam("ebrake")->value();
-      myPrefs.putInt("eBrake", inputMessage.toInt());
-      inputMessage = request->getParam("brakesqueal")->value();
-      myPrefs.putInt("brakesqueal", inputMessage.toInt());
-      inputMessage = request->getParam("pm")->value();
-      myPrefs.putInt("pm", inputMessage.toInt());
-      inputMessage = request->getParam("compressor")->value();
-      myPrefs.putInt("compressor", inputMessage.toInt());
-      inputMessage = request->getParam("notchingenable")->value();
-      myPrefs.putInt("notchingEnable", inputMessage.toInt());
-      inputMessage = request->getParam("notchup")->value();
-      myPrefs.putInt("notchUp", inputMessage.toInt());
-      inputMessage = request->getParam("notchdown")->value();
-      myPrefs.putInt("notchDown", inputMessage.toInt());
-      myPrefs.end();
-
-      throttle.getFunctionPrefs();
-      request->redirect("/functions.html");
+    // Check if this request is actually coming from the Functions page
+    else if (request->hasParam("FunctionsParm")) {
+        
+        // Loop through every single parameter the browser sent automatically
+        size_t paramsCount = request->params();
+        for (size_t i = 0; i < paramsCount; i++) {
+            const AsyncWebParameter* p = request->getParam(i);
+            
+            // Skip the "traffic cop" hidden variable itself
+            if (p->name() == "FunctionsParm") continue;
+            
+            // Magically inject the name and value straight into your JSON ledger group
+            config["functions"][p->name().c_str()] = p->value().toInt();
+            log_d("function name %s", p->name().c_str());
+        }
+        
+        // Save the whole ledger to LittleFS in one clean transaction
+        saveConfig();
+        Serial.println(F("[Config] All function parameters updated via loop."));
+        
+        // Send the user back to the functions page instantly to close the connection safely
+        request->redirect("/functions.html");
     }
+    // else {
+    //     request->send(404, "text/plain", "Not Found");
+    // }
+// });
+
+
+
+
+
+
+
     else if (request->hasParam("CvParm"))
     {
       String cv = request->getParam("cv")->value();
@@ -867,76 +973,47 @@ void setupWeb()
     } 
     else if (request->hasParam("FunctionLabels")) 
     {
-      myPrefs.begin("functions", false);
-      inputMessage = request->getParam("f0")->value();
-      myPrefs.putString("f0", inputMessage);
-      inputMessage = request->getParam("f1")->value();
-      myPrefs.putString("f1", inputMessage);
-      inputMessage = request->getParam("f2")->value();
-      myPrefs.putString("f2", inputMessage);
-      inputMessage = request->getParam("f3")->value();
-      myPrefs.putString("f3", inputMessage);
-      inputMessage = request->getParam("f4")->value();
-      myPrefs.putString("f4", inputMessage);
-      inputMessage = request->getParam("f5")->value();
-      myPrefs.putString("f5", inputMessage);
-      inputMessage = request->getParam("f6")->value();
-      myPrefs.putString("f6", inputMessage);
-      inputMessage = request->getParam("f7")->value();
-      myPrefs.putString("f7", inputMessage);
-      inputMessage = request->getParam("f8")->value();
-      myPrefs.putString("f8", inputMessage);
-      inputMessage = request->getParam("f9")->value();
-      myPrefs.putString("f9", inputMessage);
-      inputMessage = request->getParam("f10")->value();
-      myPrefs.putString("f10", inputMessage);
-      inputMessage = request->getParam("f11")->value();
-      myPrefs.putString("f11", inputMessage);
-      inputMessage = request->getParam("f12")->value();
-      myPrefs.putString("f12", inputMessage);
-      inputMessage = request->getParam("f13")->value();
-      myPrefs.putString("f13", inputMessage);
-      inputMessage = request->getParam("f14")->value();
-      myPrefs.putString("f14", inputMessage);
-      inputMessage = request->getParam("f15")->value();
-      myPrefs.putString("f15", inputMessage);
-      inputMessage = request->getParam("f16")->value();
-      myPrefs.putString("f16", inputMessage);
-      inputMessage = request->getParam("f17")->value();
-      myPrefs.putString("f17", inputMessage);
-      inputMessage = request->getParam("f18")->value();
-      myPrefs.putString("f18", inputMessage);
-      inputMessage = request->getParam("f19")->value();
-      myPrefs.putString("f19", inputMessage);
-      inputMessage = request->getParam("f20")->value();
-      myPrefs.putString("f20", inputMessage);
-      inputMessage = request->getParam("f21")->value();
-      myPrefs.putString("f21", inputMessage);
-      inputMessage = request->getParam("f22")->value();
-      myPrefs.putString("f22", inputMessage);
-      inputMessage = request->getParam("f23")->value();
-      myPrefs.putString("f23", inputMessage);
-      inputMessage = request->getParam("f24")->value();
-      myPrefs.putString("f24", inputMessage);
-      inputMessage = request->getParam("f25")->value();
-      myPrefs.putString("f25", inputMessage);
-      inputMessage = request->getParam("f26")->value();
-      myPrefs.putString("f26", inputMessage);
-      inputMessage = request->getParam("f27")->value();
-      myPrefs.putString("f27", inputMessage);
-      inputMessage = request->getParam("f28")->value();
-      myPrefs.putString("f28", inputMessage);
-      myPrefs.end();
+      config["functions"]["f0"] = request->getParam("f0")->value();
+      config["functions"]["f1"] = request->getParam("f1")->value();
+      config["functions"]["f2"] = request->getParam("f2")->value();
+      config["functions"]["f3"] = request->getParam("f3")->value();
+      config["functions"]["f4"] = request->getParam("f4")->value();
+      config["functions"]["f5"] = request->getParam("f5")->value();
+      config["functions"]["f6"] = request->getParam("f6")->value();
+      config["functions"]["f7"] = request->getParam("f7")->value();
+      config["functions"]["f8"] = request->getParam("f8")->value();
+      config["functions"]["f9"] = request->getParam("f9")->value();
+      config["functions"]["f10"] = request->getParam("f10")->value();
+      config["functions"]["f11"] = request->getParam("f11")->value();
+      config["functions"]["f12"] = request->getParam("f12")->value();
+      config["functions"]["f13"] = request->getParam("f13")->value();
+      config["functions"]["f14"] = request->getParam("f14")->value();
+      config["functions"]["f15"] = request->getParam("f15")->value();
+      config["functions"]["f16"] = request->getParam("f16")->value();
+      config["functions"]["f17"] = request->getParam("f17")->value();
+      config["functions"]["f18"] = request->getParam("f18")->value();
+      config["functions"]["f19"] = request->getParam("f19")->value();
+      config["functions"]["f20"] = request->getParam("f20")->value();
+      config["functions"]["f21"] = request->getParam("f21")->value();
+      config["functions"]["f22"] = request->getParam("f22")->value();
+      config["functions"]["f23"] = request->getParam("f23")->value();
+      config["functions"]["f24"] = request->getParam("f24")->value();
+      config["functions"]["f25"] = request->getParam("f25")->value();
+      config["functions"]["f26"] = request->getParam("f26")->value();
+      config["functions"]["f27"] = request->getParam("f27")->value();
+      config["functions"]["f28"] = request->getParam("f28")->value();
+      saveConfig();
+
       // TBD get all labels
       request->redirect("/functions.html");
     } });
-    
 }
 
 /*****************************************************************************/
 // configure mDNS - allows access via URL "ols<locoID>.local"
 void setupMDNS(String locoid)
 {
+  log_d("starting");
   // start mDNS, works on Win10, 11, Linux, Mac - supposed to work on Android but doesn't always
   // the web pages will be available at http://"OLS" + "locoID".local and at IP address
   String myNode = "OLS" + locoid;
@@ -956,12 +1033,18 @@ void setupMDNS(String locoid)
   log_i("Advertising service: %s.%s on port %d", serviceType, serviceProto, servicePort);
 
   // Retrieve strings from preferences once
-  myPrefs.begin("loco");
-  String locoId = myPrefs.getString("locoid", "none");
+  // myPrefs.begin("loco");
+  // String locoId = myPrefs.getString("locoid", "none");
+  // locoId.trim();
+  // String locoType = myPrefs.getString("locotype", "none");
+  // locoType.trim();
+  // myPrefs.end();
+
+  String locoId = config["loco"]["locoid"];
+  String locoType = config["loco"]["locotype"];
   locoId.trim();
-  String locoType = myPrefs.getString("locotype", "none");
   locoType.trim();
-  myPrefs.end();
+
   log_d("Sending locoID: %s Type: %s", locoId.c_str(), locoType.c_str());
 
   // Use MDNS.addServiceTxt(serviceType, serviceProto, key, value)
@@ -1037,12 +1120,6 @@ void setup()
 {
   // runs once
 
-#ifdef SPIFF_CLEAN
-  nvs_flash_erase();
-#endif
-
-  nvs_flash_init();
-
 #ifdef ESP32CF
   // don't leave unused pins floating
   // TBD
@@ -1078,14 +1155,13 @@ void setup()
   pinMode(HW_SERIAL_PIN, INPUT_PULLDOWN);
 #endif
 
-  SPIFFS.begin(false); // format on fail if true
+  // getGeneralPrefs();
 
-  getGeneralPrefs();
+  loadConfig();            // 1. Read /config.json if it exists
+  enforceConfigDefaults(); // 2. Fill in ANY blank slots with factory settings
 
   // get the road number
-  myPrefs.begin("loco", true);
-  String locoID = myPrefs.getString("locoid", "new");
-  myPrefs.end();
+  String locoID = config["loco"]["locoid"];
 
   // using AI generated wificonfigurator object
   // it presents a soft AP that will display a captive portal page to the user
@@ -1157,6 +1233,10 @@ void setup()
   rollcall.begin();
 
   log_i("Firmware version: %s", VERSION_STRING.c_str());
+
+  // Now your variables are 100% guaranteed to exist safely in RAM
+  int currentAddress = config["loco"]["dccaddress"];
+  log_i("Locomotive #%d is ready.", currentAddress);
 
 } // end setup
 

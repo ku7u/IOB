@@ -3,7 +3,6 @@
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <Preferences.h>
-#include "SPIFFS.h"
 
 class WiFiConfigurator {
 public:
@@ -44,5 +43,4 @@ private:
     void connectToSavedHouseAP();
     void saveCredentials(const char *ssid, const char *pass);
     String jsonEscape(const String &s);
-    // String embeddedApSelectHtml();
 };
