@@ -221,7 +221,6 @@ TBD these pin assignments need to be cleaned up for both WROOM and C3
 #include <ESPmDNS.h>
 #include <iostream>
 #include "nvs_flash.h"
-// #include "Preferences.h"
 #include "WiFi.h"
 #include "FS.h"
 #include "RBot.h"
@@ -264,7 +263,6 @@ using namespace std;
 #endif
 #define RGB_BUILTIN 10
 
-// Preferences myPrefs;
 
 // Allocate a "ledger" in memory.
 // For an ESP32-C3, 4KB (4096) is plenty for hundreds of locomotive settings. (per Gemini)
@@ -485,23 +483,23 @@ void saveConfig()
 
 // A tiny macro helper to keep the seeding code incredibly short
 #define SEED_DEFAULT(group, key, value) \
-  if (!config[group].containsKey(key))  \
-  {                                     \
-    config[group][key] = value;         \
-    needsSave = true;                   \
-  }
+if (!config[group].containsKey(key))  \
+{                                     \
+  config[group][key] = value;         \
+  needsSave = true;                   \
+}
 
 void enforceConfigDefaults()
 {
   bool needsSave = false;
-
+  
   // --- 1. General Namespace ---
   SEED_DEFAULT("general", "topicCommandLeftEnd", "loco/1/cmd");
   SEED_DEFAULT("general", "topicFeedbackLeftEnd", "loco/1/telemetry");
   SEED_DEFAULT("general", "commandtopic", "cmd/ols/");
   SEED_DEFAULT("general", "feedbacktopic", "tlm/ols");
   SEED_DEFAULT("general", "erasessid", 0);
-
+  
   // --- 2. Locomotive Namespace ---
   SEED_DEFAULT("loco", "ip", 0);       // TBD
   SEED_DEFAULT("loco", "type", "Unk"); // TBD
@@ -512,11 +510,12 @@ void enforceConfigDefaults()
   SEED_DEFAULT("loco", "locoweight", 250000);
   SEED_DEFAULT("loco", "tractiveeffort", 60000);
   SEED_DEFAULT("loco", "odometer", 0.0f);
-  SEED_DEFAULT("loco", "topspeed", 0.0f);
+  SEED_DEFAULT("loco", "topspeed", 60.0f);
   SEED_DEFAULT("loco", "lastshuttime", 0U); // TBD for uint32_t
   SEED_DEFAULT("loco", "mustate", 0);
   SEED_DEFAULT("loco", "muleadloco", "Unk");
   SEED_DEFAULT("loco", "mureversed", 0); // TBD for booleans
+  SEED_DEFAULT("loco", "consist", "{}"); 
 
   // --- 3. Calibration Namespace ---
   SEED_DEFAULT("calibration", "speed2forward", 1.0f);
@@ -537,15 +536,15 @@ void enforceConfigDefaults()
   SEED_DEFAULT("functions", "rearlightdim", 0);
   SEED_DEFAULT("functions", "bell", 0);
   SEED_DEFAULT("functions", "horn", 0);
-  SEED_DEFAULT("functions", "iBrake", 0);
-  SEED_DEFAULT("functions", "tBrake", 0);
-  SEED_DEFAULT("functions", "eBrake", 0);
+  SEED_DEFAULT("functions", "ibrake", 0);
+  SEED_DEFAULT("functions", "tbrake", 0);
+  SEED_DEFAULT("functions", "ebrake", 0);
   SEED_DEFAULT("functions", "brakesqueal", 0);
   SEED_DEFAULT("functions", "pm", 0);
   SEED_DEFAULT("functions", "compressor", 0);
-  SEED_DEFAULT("functions", "notchingEnable", 0);
-  SEED_DEFAULT("functions", "notchUp", 0);
-  SEED_DEFAULT("functions", "notchDown", 0);
+  SEED_DEFAULT("functions", "notchingenable", 0);
+  SEED_DEFAULT("functions", "notchup", 0);
+  SEED_DEFAULT("functions", "notchdown", 0);
   
   SEED_DEFAULT("functions", "f0", 0);
   SEED_DEFAULT("functions", "f1", 1);
@@ -580,7 +579,6 @@ void enforceConfigDefaults()
   // TBD TBD TBD
 
   // --- 4. Consist Namespace ---
-  SEED_DEFAULT("Consist", "consist", 0); // TBD
 
   // If any missing elements were found and fixed, commit the clean schema to flash
   if (needsSave)
@@ -621,23 +619,23 @@ String processorIndex(const String &var)
 // this function converts placeholders in network.html into active data values
 String processorNetwork(const String &var)
 {
-  String returnString = ""; // this is unnecessary, just troubleshooting, can be reset back to original returns
+  // String returnString = ""; // this is unnecessary, just troubleshooting, can be reset back to original returns
 
   if (var == "IP")
-    // return WiFi.localIP().toString();
-    returnString = WiFi.localIP().toString();
+    return WiFi.localIP().toString();
+    // returnString = WiFi.localIP().toString();
   else if (var == "SSID")
-    // return WiFi.SSID();
-    returnString = WiFi.SSID();
+    return WiFi.SSID();
+    // returnString = WiFi.SSID();
   else if (var == "RSSI")
-    // return String(WiFi.RSSI());
-    returnString = String(WiFi.RSSI());
+    return String(WiFi.RSSI());
+    // returnString = String(WiFi.RSSI());
   else if (var == "MAC")
-    // return WiFi.macAddress();
-    returnString = WiFi.macAddress();
+    return WiFi.macAddress();
+    // returnString = WiFi.macAddress();
   else if (var == "MDNS")
-    // return mdnsURL;
-    returnString = mdnsURL;
+    return mdnsURL;
+    // returnString = mdnsURL;
   else if (var == "TOPICCOMMANDLEFTEND")
   {
     topicCommandLeftEnd.replace("%", "");
@@ -649,9 +647,9 @@ String processorNetwork(const String &var)
     return topicFeedbackLeftEnd;
   }
 
-  if (returnString != "")
-    return returnString;
-  else
+  // if (returnString != "")
+  //   return returnString;
+  // else
     return String(); // in case nothing matched
 }
 
@@ -676,6 +674,8 @@ String processorLocoparms(const String &var)
     return String(config["loco"]["locoweight"].as<String>());
   else if (var == "TRACTIVEEFFORT")
     return String(config["loco"]["tractiveeffort"].as<String>());
+  else if (var == "TOPSPEED")
+    return String(config["loco"]["topspeed"].as<String>());
 
   return (returnVal);
 }
@@ -731,11 +731,11 @@ String processorFunctions(const String &var)
   else if (var == "HORN")
     return config["functions"]["horn"].as<String>();
   else if (var == "IBRAKE")
-    return config["functions"]["iBrake"].as<String>();
+    return config["functions"]["ibrake"].as<String>();
   else if (var == "TBRAKE")
-    return config["functions"]["tBrake"].as<String>();
+    return config["functions"]["tbrake"].as<String>();
   else if (var == "EBRAKE")
-    return config["functions"]["eBrake"].as<String>();
+    return config["functions"]["ebrake"].as<String>();
   else if (var == "BRAKESQUEAL")
     return config["functions"]["brakesqueal"].as<String>();
   else if (var == "PM")
@@ -743,11 +743,11 @@ String processorFunctions(const String &var)
   else if (var == "COMPRESSOR")
     return config["functions"]["compressor"].as<String>();
   else if (var == "NOTCHINGENABLE")
-    return config["functions"]["notchingEnable"].as<String>();
+    return config["functions"]["notchingenable"].as<String>();
   else if (var == "NOTCHUP")
-    return config["functions"]["notchUp"].as<String>();
+    return config["functions"]["notchup"].as<String>();
   else if (var == "NOTCHDOWN")
-    return config["functions"]["notchDown"].as<String>();
+    return config["functions"]["notchdown"].as<String>();
 
   // following are labels for functions 0-28
   else if (var == "F0")
@@ -852,23 +852,10 @@ void setupWeb()
     String inputParam;
     // the hidden param specifies which html file is being accessed
     // if we know that then we know which parameters to expect
-    // if (request->hasParam("NetworkParm"))
-    // {
-    //   myPrefs.begin("general", false);
-    //   topicCommandLeftEnd = request->getParam("commandtopic")->value();
-    //   myPrefs.putString("commandtopic", topicCommandLeftEnd);
-    //   topicFeedbackLeftEnd = request->getParam("feedbacktopic")->value();
-    //   myPrefs.putString("feedbacktopic", topicFeedbackLeftEnd);
-    //   myPrefs.end();
-    //   request->redirect("/network.html");
-    // }
+
     
     if (request->hasParam("EraseParm"))
     {
-      // myPrefs.begin("general", false);
-      // inputParam = request->getParam("erasessid")->value();
-      // myPrefs.putBool("erasessid", inputParam == "Y");
-      // myPrefs.end();
 
       config["general"]["erasessid"] = request->getParam("erasessid")->value();
       saveConfig();
@@ -880,32 +867,13 @@ void setupWeb()
     
     else if (request->hasParam("locoparmsParm")) 
     {
-      // myPrefs.begin("loco", false);
-      // inputMessage = request->getParam("dccaddress")->value();
-      // myPrefs.putInt("dccaddress", inputMessage.toInt());  
-            
-      // inputMessage = request->getParam("locoid")->value();
-      // myPrefs.putString("locoid", inputMessage);
-      
-      // inputMessage = request->getParam("locotype")->value();
-      // myPrefs.putString("locotype", inputMessage);
-      
-      // inputMessage = request->getParam("horsepower")->value();
-      // myPrefs.putInt("horsepower", inputMessage.toInt());
-
-      // inputMessage = request->getParam("weight")->value();
-      // myPrefs.putULong("locoweight", inputMessage.toInt());
-
-      // inputMessage = request->getParam("tractiveeffort")->value();
-      // myPrefs.putLong("tractiveeffort", inputMessage.toInt()); // TBD why float?
-      // myPrefs.end();
-            
       config["loco"]["dccaddress"] = request->getParam("dccaddress")->value();
       config["loco"]["locoid"] = request->getParam("locoid")->value();
       config["loco"]["locotype"] = request->getParam("locotype")->value();
       config["loco"]["horsepower"] = request->getParam("horsepower")->value().toInt();
       config["loco"]["locoweight"] = request->getParam("weight")->value().toDouble();
       config["loco"]["tractiveeffort"] = request->getParam("tractiveeffort")->value().toInt();
+      config["loco"]["topspeed"] = request->getParam("topspeed")->value().toInt();
       saveConfig();
             
       throttle.getLocoPrefs();
@@ -943,7 +911,7 @@ void setupWeb()
             
             // Magically inject the name and value straight into your JSON ledger group
             config["functions"][p->name().c_str()] = p->value().toInt();
-            log_d("function name %s", p->name().c_str());
+            // log_d("function name %s", p->name().c_str());
         }
         
         // Save the whole ledger to LittleFS in one clean transaction
@@ -953,16 +921,6 @@ void setupWeb()
         // Send the user back to the functions page instantly to close the connection safely
         request->redirect("/functions.html");
     }
-    // else {
-    //     request->send(404, "text/plain", "Not Found");
-    // }
-// });
-
-
-
-
-
-
 
     else if (request->hasParam("CvParm"))
     {
@@ -971,6 +929,7 @@ void setupWeb()
       throttle.setCV(cv.toInt(), cvValue.toInt());
       request->redirect("/functions.html");
     } 
+
     else if (request->hasParam("FunctionLabels")) 
     {
       config["functions"]["f0"] = request->getParam("f0")->value();
@@ -1013,7 +972,6 @@ void setupWeb()
 // configure mDNS - allows access via URL "ols<locoID>.local"
 void setupMDNS(String locoid)
 {
-  log_d("starting");
   // start mDNS, works on Win10, 11, Linux, Mac - supposed to work on Android but doesn't always
   // the web pages will be available at http://"OLS" + "locoID".local and at IP address
   String myNode = "OLS" + locoid;
@@ -1032,13 +990,6 @@ void setupMDNS(String locoid)
   MDNS.addService(serviceType, serviceProto, servicePort);
   log_i("Advertising service: %s.%s on port %d", serviceType, serviceProto, servicePort);
 
-  // Retrieve strings from preferences once
-  // myPrefs.begin("loco");
-  // String locoId = myPrefs.getString("locoid", "none");
-  // locoId.trim();
-  // String locoType = myPrefs.getString("locotype", "none");
-  // locoType.trim();
-  // myPrefs.end();
 
   String locoId = config["loco"]["locoid"];
   String locoType = config["loco"]["locotype"];

@@ -24,7 +24,7 @@ public:
     void getLocoPrefs(void);
     void report(void);
     void udpReport(void);
-    void setRoadNumber(int roadNumber);
+    // void setRoadNumber(int roadNumber);
     void pmOnOff(bool onOff);
     void bell(bool onOff);
     void horn(bool onOff);
@@ -47,7 +47,7 @@ public:
     void trainline(bool connect);
     void panicStop(void);
     // void setAirGauge(void);
-    int getRoadNumber(void);
+    // int getRoadNumber(void);
     int getDccAddress(void);
     void calibrate(int speed);
     uint16_t interpolateSpeedFactor(float fps);
@@ -111,7 +111,7 @@ private:
     IPAddress _controllingIP; // the app runs here
 
     bool _inUse = false; // true if some app has latched on to this device
-    uint16_t _roadNumber = 3;
+    // uint16_t _roadNumber = 3;
     String _locoID;
     String _locoType;
     uint16_t _dccAddress = 3;
@@ -138,7 +138,7 @@ private:
     uint16_t _notch;
     uint16_t _lastNotch;
     bool _neutral = true;
-    float _currentSpeed;
+    float _currentSpeed = 0.0;
     float _lastCurrentSpeed;
     uint16_t _lastIntCurrentSpeed;
     uint16_t _targetSpeed;
@@ -153,13 +153,13 @@ private:
     uint16_t _horsepowerAtIdle;
     uint16_t _carCount;
     uint32_t _tonnage = 0; // train tons excluding locos
-    uint32_t _locoWeight;  // pounds
-    uint16_t _locoMass;    // slugs
-    uint16_t _muLocoMass;  // total mass of mued locos, excluding lead
-    uint32_t _tractiveEffort;
-    uint16_t _topSpeed;         // fps gfh add 020525
-    uint32_t _muTractiveEffort; // total te of mued locos, excluding lead
-    float _lastTractiveForce;
+    uint32_t _locoWeight = 0;  // pounds
+    uint16_t _locoMass = 0;    // slugs
+    uint16_t _muLocoMass = 0;  // total mass of mued locos, excluding lead
+    uint32_t _tractiveEffort = 0;
+    uint16_t _topSpeed = 0;         // fps gfh add 020525
+    uint32_t _muTractiveEffort = 0; // total te of mued locos, excluding lead
+    float _lastTractiveForce = 0.0;
     float _independentBrake; // percent
     float _trainBrake;       // percent
     uint8_t _emergencyBrake; // on or off
