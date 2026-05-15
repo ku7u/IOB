@@ -1,6 +1,9 @@
 #include "RollcallHandler.h"
 #include "defines.h"
 
+extern JsonDocument config;
+
+
 RollcallHandler::RollcallHandler(UdpTransport &transport)
     : _transport(transport)
 {
@@ -38,11 +41,15 @@ void RollcallHandler::loop()
 
     // Build JSON response
     JsonDocument doc;
-    myPrefs.begin("loco");
-    doc["locoID"] = myPrefs.getString("locoid", "none");
+    // myPrefs.begin("loco");
+    // doc["locoID"] = myPrefs.getString("locoid", "none");
+    // doc["ip"] = WiFi.localIP().toString();
+    // doc["type"] = myPrefs.getString("locotype", "none");
+    // myPrefs.end();
+    
+    doc["locoID"] = config["loco"]["locoid"];
+    doc["type"] = config["loco"]["type"];
     doc["ip"] = WiFi.localIP().toString();
-    doc["type"] = myPrefs.getString("locotype", "none");
-    myPrefs.end();
 
     char jsonBuf[200];
     serializeJson(doc, jsonBuf);

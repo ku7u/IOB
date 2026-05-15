@@ -1,6 +1,9 @@
 #include "WiFiConfigurator.h"
 #include "WebPages.h"
 
+extern JsonDocument config;
+extern void saveConfig(); 
+
 WiFiConfigurator::WiFiConfigurator(AsyncWebServer &srv,
                                    const char *prefsNamespace,
                                    const char *softApSSID,
@@ -142,11 +145,12 @@ void WiFiConfigurator::handleStatus(AsyncWebServerRequest *req)
     req->send(200, "application/json", body);
 }
 
+
 void WiFiConfigurator::handleConnect(AsyncWebServerRequest *req)
 {
     String ssid, password;
 
-    // check form-encoded
+    // 1. Extract the credentials from the incoming POST request
     if (req->hasParam("ssid", true))
         ssid = req->getParam("ssid", true)->value();
     if (req->hasParam("password", true))
@@ -158,11 +162,25 @@ void WiFiConfigurator::handleConnect(AsyncWebServerRequest *req)
         return;
     }
 
-    bool ok = attemptConnectAndSave(ssid.c_str(), password.c_str());
-    req->send(200, "application/json",
-              "{\"ok\":" + String(ok ? "true" : "false") +
-                  ",\"message\":\"" + (ok ? "connecting" : "failed") + "\"}");
+    // 2. Save straight to your memory JSON ledger and LittleFS
+    config["wifi"]["ssid"] = ssid;
+    config["wifi"]["pass"] = password;
+    saveConfig();
+    Serial.println("[WiFiConfigurator] Credentials saved to config.json");
+
+    // 3. Respond to the JavaScript browser fetch routine immediately
+    req->send(200, "application/json", "{\"ok\":true,\"message\":\"connecting\"}");
+
+    // 4. THE FIX FOR SINGLE-CORE C3:
+    // Yield the CPU for 2 seconds to let the AsyncTCP background stack
+    // physically transmit the response bytes back to the browser.
+    Serial.println("[WiFiConfigurator] Flushing network buffer... Rebooting in 2s");
+    delay(2000);
+
+    // 5. Force the cold boot to automatically switch modes and connect
+    ESP.restart();
 }
+
 
 bool WiFiConfigurator::attemptConnectAndSave(const char *ssid, const char *password)
 {
@@ -171,32 +189,37 @@ bool WiFiConfigurator::attemptConnectAndSave(const char *ssid, const char *passw
     return connected;
 }
 
+
+
 void WiFiConfigurator::connectToSavedHouseAP()
 {
-    _prefs.begin(_prefsNamespace, true);
-    String ssid = _prefs.getString(KEY_SSID, "");
-    String pass = _prefs.getString(KEY_PASS, "");
-    _prefs.end();
+    // Extract strings directly from your loaded JSON config
+    String ssid = config["wifi"]["ssid"] | "";
+    String pass = config["wifi"]["pass"] | "";
 
     if (ssid.length() > 0)
     {
-        Serial.printf("[WiFiConfigurator] Found SSID '%s', connecting...\n", ssid.c_str());
+        Serial.printf("[WiFiConfigurator] Found JSON SSID '%s', connecting...\n", ssid.c_str());
         connectSTA(ssid.c_str(), pass.c_str());
     }
     else
     {
-        Serial.println("[WiFiConfigurator] No saved credentials → SoftAP mode");
+        Serial.println("[WiFiConfigurator] No saved credentials in JSON → SoftAP mode");
     }
 }
 
+
 void WiFiConfigurator::saveCredentials(const char *ssid, const char *pass)
 {
-    _prefs.begin(_prefsNamespace, false);
-    _prefs.putString(KEY_SSID, ssid);
-    _prefs.putString(KEY_PASS, pass);
-    _prefs.end();
-    Serial.println("[WiFiConfigurator] Credentials saved");
+    // Write directly to your global JSON ledger
+    config["wifi"]["ssid"] = ssid;
+    config["wifi"]["pass"] = pass;
+    
+    // Call your existing global save function to commit it to LittleFS
+    saveConfig(); 
+    Serial.println("[WiFiConfigurator] Credentials saved to config.json");
 }
+
 
 String WiFiConfigurator::jsonEscape(const String &s)
 {

@@ -575,11 +575,15 @@ void enforceConfigDefaults()
   SEED_DEFAULT("functions", "f26", 26);
   SEED_DEFAULT("functions", "f27", 27);
   SEED_DEFAULT("functions", "f28", 28);
+  
+  // --- 4. Wifi Namespace ---
+  SEED_DEFAULT("wifi", "ssid", "unk");
+  SEED_DEFAULT("wifi", "pass", "unk");
 
   // TBD TBD TBD
-
+  
   // --- 4. Consist Namespace ---
-
+  
   // If any missing elements were found and fixed, commit the clean schema to flash
   if (needsSave)
   {

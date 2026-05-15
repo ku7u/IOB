@@ -21,6 +21,7 @@
 
 extern WiFiUDP udpCommand;
 extern JsonDocument config;
+extern void saveConfig(); 
 
 // Constructor
 Throttle::Throttle(void)
@@ -269,6 +270,8 @@ void Throttle::pmOnOff(bool onOff)
         // myPrefs.end();
         config["loco"]["odometer"] = _odometer;
         config["loco"]["lastshuttime"] = getTime();
+        saveConfig();
+        
         _opMode = off;
 
         // do something to the brake system TBD
@@ -1322,7 +1325,6 @@ void Throttle::calibrate(int speed)
         else
             newFactor = factorR * calibrationPeriod / targetTime;
 
-        // myPrefs.begin("calibration", false);
         if (abs(speed) == 2)
         {
             if (speed > 0)
@@ -1368,7 +1370,7 @@ void Throttle::calibrate(int speed)
                 // myPrefs.putFloat("speed50reverse", newFactor);
                 config["calibration"]["speed50reverse"] = newFactor;
         }
-        // myPrefs.end();
+        saveConfig();
 
         // commandFifo.pushCommand(functionBell, false);
         // if (callbackPushCommand)
@@ -1504,11 +1506,8 @@ void Throttle::muSetState(const char *jsonMsg)
 
         _muState = static_cast<Throttle::MuState>(commandedState);
         // store the state
-        // myPrefs.begin("loco");
-        // myPrefs.putUInt("mustate", _muState);
         config["loco"]["mustate"] = _muState;
-        // TBD store other aspects?
-        // myPrefs.end();
+        saveConfig();
         break;
 
     // case 2 falls through into 3
@@ -1533,14 +1532,10 @@ void Throttle::muSetState(const char *jsonMsg)
     }
 
     // save it all for next time
-    // myPrefs.begin("loco");
-    // myPrefs.putUInt("mustate", commandedState);
     config["loco"]["mustate"] = commandedState;
-    // myPrefs.putString("muleadloco", _muLeadLoco);
     config["loco"]["muleadloco"] = _muLeadLoco;
-    // myPrefs.putBool("mureversed", _muReversed);
     config["loco"]["mureversed"] = _muReversed;
-    // myPrefs.end();
+    saveConfig();
 
     getLocoPrefs();
 
@@ -1713,8 +1708,8 @@ void Throttle::muSetPerformance(const char *jsonMsg)
 
 
         config["loco"]["consist"] = consistString;
-
         config["loco"]["mustate"] = _muState;
+        saveConfig();
 
 
         // turn off PM on the mued loco
@@ -1775,8 +1770,8 @@ void Throttle::muSetPerformance(const char *jsonMsg)
             // save the serialized and changed muDoc 
             serializeJson(muDoc, consistString);
             config["loco"]["consist"] = consistString;
-
             config["loco"]["mustate"] = _muState;
+            saveConfig();
 
             muSumPerformanceValues();
             reportStatus(); // so the app has a current view of mu status
@@ -1819,6 +1814,7 @@ void Throttle::muSetSpeed(const char *jsonMsg)
 
 
         config["loco"]["mustate"] = _muState;
+        saveConfig();
 
         muSubscribe(false);
 
@@ -2330,11 +2326,8 @@ void Throttle::muMemberCheck(bool consistMember)
     if (!consistMember)
     {
         _muState = solo;
-        // save in prefs
-        // myPrefs.begin("loco");
-        // myPrefs.putUInt("mustate", _muState);
         config["loco"]["mustate"] = _muState;
-        // myPrefs.end();
+        saveConfig();
     }
 }
 
@@ -2364,11 +2357,9 @@ void Throttle::muMemberCheck()
     {
         _muState = solo;
         log_e("No response, terminating");
-        // save in prefs
-        // myPrefs.begin("loco");
-        // myPrefs.putUInt("mustate", _muState);
         config["loco"]["mustate"] = _muState;
-        // myPrefs.end();
+        saveConfig();
+        
         return;
     }
 

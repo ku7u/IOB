@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include "UdpTransport.h"
 #include <ArduinoJson.h>
-#include "Preferences.h"
+// #include "Preferences.h"
 
 
 class RollcallHandler {
@@ -14,5 +14,5 @@ public:
 
 private:
     UdpTransport &_transport;
-    Preferences myPrefs;
+    // Preferences myPrefs;
 };

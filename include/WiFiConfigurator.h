@@ -4,20 +4,22 @@
 #include <ESPAsyncWebServer.h>
 #include <Preferences.h>
 
-class WiFiConfigurator {
+class WiFiConfigurator
+{
 public:
     WiFiConfigurator(AsyncWebServer &srv,
                      const char *prefsNamespace = "wifi_conf",
                      const char *softApSSID = "Device_AP",
-                     IPAddress apIP = IPAddress(192,168,4,1),
+                     IPAddress apIP = IPAddress(192, 168, 4, 1),
                      unsigned long portalTimeoutMs = 180000UL);
 
-    void begin();             // call in setup()
-    void handle();            // call regularly in loop()
+    void begin();  // call in setup()
+    void handle(); // call regularly in loop()
     void restartPortal(unsigned long timeoutMs = 180000UL);
     bool connectSTA(const char *ssid, const char *pass);
 
 private:
+
     AsyncWebServer &server;
 
     String _softApSSID;
