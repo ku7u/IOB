@@ -825,29 +825,29 @@ void setupWeb()
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     // We wrap the processor in a lambda to ensure the signature matches exactly
-    request->send_P(200, "text/html", index_html, [](const String& var) {
+    request->send(200, "text/html", index_html, [](const String& var) {
         return processorIndex(var); 
     }); });
 
   // Serve /index.html
   server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send_P(200, "text/html", index_html, [](const String &var)
+            { request->send(200, "text/html", index_html, [](const String &var)
                               { return processorIndex(var); }); });
 
   server.on("/functions.html", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send_P(200, "text/html", functions_html, [](const String &var)
+            { request->send(200, "text/html", functions_html, [](const String &var)
                               { return processorFunctions(var); }); });
 
   server.on("/locoparms.html", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send_P(200, "text/html", locoparms_html, [](const String &var)
+            { request->send(200, "text/html", locoparms_html, [](const String &var)
                               { return processorLocoparms(var); }); });
 
   server.on("/network.html", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send_P(200, "text/html", network_html, [](const String &var)
+            { request->send(200, "text/html", network_html, [](const String &var)
                               { return processorNetwork(var); }); });
 
   server.on("/calibration.html", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send_P(200, "text/html", calibration_html, [](const String &var)
+            { request->send(200, "text/html", calibration_html, [](const String &var)
                               { return processorCalibrationparms(var); }); });
 
   server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request)

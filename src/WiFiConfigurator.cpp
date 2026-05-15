@@ -94,10 +94,10 @@ void WiFiConfigurator::stopPortal()
 void WiFiConfigurator::setupWebServerRoutes()
 {
     server.on("/apselect.html", HTTP_GET, [this](AsyncWebServerRequest *req)
-              { req->send_P(200, "text/html", apselect_html); });
+              { req->send(200, "text/html", apselect_html); });
 
     server.on("/stylesheet.css", HTTP_GET, [](AsyncWebServerRequest *req)
-              { req->send_P(200, "text/css", stylesheet_css); });
+              { req->send(200, "text/css", stylesheet_css); });
 
     server.on("/aplist", HTTP_GET, [this](AsyncWebServerRequest *req)
               { handleAPlist(req); });
