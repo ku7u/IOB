@@ -39,7 +39,6 @@ const char index_html[] PROGMEM = R"rawliteral(
     </html>
     )rawliteral";
 
-
 // --- Network Page ---
 const char network_html[] PROGMEM = R"rawliteral(
     <!DOCTYPE html>
@@ -77,8 +76,6 @@ const char network_html[] PROGMEM = R"rawliteral(
         </body>
         </html>
 )rawliteral";
-
-
 
 const char locoparms_html[] PROGMEM = R"rawliteral(
     <!DOCTYPE html>
@@ -134,20 +131,25 @@ const char locoparms_html[] PROGMEM = R"rawliteral(
                     <td><label for="locotype">Loco Type</label></td>
                     <td><input type="text" id="locotype" name="locotype" value="%LOCOTYPE%" style=text-align:center></td>
                     </tr>
-                    <tr>
-                    <td><label for="horsepower">Horsepower</label></td>
-                    <td><input type="number" id="horsepower" name="horsepower" value="%HORSEPOWER%" min="100" max="7000"
-                    style=text-align:center></td>
-                    </tr>
-                    <tr>
-                    <td><label for="weight">Weight (lbs)</label></td>
-                    <td><input type="number" id="weight" name="weight" value="%WEIGHT%" min="50000" max="500000"
-                            style=text-align:center></td>
-                            </tr>
+                <tr>
+                <td><label for="horsepower">Horsepower</label></td>
+                <td><input type="number" id="horsepower" name="horsepower" value="%HORSEPOWER%" min="100" max="7000"
+                  style=text-align:center></td>
+                </tr>
+                <tr>
+                <td><label for="weight">Weight (lbs)</label></td>
+                <td><input type="number" id="weight" name="weight" value="%WEIGHT%" min="50000" max="500000"
+                  style=text-align:center></td>
+                </tr>
                 <tr>
                 <td><label for="tractiveeffort">Tractive Effort (lbs)</label></td>
                 <td><input type="number" id="tractiveeffort" name="tractiveeffort" value="%TRACTIVEEFFORT%"
-                min="1000" max="100000" style=text-align:center></td>
+                  min="1000" max="100000" style=text-align:center></td>
+                </tr>
+                <tr>
+                <td><label for="topspeed">Top Speed (mph)</label></td>
+                <td><input type="number" id="topspeed" name="topspeed" value="%TOPSPEED%"
+                  min="10" max="100" style=text-align:center></td>
                 </tr>
             </table>
             <br><br>
@@ -161,9 +163,7 @@ const char locoparms_html[] PROGMEM = R"rawliteral(
         
         </html>
         )rawliteral";
-        
 
-        
 const char functions_html[] PROGMEM = R"rawliteral(
     <!DOCTYPE html>
     <html lang="en-US">
@@ -424,9 +424,6 @@ const char functions_html[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
-
-
-
 const char calibration_html[] PROGMEM = R"rawliteral(
     <!DOCTYPE html>
     <html lang="en-US">
@@ -527,8 +524,6 @@ const char calibration_html[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
-
-
 const char stylesheet_css[] PROGMEM = R"rawliteral(
     
 body {
@@ -594,7 +589,6 @@ body {
 }
 
 )rawliteral";
-
 
 const char apselect_html[] PROGMEM = R"rawliteral(
 <!-- apselect.html -->

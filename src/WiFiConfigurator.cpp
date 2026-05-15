@@ -1,6 +1,9 @@
 #include "WiFiConfigurator.h"
 #include "WebPages.h"
 
+extern JsonDocument config;
+extern void saveConfig(); 
+
 WiFiConfigurator::WiFiConfigurator(AsyncWebServer &srv,
                                    const char *prefsNamespace,
                                    const char *softApSSID,
@@ -16,11 +19,6 @@ WiFiConfigurator::WiFiConfigurator(AsyncWebServer &srv,
 
 void WiFiConfigurator::begin()
 {
-    // if (!SPIFFS.begin(false))
-    // {
-    //     Serial.println("[WiFiConfigurator] SPIFFS mount failed");
-    // }
-
     connectToSavedHouseAP(); // attempt STA
 
     if (WiFi.status() != WL_CONNECTED)
@@ -95,14 +93,11 @@ void WiFiConfigurator::stopPortal()
 
 void WiFiConfigurator::setupWebServerRoutes()
 {
-    // server.on("/apselect.html", HTTP_GET, [this](AsyncWebServerRequest *req)
-    //           { serveApSelectPage(req); });
     server.on("/apselect.html", HTTP_GET, [this](AsyncWebServerRequest *req)
-              { req->send_P(200, "text/html", apselect_html); });
+              { req->send(200, "text/html", apselect_html); });
 
-    // server.serveStatic("/stylesheet.css", SPIFFS, "/stylesheet.css");
     server.on("/stylesheet.css", HTTP_GET, [](AsyncWebServerRequest *req)
-              { req->send_P(200, "text/css", stylesheet_css); });
+              { req->send(200, "text/css", stylesheet_css); });
 
     server.on("/aplist", HTTP_GET, [this](AsyncWebServerRequest *req)
               { handleAPlist(req); });
@@ -120,17 +115,6 @@ void WiFiConfigurator::setupWebServerRoutes()
         } });
 }
 
-// void WiFiConfigurator::serveApSelectPage(AsyncWebServerRequest *req)
-// {
-//     if (SPIFFS.exists("/apselect.html"))
-//     {
-//         req->send(SPIFFS, "/apselect.html", "text/html");
-//     }
-//     else
-//     {
-//         req->send(200, "text/html", embeddedApSelectHtml());
-//     }
-// }
 
 void WiFiConfigurator::handleAPlist(AsyncWebServerRequest *req)
 {
@@ -161,11 +145,12 @@ void WiFiConfigurator::handleStatus(AsyncWebServerRequest *req)
     req->send(200, "application/json", body);
 }
 
+
 void WiFiConfigurator::handleConnect(AsyncWebServerRequest *req)
 {
     String ssid, password;
 
-    // check form-encoded
+    // 1. Extract the credentials from the incoming POST request
     if (req->hasParam("ssid", true))
         ssid = req->getParam("ssid", true)->value();
     if (req->hasParam("password", true))
@@ -177,11 +162,25 @@ void WiFiConfigurator::handleConnect(AsyncWebServerRequest *req)
         return;
     }
 
-    bool ok = attemptConnectAndSave(ssid.c_str(), password.c_str());
-    req->send(200, "application/json",
-              "{\"ok\":" + String(ok ? "true" : "false") +
-                  ",\"message\":\"" + (ok ? "connecting" : "failed") + "\"}");
+    // 2. Save straight to your memory JSON ledger and LittleFS
+    config["wifi"]["ssid"] = ssid;
+    config["wifi"]["pass"] = password;
+    saveConfig();
+    Serial.println("[WiFiConfigurator] Credentials saved to config.json");
+
+    // 3. Respond to the JavaScript browser fetch routine immediately
+    req->send(200, "application/json", "{\"ok\":true,\"message\":\"connecting\"}");
+
+    // 4. THE FIX FOR SINGLE-CORE C3:
+    // Yield the CPU for 2 seconds to let the AsyncTCP background stack
+    // physically transmit the response bytes back to the browser.
+    Serial.println("[WiFiConfigurator] Flushing network buffer... Rebooting in 2s");
+    delay(2000);
+
+    // 5. Force the cold boot to automatically switch modes and connect
+    ESP.restart();
 }
+
 
 bool WiFiConfigurator::attemptConnectAndSave(const char *ssid, const char *password)
 {
@@ -190,32 +189,37 @@ bool WiFiConfigurator::attemptConnectAndSave(const char *ssid, const char *passw
     return connected;
 }
 
+
+
 void WiFiConfigurator::connectToSavedHouseAP()
 {
-    _prefs.begin(_prefsNamespace, true);
-    String ssid = _prefs.getString(KEY_SSID, "");
-    String pass = _prefs.getString(KEY_PASS, "");
-    _prefs.end();
+    // Extract strings directly from your loaded JSON config
+    String ssid = config["wifi"]["ssid"] | "";
+    String pass = config["wifi"]["pass"] | "";
 
     if (ssid.length() > 0)
     {
-        Serial.printf("[WiFiConfigurator] Found SSID '%s', connecting...\n", ssid.c_str());
+        Serial.printf("[WiFiConfigurator] Found JSON SSID '%s', connecting...\n", ssid.c_str());
         connectSTA(ssid.c_str(), pass.c_str());
     }
     else
     {
-        Serial.println("[WiFiConfigurator] No saved credentials → SoftAP mode");
+        Serial.println("[WiFiConfigurator] No saved credentials in JSON → SoftAP mode");
     }
 }
 
+
 void WiFiConfigurator::saveCredentials(const char *ssid, const char *pass)
 {
-    _prefs.begin(_prefsNamespace, false);
-    _prefs.putString(KEY_SSID, ssid);
-    _prefs.putString(KEY_PASS, pass);
-    _prefs.end();
-    Serial.println("[WiFiConfigurator] Credentials saved");
+    // Write directly to your global JSON ledger
+    config["wifi"]["ssid"] = ssid;
+    config["wifi"]["pass"] = pass;
+    
+    // Call your existing global save function to commit it to LittleFS
+    saveConfig(); 
+    Serial.println("[WiFiConfigurator] Credentials saved to config.json");
 }
+
 
 String WiFiConfigurator::jsonEscape(const String &s)
 {
@@ -236,27 +240,3 @@ String WiFiConfigurator::jsonEscape(const String &s)
     return out;
 }
 
-// String WiFiConfigurator::embeddedApSelectHtml()
-// {
-//     return R"rawliteral(
-// <!doctype html>
-// <html>
-// <head><meta name="viewport" content="width=device-width, initial-scale=1"><title>WiFi Setup</title></head>
-// <body>
-// <h2>Configure Wi-Fi</h2>
-// <div><input id="ssid" placeholder="SSID"/><input id="password" type="password" placeholder="Password"/><button id="saveBtn">Save & Connect</button></div>
-// <div id="aplist">Scanning...</div>
-// <script>
-// document.getElementById('saveBtn').onclick=function(){
-//     let ssid=document.getElementById('ssid').value;
-//     let pass=document.getElementById('password').value;
-//     if(!ssid){alert('Enter SSID');return;}
-//     fetch('/connect',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
-//     body:'ssid='+encodeURIComponent(ssid)+'&password='+encodeURIComponent(pass)}).then(r=>r.json())
-//     .then(js=>{alert(js.message);}).catch(e=>{alert('Error attempting to connect');});
-// };
-// </script>
-// </body>
-// </html>
-// )rawliteral";
-// }

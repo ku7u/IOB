@@ -9,5 +9,5 @@ public:
     virtual ~ILocoStatus() {}
 
     virtual int getDccAddress() = 0;
-    virtual int getRoadNumber() = 0;
+    // virtual int getRoadNumber() = 0;
 };

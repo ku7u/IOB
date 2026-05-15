@@ -14,12 +14,14 @@
 #include "Arduino.h"
 #include "defines.h"
 #include "Throttle.h"
-#include "Preferences.h"
 #include <WiFiUdp.h> // UDP
+#include <ArduinoJson.h>
 
 // #include <optional> was using to enable optional function null parms
 
 extern WiFiUDP udpCommand;
+extern JsonDocument config;
+extern void saveConfig(); 
 
 // Constructor
 Throttle::Throttle(void)
@@ -84,50 +86,61 @@ void Throttle::setControllingIP(IPAddress ip)
 
 void Throttle::getLocoPrefs(void)
 {
-    Preferences myPrefs;
+    _dccAddress = config["loco"]["dccaddress"].as<uint16_t>();
+    _locoID = config["loco"]["locoid"].as<uint16_t>();
+    _locoType = config["loco"]["locotype"].as<String>();
+    _horsepower = config["loco"]["horsepower"].as<uint16_t>();
+    _locoWeight = config["loco"]["locoweight"].as<uint32_t>();
+    _tractiveEffort = config["loco"]["tractiveeffort"].as<uint32_t>();
+    _topSpeed = config["loco"]["topspeed"].as<uint16_t>();
+    if (_topSpeed < 1)
+        _topSpeed = 60; // TBD unnecessary in production
+    _odometer = config["loco"]["odometer"].as<float>();
+    _muState = (MuState)config["loco"]["mustate"].as<int>();
+    _muLeadLoco = config["loco"]["muleadloco"].as<String>();
+    _muReversed = (bool)config["loco"]["mureversed"].as<int>();
 
-    myPrefs.begin("loco");
-    _dccAddress = myPrefs.getInt("dccaddress", 3);
-    _roadNumber = myPrefs.getInt("roadnum", 0);
-    _locoID = myPrefs.getString("locoid", "none");
-    _locoType = myPrefs.getString("locotype", "none");
-    // myPrefs.getBool("shortLong", 0);
-    _horsepower = myPrefs.getInt("horsepower", 1500);
-    _locoWeight = myPrefs.getULong("locoweight", 250000);
-    _tractiveEffort = myPrefs.getLong("tractiveeffort", 70000);
-    _topSpeed = myPrefs.getInt("topspeed", 60 * 5280 / 3600); // default to 60 mph or 88 fps gfh add 020525
-    _odometer = myPrefs.getFloat("odometer", 0.0);
-    _muState = static_cast<MuState>(myPrefs.getUInt("mustate", 0));
-    _muLeadLoco = myPrefs.getString("muleadloco", "3");
-    _muReversed = myPrefs.getBool("mureversed", false);
-    myPrefs.end();
-
-    myPrefs.begin("consist", false); // v0.26 ff
+    // myPrefs.begin("consist", false); // v0.26 ff
 
     // convert the saved json consist string to json document of loco data objects
     String muString;
-    muString = myPrefs.getString("consist", "{}").c_str(); // seed the pref with "{}"
+    // muString = myPrefs.getString("consist", "{}").c_str(); // seed the pref with "{}"
+    muString = config["loco"]["consist"].as<String>();
     DeserializationError error = deserializeJson(muDoc, muString.c_str());
-    myPrefs.end();
+    // myPrefs.end();
 
-    myPrefs.begin("calibration", true);
+    // myPrefs.begin("calibration", true);
     // _calibrationTrapLength = myPrefs.getInt("traplength", 3);
-    _fpsDccFactorForward2 = myPrefs.getFloat("speed2forward", 1.);
-    _fpsDccFactorForward5 = myPrefs.getFloat("speed5forward", 1.);
-    _fpsDccFactorForward10 = myPrefs.getFloat("speed10forward", 1.);
-    _fpsDccFactorForward20 = myPrefs.getFloat("speed20forward", 1.);
-    _fpsDccFactorForward50 = myPrefs.getFloat("speed50forward", 1.);
-    _fpsDccFactorReverse2 = myPrefs.getFloat("speed2reverse", 1.);
-    _fpsDccFactorReverse5 = myPrefs.getFloat("speed5reverse", 1.);
-    _fpsDccFactorReverse10 = myPrefs.getFloat("speed10reverse", 1.);
-    _fpsDccFactorReverse20 = myPrefs.getFloat("speed20reverse", 1.);
-    _fpsDccFactorReverse50 = myPrefs.getFloat("speed50reverse", 1.);
-    myPrefs.end();
+    // _fpsDccFactorForward2 = myPrefs.getFloat("speed2forward", 1.);
+    // _fpsDccFactorForward5 = myPrefs.getFloat("speed5forward", 1.);
+    // _fpsDccFactorForward10 = myPrefs.getFloat("speed10forward", 1.);
+    // _fpsDccFactorForward20 = myPrefs.getFloat("speed20forward", 1.);
+    // _fpsDccFactorForward50 = myPrefs.getFloat("speed50forward", 1.);
+    // _fpsDccFactorReverse2 = myPrefs.getFloat("speed2reverse", 1.);
+    // _fpsDccFactorReverse5 = myPrefs.getFloat("speed5reverse", 1.);
+    // _fpsDccFactorReverse10 = myPrefs.getFloat("speed10reverse", 1.);
+    // _fpsDccFactorReverse20 = myPrefs.getFloat("speed20reverse", 1.);
+    // _fpsDccFactorReverse50 = myPrefs.getFloat("speed50reverse", 1.);
 
-    myPrefs.begin("general", true);
-    _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/");
-    _commandTopic = myPrefs.getString("commandtopic", "cmd/ols/");
-    myPrefs.end();
+    _fpsDccFactorForward2 = config["calibration"]["speed2forward"].as<float>();
+    _fpsDccFactorForward5 = config["calibration"]["speed5forward"].as<float>();
+    _fpsDccFactorForward10 = config["calibration"]["speed10forward"].as<float>();
+    _fpsDccFactorForward20 = config["calibration"]["speed20forward"].as<float>();
+    _fpsDccFactorForward50 = config["calibration"]["speed50forward"].as<float>();
+    _fpsDccFactorReverse2 = config["calibration"]["speed2reverse"].as<float>();
+    _fpsDccFactorReverse5 = config["calibration"]["speed5reverse"].as<float>();
+    _fpsDccFactorReverse10 = config["calibration"]["speed10reverse"].as<float>();
+    _fpsDccFactorReverse20 = config["calibration"]["speed20reverse"].as<float>();
+    _fpsDccFactorReverse50 = config["calibration"]["speed50reverse"].as<float>();
+
+    // myPrefs.end();
+
+    // myPrefs.begin("general", true);
+    // _feedbackTopic = myPrefs.getString("feedbacktopic", "tlm/ols/");
+    _feedbackTopic = "tlm/ols/";
+    // _commandTopic = myPrefs.getString("commandtopic", "cmd/ols/");
+    _commandTopic = "cmd/ols/";
+    // myPrefs.end();
 
     _locoMass = _locoWeight / 32; // slugs
 
@@ -142,25 +155,21 @@ void Throttle::getLocoPrefs(void)
 
 void Throttle::getFunctionPrefs(void)
 {
-    Preferences myPrefs;
-
-    myPrefs.begin("functions");
-    functionPM = myPrefs.getInt("pm", 8);
-    functionBell = myPrefs.getInt("bell", 1);
-    functionHorn = myPrefs.getInt("horn", 2);
-    functionHeadlightBright = myPrefs.getInt("headlightBright", 0);
-    functionHeadlightDim = myPrefs.getInt("headlightDim", 6);
-    functionRearlightBright = myPrefs.getInt("rearlightBright", 7);
-    functionRearlightDim = myPrefs.getInt("rearlightDim", 10);
-    functionNotchUp = myPrefs.getInt("notchUp", 26);
-    functionNotchDown = myPrefs.getInt("notchDown", 27);
-    functionNotchingEnable = myPrefs.getInt("notchingEnable", 28);
-    functionIndependentBrake = myPrefs.getInt("iBrake", 5);
-    functionTrainBrake = myPrefs.getInt("tBrake", 4);
-    functionEmergencyBrake = myPrefs.getInt("eBrake", 0);
-    functionCompressor = myPrefs.getInt("compressor", 20);
-    functionBrakeSqueal = myPrefs.getInt("brakesqueal", -1);
-    myPrefs.end();
+    functionPM = config["functions"]["pm"].as<int>();
+    functionBell = config["functions"]["bell"].as<int>();
+    functionHorn = config["functions"]["horn"].as<int>();
+    functionHeadlightBright = config["functions"]["headlight"].as<int>();
+    functionHeadlightDim = config["functions"]["headlightdim"].as<int>();
+    functionRearlightBright = config["functions"]["rearlight"].as<int>();
+    functionRearlightDim = config["functions"]["rearlightdim"].as<int>();
+    functionNotchUp = config["functions"]["notchup"].as<int>();
+    functionNotchDown = config["functions"]["notchdown"].as<int>();
+    functionNotchingEnable = config["functions"]["notchingenable"].as<int>();
+    functionIndependentBrake = config["functions"]["ibrake"].as<int>();
+    functionTrainBrake = config["functions"]["tbrake"].as<int>();
+    functionEmergencyBrake = config["functions"]["ebrake"].as<int>();
+    functionCompressor = config["functions"]["compressor"].as<int>();
+    functionBrakeSqueal = config["functions"]["brakesqueal"].as<int>();
 
     // if (callbackSetCompressorFunction)
     //     callbackSetCompressorFunction(functionCompressor);
@@ -202,15 +211,15 @@ uint32_t Throttle::getTime()
     return now;
 }
 
-void Throttle::setRoadNumber(int roadNumber)
-{
-    _roadNumber = roadNumber;
-}
+// void Throttle::setRoadNumber(int roadNumber)
+// {
+//     _roadNumber = roadNumber;
+// }
 
-int Throttle::getRoadNumber(void)
-{
-    return _roadNumber;
-}
+// int Throttle::getRoadNumber(void)
+// {
+//     return _roadNumber;
+// }
 
 int Throttle::getDccAddress(void)
 {
@@ -245,7 +254,6 @@ void Throttle::pmOnOff(bool onOff)
 
     // this is to determine how long it has been since last run
     // could be used to set effects like main reservoir pressure due to leakdown
-    Preferences myPrefs;
     uint32_t thisStartupTime;
     uint32_t deltaTime;
     const uint16_t DOWNTIME = 96;
@@ -256,10 +264,14 @@ void Throttle::pmOnOff(bool onOff)
 
     {
         // save the mileage
-        myPrefs.begin("loco", false);
-        myPrefs.putFloat("odometer", _odometer);
-        myPrefs.putULong("lastshuttime", getTime());
-        myPrefs.end();
+        // myPrefs.begin("loco", false);
+        // myPrefs.putFloat("odometer", _odometer);
+        // myPrefs.putULong("lastshuttime", getTime());
+        // myPrefs.end();
+        config["loco"]["odometer"] = _odometer;
+        config["loco"]["lastshuttime"] = getTime();
+        saveConfig();
+        
         _opMode = off;
 
         // do something to the brake system TBD
@@ -319,13 +331,14 @@ void Throttle::pmOnOff(bool onOff)
         // find the elapsed time since last shutdown
         _startTimestamp = millis();
         thisStartupTime = getTime();
-        myPrefs.begin("loco", false);
-        _lastShutdownTime = myPrefs.getULong("lastshuttime", 0);
+        // myPrefs.begin("loco", false);
+        // _lastShutdownTime = myPrefs.getULong("lastshuttime", 0);
+        _lastShutdownTime = config["loco"]["lastshuttime"].as<uint32_t>();
         if (_lastShutdownTime > thisStartupTime)
             deltaTime = 0;
         else
             deltaTime = thisStartupTime - _lastShutdownTime;
-        myPrefs.end();
+        // myPrefs.end();
 
         if (deltaTime > DOWNTIME * 3600)
             _trainlinePSI = 0;
@@ -1005,7 +1018,12 @@ void Throttle::computeVelocity(void)
         _compressorRunning = _brakes->cycle(true);
 
     if ((!_running) || ((_muState == mid) || (_muState == trailing)))
+    {
+#ifdef DEBUG_SPEED
+        log_d("returning, _running: %d  _muState: %d", _running, _muState);
+#endif
         return;
+    }
 
     if (_brakes)
     {
@@ -1068,7 +1086,8 @@ void Throttle::computeVelocity(void)
     //     effectiveHP = consistHorsepower - 50;
 
 #ifdef DEBUG_SPEED
-    log_d("_mph: %s", String(_mph));
+    log_d("effectiveHP %.2f", effectiveHP);
+    log_d("notch %d  _mph: %.2f", _notch, _mph);
 #endif
 
     // compute the tractive force
@@ -1098,9 +1117,10 @@ void Throttle::computeVelocity(void)
         dragForce = (consistMass * 32 * ROLLING_RESISTANCE_COEFICIENT) + (_tonnage * 2000 * ROLLING_RESISTANCE_COEFICIENT);
     }
 #ifdef DEBUG_SPEED
+    log_d("tractiveForce %.0f", tractiveForce);
     log_d("_tonnage: %d", _tonnage);
     log_d("_locoMass: %d", _locoMass);
-    log_d("startingForce: %d", startingForce);
+    log_d("startingForce: %.0f", startingForce);
 #endif
 
     // this routine attempts to simulate spooling up
@@ -1111,7 +1131,7 @@ void Throttle::computeVelocity(void)
     _lastTractiveForce = tractiveForce;
 
 #ifdef DEBUG_SPEED
-    log_d("tractiveForce: %d", tractiveForce);
+    log_d("tractiveForce: %.0f", tractiveForce);
 #endif
 
     // compute the drag forces
@@ -1119,7 +1139,7 @@ void Throttle::computeVelocity(void)
     variableLocoDragForce = consistMass * 32 * _currentSpeed * VARIABLE_LOCO_DRAG_COEFICIENT;
 
 #ifdef DEBUG_SPEED
-    log_d("variableLocoDragForce: %d", variableLocoDragForce);
+    log_d("variableLocoDragForce: %.0f", variableLocoDragForce);
 #endif
 
     // consider brake forces if any
@@ -1135,8 +1155,8 @@ void Throttle::computeVelocity(void)
         // emergencyBrakeForce = 0; // TBD
     }
 #ifdef DEBUG_SPEED
-    log_d("dragForce: %d", dragForce);
-    log_d("independentBrake: %d independentBrakeForce: %d", _independentBrake, independentBrakeForce);
+    log_d("dragForce: %.0f", dragForce);
+    log_d("independentBrake: %.1f independentBrakeForce: %.1f", _independentBrake, independentBrakeForce);
 #endif
 
     accel = (tractiveForce - dragForce - variableLocoDragForce - independentBrakeForce - trainBrakeForce) / (consistMass + (_tonnage * 2000 / 32));
@@ -1145,13 +1165,17 @@ void Throttle::computeVelocity(void)
         accel = MAX_ACCEL;
 
 #ifdef DEBUG_SPEED
-    log_d("accel: %d", accel);
+    log_d("accel: %.3f", accel);
 #endif
 
     // integrate acceleration to get speed, here in fps, ultimately required by decoder
     // gfh mod for topSpeed 020525
     float lastCurrentSpeed = _currentSpeed;
     _currentSpeed = _currentSpeed + accel; // accel is feet/sec/sec so if integrated once / sec, accel = vel, _currentSpeed is feet/sec
+#ifdef DEBUG_SPEED
+    log_d("_currentSpeed (raw) %.3f", _currentSpeed);
+#endif
+
     if (_currentSpeed < 0.)
         _currentSpeed = 0;
     else if (_currentSpeed > _topSpeed)
@@ -1168,7 +1192,7 @@ void Throttle::computeVelocity(void)
         intCurrentSpeed = 126;
 
 #ifdef DEBUG_SPEED
-    log_d("_currentSpeed: %d", _currentSpeed);
+    log_d("_currentSpeed: %.1f", _currentSpeed);
     log_d("_currentSpeed factored: %d", intCurrentSpeed);
 #endif
 
@@ -1207,7 +1231,6 @@ void Throttle::calibrate(int speed)
     // this routine sets a factor that is applied to the commanded DCC speed such that
     // the actual scale speed over the rails is accurate with respect to commanded mph
 
-    Preferences myPrefs;
     char dummyChars[31];
     long calibrationPeriod;
     int trapLength;
@@ -1302,43 +1325,52 @@ void Throttle::calibrate(int speed)
         else
             newFactor = factorR * calibrationPeriod / targetTime;
 
-        myPrefs.begin("calibration", false);
         if (abs(speed) == 2)
         {
             if (speed > 0)
-                myPrefs.putFloat("speed2forward", newFactor);
+                // myPrefs.putFloat("speed2forward", newFactor);
+                config["calibration"]["speed2forward"] = newFactor;
             else
-                myPrefs.putFloat("speed2reverse", newFactor);
+                // myPrefs.putFloat("speed2reverse", newFactor);
+                config["calibration"]["speed2reverse"] = newFactor;
         }
         else if (abs(speed) == 5)
         {
             if (speed > 0)
-                myPrefs.putFloat("speed5forward", newFactor);
+                // myPrefs.putFloat("speed5forward", newFactor);
+                config["calibration"]["speed5forward"] = newFactor;
             else
-                myPrefs.putFloat("speed5reverse", newFactor);
+                // myPrefs.putFloat("speed5reverse", newFactor);
+                config["calibration"]["speed5reverse"] = newFactor;
         }
         else if (abs(speed) == 10)
         {
             if (speed > 0)
-                myPrefs.putFloat("speed10forward", newFactor);
+                // myPrefs.putFloat("speed10forward", newFactor);
+                config["calibration"]["speed10forward"] = newFactor;
             else
-                myPrefs.putFloat("speed10reverse", newFactor);
+                // myPrefs.putFloat("speed10reverse", newFactor);
+                config["calibration"]["speed10reverse"] = newFactor;
         }
         else if (abs(speed) == 20)
         {
             if (speed > 0)
-                myPrefs.putFloat("speed20forward", newFactor);
+                // myPrefs.putFloat("speed20forward", newFactor);
+                config["calibration"]["speed20forward"] = newFactor;
             else
-                myPrefs.putFloat("speed20reverse", newFactor);
+                // myPrefs.putFloat("speed20reverse", newFactor);
+                config["calibration"]["speed20reverse"] = newFactor;
         }
         else if (abs(speed) == 50)
         {
             if (speed > 0)
-                myPrefs.putFloat("speed50forward", newFactor);
+                // myPrefs.putFloat("speed50forward", newFactor);
+                config["calibration"]["speed50forward"] = newFactor;
             else
-                myPrefs.putFloat("speed50reverse", newFactor);
+                // myPrefs.putFloat("speed50reverse", newFactor);
+                config["calibration"]["speed50reverse"] = newFactor;
         }
-        myPrefs.end();
+        saveConfig();
 
         // commandFifo.pushCommand(functionBell, false);
         // if (callbackPushCommand)
@@ -1389,10 +1421,10 @@ void Throttle::calibrate(int speed)
 
 /**
  * @brief Set mu state either mued or not
- * 
+ *
  * from MU fragment on app select trailing locos
  *  command is sent only to the selected trailing loco
- * 
+ *
  *  when selected send mustate command to trailing unit for direction, position, lead loco id
  *  in response trailing unit replies with muLocoData topic including HP and mass of loco
  *  lead unit will then send startup command to trailing unit, just in case not running and also to ease operator loading
@@ -1405,13 +1437,12 @@ void Throttle::calibrate(int speed)
  *  mid or 2 - mued as mid, send hp and mass values to lead
  *  trailing or 3 - mued as trailing, send hp and mass values to lead
  *
- *  json format {muState:"", leadID:"", reversed:""} 
- * @param jsonMsg 
+ *  json format {muState:"", leadID:"", reversed:""}
+ * @param jsonMsg
  */
 void Throttle::muSetState(const char *jsonMsg)
 {
 
-    Preferences myPrefs;
     JsonDocument doc;
     String jsonString = "";
 
@@ -1475,10 +1506,8 @@ void Throttle::muSetState(const char *jsonMsg)
 
         _muState = static_cast<Throttle::MuState>(commandedState);
         // store the state
-        myPrefs.begin("loco");
-        myPrefs.putUInt("mustate", _muState);
-        // TBD store other aspects?
-        myPrefs.end();
+        config["loco"]["mustate"] = _muState;
+        saveConfig();
         break;
 
     // case 2 falls through into 3
@@ -1491,7 +1520,9 @@ void Throttle::muSetState(const char *jsonMsg)
         _muLeadLoco = String(mull);
         // send my id, mass, hp and tractive effort to lead now
 
+#ifdef DEBUG_MU
         log_d("leadIPAdr %s", leadIpAdr);
+#endif
         muReport(leadIpAdr);
 
         // subscribe to lead loco messages for speed, direction and notch
@@ -1501,11 +1532,10 @@ void Throttle::muSetState(const char *jsonMsg)
     }
 
     // save it all for next time
-    myPrefs.begin("loco");
-    myPrefs.putUInt("mustate", commandedState);
-    myPrefs.putString("muleadloco", _muLeadLoco);
-    myPrefs.putBool("mureversed", _muReversed);
-    myPrefs.end();
+    config["loco"]["mustate"] = commandedState;
+    config["loco"]["muleadloco"] = _muLeadLoco;
+    config["loco"]["mureversed"] = _muReversed;
+    saveConfig();
 
     getLocoPrefs();
 
@@ -1582,7 +1612,7 @@ void Throttle::muReport(const char *leadIpAdr) // v0.26
         udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
         udpCommand.endPacket();
 
-#ifdef DEBUG_UDP
+#ifdef DEBUG_MU
         log_d("Sent unicast: %s to: %s", jsonString.c_str(), String(leadIpAdr));
 #endif
     }
@@ -1635,17 +1665,14 @@ void Throttle::muSetPerformance(const char *jsonMsg)
     // TBD maybe add a reset feature in here
     // if the locoID is mine, then reset muDoc to {}
 
-    Preferences myPrefs;
     JsonDocument doc;
     String consistString;
     // StaticJsonDocument<200> doc1;
     JsonDocument doc1;
     String jsonString;
 
-#ifdef DEBUG_UDP
+#ifdef DEBUG_MU
     log_d("Received jsonMsg %s", jsonMsg);
-    // Serial.print("[muSetPerformance] received jsonMsg ");
-    // Serial.println(jsonMsg);
 #endif
 
     // Deserialize the JSON document coming from candidate
@@ -1679,14 +1706,11 @@ void Throttle::muSetPerformance(const char *jsonMsg)
 
         serializeJson(muDoc, consistString);
 
-        // save it in Preferences version 0.38.16
-        myPrefs.begin("consist"); // v0.26 ff
-        myPrefs.putString("consist", consistString);
-        myPrefs.end();
 
-        myPrefs.begin("loco"); // v0.26 ff
-        myPrefs.putUInt("mustate", _muState);
-        myPrefs.end();
+        config["loco"]["consist"] = consistString;
+        config["loco"]["mustate"] = _muState;
+        saveConfig();
+
 
         // turn off PM on the mued loco
 
@@ -1698,7 +1722,7 @@ void Throttle::muSetPerformance(const char *jsonMsg)
         udpCommand.beginPacket(muIP, COMMAND_PORT);
         udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
         udpCommand.endPacket();
-#ifdef DEBUG_UDP
+#ifdef DEBUG_MU
         log_d("Command sent: %s to: %s", jsonString.c_str(), muIP);
 #endif
 
@@ -1723,7 +1747,7 @@ void Throttle::muSetPerformance(const char *jsonMsg)
             udpCommand.beginPacket(muIP, COMMAND_PORT);
             udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
             udpCommand.endPacket();
-#ifdef DEBUG_UDP
+#ifdef DEBUG_MU
             log_d("Lead running, command sent: %s to: %s", jsonString.c_str(), muIP);
 #endif
         }
@@ -1743,16 +1767,11 @@ void Throttle::muSetPerformance(const char *jsonMsg)
             candidate["te"] = te;
             candidate["muip"] = muIP;
 
-            // save the serialized and changed muDoc in Preferences version 0.38.16
+            // save the serialized and changed muDoc 
             serializeJson(muDoc, consistString);
-            myPrefs.begin("consist"); // v0.26 ff
-            myPrefs.putString("consist", consistString);
-            myPrefs.end();
-
-            // save the mustates in Preferences
-            myPrefs.begin("loco"); // v0.26 ff
-            myPrefs.putUInt("mustate", _muState);
-            myPrefs.end();
+            config["loco"]["consist"] = consistString;
+            config["loco"]["mustate"] = _muState;
+            saveConfig();
 
             muSumPerformanceValues();
             reportStatus(); // so the app has a current view of mu status
@@ -1793,10 +1812,9 @@ void Throttle::muSetSpeed(const char *jsonMsg)
     {
         _muState = solo;
 
-        Preferences myPrefs;
-        myPrefs.begin("loco");
-        myPrefs.putUInt("mustate", _muState);
-        myPrefs.end();
+
+        config["loco"]["mustate"] = _muState;
+        saveConfig();
 
         muSubscribe(false);
 
@@ -2094,7 +2112,6 @@ void Throttle::reportStatus()
 void Throttle::reportFunctionLabels()
 {
     char topicChars[40];
-    Preferences myPrefs;
 
     strcpy(topicChars, _feedbackTopic.c_str());
     strcat(topicChars, _locoID.c_str());
@@ -2109,14 +2126,15 @@ void Throttle::reportFunctionLabels()
 
     JsonArray labels = doc["labels"].to<JsonArray>();
 
-    myPrefs.begin("functions", true);
+    // myPrefs.begin("functions", true);
     for (int i = 0; i < 29; i++)
     {
         String key = "f" + String(i);
-        String value = myPrefs.getString(key.c_str(), "");
+        // String value = myPrefs.getString(key.c_str(), "");
+        String value = config["functions"][key].as<String>();
         labels.add(value);
     }
-    myPrefs.end();
+    // myPrefs.end();
 
     String output;
     serializeJson(doc, output);
@@ -2299,7 +2317,6 @@ void Throttle::muSumPerformanceValues() // v0.26
  */
 void Throttle::muMemberCheck(bool consistMember)
 {
-    Preferences myPrefs;
 
     if ((_muState == solo) || (_muState == lead))
         return;
@@ -2309,10 +2326,8 @@ void Throttle::muMemberCheck(bool consistMember)
     if (!consistMember)
     {
         _muState = solo;
-        // save in prefs
-        myPrefs.begin("loco");
-        myPrefs.putUInt("mustate", _muState);
-        myPrefs.end();
+        config["loco"]["mustate"] = _muState;
+        saveConfig();
     }
 }
 
@@ -2334,7 +2349,6 @@ void Throttle::muMemberCheck(bool consistMember)
 void Throttle::muMemberCheck()
 {
     String jsonString = "";
-    Preferences myPrefs;
 
     if ((_muState == solo) || (_muState == lead))
         return;
@@ -2343,10 +2357,9 @@ void Throttle::muMemberCheck()
     {
         _muState = solo;
         log_e("No response, terminating");
-        // save in prefs
-        myPrefs.begin("loco");
-        myPrefs.putUInt("mustate", _muState);
-        myPrefs.end();
+        config["loco"]["mustate"] = _muState;
+        saveConfig();
+        
         return;
     }
 
