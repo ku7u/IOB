@@ -87,7 +87,8 @@ void Throttle::setControllingIP(IPAddress ip)
 void Throttle::getLocoPrefs(void)
 {
     _dccAddress = config["loco"]["dccaddress"].as<uint16_t>();
-    _locoID = config["loco"]["locoid"].as<uint16_t>();
+    _locoID = config["loco"]["locoid"].as<String>();
+    log_d("_locoID %s", _locoID);
     _locoType = config["loco"]["locotype"].as<String>();
     _horsepower = config["loco"]["horsepower"].as<uint16_t>();
     _locoWeight = config["loco"]["locoweight"].as<uint32_t>();
@@ -144,13 +145,13 @@ void Throttle::getLocoPrefs(void)
 
     _locoMass = _locoWeight / 32; // slugs
 
-    if ((_muState == mid) || (_muState == trailing)) // v0.26 TBD this does not work here
-        muSubscribe(true);
-    else
-    {
-        muSumPerformanceValues(); // v0.26
-        muSubscribe(false);
-    }
+    // if ((_muState == mid) || (_muState == trailing)) // v0.26 TBD this does not work here
+    //     muSubscribe(true);
+    // else
+    // {
+    //     muSumPerformanceValues(); // v0.26
+    //     muSubscribe(false);
+    // }
 }
 
 void Throttle::getFunctionPrefs(void)
@@ -181,21 +182,21 @@ void Throttle::report() // TBR TBD obsolete
 // respond to a broadcast message that requests who is online
 // send locoID, ip address, loco type
 {
-    char topicChars[TOPIC_CHAR_SIZE]; // v0.26 was 30
-    strcpy(topicChars, _feedbackTopic.c_str());
-    strcat(topicChars, "report");
+    // char topicChars[TOPIC_CHAR_SIZE]; // v0.26 was 30
+    // // strcpy(topicChars, _feedbackTopic.c_str());
+    // strcpy(topicChars, "report");
 
-    String x = "{\"id\":\"";
-    x.concat(_locoID);
-    x.concat("\",\"ip\":\"");
-    x.concat(WiFi.localIP().toString());
-    x.concat("\",\"type\":\"");
-    x.concat(_locoType);
-    // x.concat("\",\"mu\":\"");    v0.26 removing quotes around _muState
-    x.concat("\",\"mu\":");
-    x.concat(_muState);
-    // x.concat("\"}");
-    x.concat("}");
+    // String x = "{\"id\":\"";
+    // x.concat(_locoID);
+    // x.concat("\",\"ip\":\"");
+    // x.concat(WiFi.localIP().toString());
+    // x.concat("\",\"type\":\"");
+    // x.concat(_locoType);
+    // // x.concat("\",\"mu\":\"");    v0.26 removing quotes around _muState
+    // x.concat("\",\"mu\":");
+    // x.concat(_muState);
+    // // x.concat("\"}");
+    // x.concat("}");
 }
 
 uint32_t Throttle::getTime()
@@ -284,7 +285,7 @@ void Throttle::pmOnOff(bool onOff)
         if (_muState == lead)
         {
             JsonObject root = muDoc.as<JsonObject>();
-            char topicChars[TOPIC_CHAR_SIZE];
+            // char topicChars[TOPIC_CHAR_SIZE];
 
             for (JsonPair kv : root)
             {
@@ -870,10 +871,10 @@ void Throttle::reportNotch()
 {
     // force notch report to elicit haptic on throttle indicating idle
 
-    char topicChars[TOPIC_CHAR_SIZE];
-    strcpy(topicChars, _feedbackTopic.c_str());
-    strcat(topicChars, _locoID.c_str());
-    strcat(topicChars, "/notch");
+    // char topicChars[TOPIC_CHAR_SIZE];
+    // // strcpy(topicChars, _feedbackTopic.c_str());
+    // strcpy(topicChars, _locoID.c_str());
+    // strcat(topicChars, "/notch");
 
     char buffer[10];
     itoa(_notch, buffer, 10);
@@ -932,10 +933,10 @@ void Throttle::longPress(bool up)
             _direction = !_direction;
 
         // send back new direction as telemetry
-        char topicChars[TOPIC_CHAR_SIZE]; // TBD the 30
-        strcpy(topicChars, _feedbackTopic.c_str());
-        strcat(topicChars, _locoID.c_str());
-        strcat(topicChars, "/reverser");
+        // char topicChars[TOPIC_CHAR_SIZE]; // TBD the 30
+        // // strcpy(topicChars, _feedbackTopic.c_str());
+        // strcpy(topicChars, _locoID.c_str());
+        // strcat(topicChars, "/reverser");
 
         char msgChars[10];
         if (_direction)
@@ -1468,23 +1469,26 @@ void Throttle::muSetState(const char *jsonMsg)
         { // v 0.22 all of this block
             _muState = solo;
             _muLeadLoco = String(mull);
+            config["loco"]["mustate"] = _muState;
+            config["loco"]["muleadloco"] = _muLeadLoco;
+            saveConfig();
             // send my zero muState to lead now cuz I'm outta here
-            char topicChars[TOPIC_CHAR_SIZE];
-            strcpy(topicChars, _commandTopic.c_str());
-            strcat(topicChars, _muLeadLoco.c_str());
-            strcat(topicChars, "/muLocoData");
+            // char topicChars[TOPIC_CHAR_SIZE];
+            // strcpy(topicChars, _commandTopic.c_str());
+            // strcat(topicChars, _muLeadLoco.c_str());
+            // strcat(topicChars, "/muLocoData");
 
-            char msgChars[100]; // myID, locomass, hp, tractive effort
-            char buffer[50];
+            // char msgChars[100]; // myID, locomass, hp, tractive effort
+            // char buffer[50];
 
-            strcpy(msgChars, "{\"id\":\"");
-            strcat(msgChars, _locoID.c_str());
-            strcat(msgChars, "\"");
+            // strcpy(msgChars, "{\"id\":\"");
+            // strcat(msgChars, _locoID.c_str());
+            // strcat(msgChars, "\"");
 
-            strcat(msgChars, ",\"st\":"); // mustate  v0.26 ff
-            itoa(_muState, buffer, 10);   // v0.26
-            strcat(msgChars, buffer);
-            strcat(msgChars, "}");
+            // strcat(msgChars, ",\"st\":"); // mustate  v0.26 ff
+            // itoa(_muState, buffer, 10);   // v0.26
+            // strcat(msgChars, buffer);
+            // strcat(msgChars, "}");
 
             JsonDocument doc;
             doc["topic"] = "muLocoData";
@@ -1518,6 +1522,9 @@ void Throttle::muSetState(const char *jsonMsg)
         _consistMember = true; // tested every 60 seconds
 
         _muLeadLoco = String(mull);
+        config["loco"]["mustate"] = _muState;
+        config["loco"]["muleadloco"] = _muLeadLoco;
+        saveConfig();
         // send my id, mass, hp and tractive effort to lead now
 
 #ifdef DEBUG_MU
@@ -1559,19 +1566,20 @@ void Throttle::muReport(const char *leadIpAdr) // v0.26
     {
         String muIP = WiFi.localIP().toString();
 
-        char topicChars[TOPIC_CHAR_SIZE];
-        strcpy(topicChars, _commandTopic.c_str());
-        strcat(topicChars, _muLeadLoco.c_str());
-        // strcat(topicChars, "/muperformance");
-        strcat(topicChars, "/muLocoData");
+        // char topicChars[TOPIC_CHAR_SIZE];
+        // strcpy(topicChars, _commandTopic.c_str());
+        // strcat(topicChars, _muLeadLoco.c_str());
+        // // strcat(topicChars, "/muperformance");
+        // strcat(topicChars, "/muLocoData");
 
-        char msgChars[256]; // myID, locomass, hp, tractive effort
-        char buffer[100];
+        // char msgChars[256]; // myID, locomass, hp, tractive effort
+        // char buffer[100];
 
         String jsonString = "";
 
         JsonDocument doc;
-        doc["topic"] = topicChars;
+        // doc["topic"] = topicChars;
+        doc["topic"] = "muLocoData";
         doc["id"] = _locoID.c_str();
         doc["muip"] = muIP.c_str();
         doc["mass"] = _locoMass;
@@ -1580,32 +1588,32 @@ void Throttle::muReport(const char *leadIpAdr) // v0.26
         doc["st"] = String((int)_muState);
         serializeJson(doc, jsonString);
 
-        strcpy(msgChars, "{\"id\":\"");
-        strcat(msgChars, _locoID.c_str());
+        // strcpy(msgChars, "{\"id\":\"");
+        // strcat(msgChars, _locoID.c_str());
 
-        strcat(msgChars, "\",\"topic\":\"");
-        strcat(msgChars, topicChars);
+        // strcat(msgChars, "\",\"topic\":\"");
+        // strcat(msgChars, topicChars);
 
-        strcat(msgChars, "\",\"muip\":\"");
-        strcat(msgChars, muIP.c_str());
+        // strcat(msgChars, "\",\"muip\":\"");
+        // strcat(msgChars, muIP.c_str());
 
-        strcat(msgChars, "\",\"mass\":");
-        itoa(_locoMass, buffer, 10);
-        strcat(msgChars, buffer);
+        // strcat(msgChars, "\",\"mass\":");
+        // itoa(_locoMass, buffer, 10);
+        // strcat(msgChars, buffer);
 
-        strcat(msgChars, ",\"hp\":");
-        itoa(_horsepower, buffer, 10);
-        strcat(msgChars, buffer);
+        // strcat(msgChars, ",\"hp\":");
+        // itoa(_horsepower, buffer, 10);
+        // strcat(msgChars, buffer);
 
-        strcat(msgChars, ",\"te\":");
-        itoa(_tractiveEffort, buffer, 10); // v0.26
-        strcat(msgChars, buffer);
+        // strcat(msgChars, ",\"te\":");
+        // itoa(_tractiveEffort, buffer, 10); // v0.26
+        // strcat(msgChars, buffer);
 
-        strcat(msgChars, ",\"st\":"); // mustate  v0.26 ff
-        itoa(_muState, buffer, 10);   // v0.26
-        strcat(msgChars, buffer);
+        // strcat(msgChars, ",\"st\":"); // mustate  v0.26 ff
+        // itoa(_muState, buffer, 10);   // v0.26
+        // strcat(msgChars, buffer);
 
-        strcat(msgChars, "}");
+        // strcat(msgChars, "}");
 
         // send the parameters to lead loco to affect its performance
         udpCommand.beginPacket(leadIpAdr, COMMAND_PORT);
@@ -1617,33 +1625,6 @@ void Throttle::muReport(const char *leadIpAdr) // v0.26
 #endif
     }
 }
-
-// TBD this is likely obsolete along with calls to it
-void Throttle::muSubscribe(bool subUnsub)
-{
-    // v026 changed all of this to handle the parameter
-
-    // subscribe to lead loco messages for speed, direction and notch
-    // subUnsub true to subscribe, false to unsubscribe
-    char subscription[TOPIC_CHAR_SIZE];
-
-    strcpy(subscription, _feedbackTopic.c_str());
-    strcat(subscription, _muLeadLoco.c_str());
-    strcat(subscription, "/status");
-
-    // subscribe to lead loco messages for headlight
-    // strcpy(subscription, _feedbackTopic.c_str());
-    strcpy(subscription, _commandTopic.c_str()); // v 0.17
-    strcat(subscription, _muLeadLoco.c_str());
-    strcat(subscription, "/headlight");
-
-    // subscribe to lead loco messages for rearlight
-    // strcpy(subscription, _feedbackTopic.c_str());
-    strcpy(subscription, _commandTopic.c_str()); // v 0.17
-    strcat(subscription, _muLeadLoco.c_str());
-    strcat(subscription, "/rearlight");
-
-} // muSubscribe
 
 /**
  * @brief Set the performance characteristics of the lead MU unit.
@@ -1686,10 +1667,10 @@ void Throttle::muSetPerformance(const char *jsonMsg)
     uint32_t te = doc["te"]; // tractive effort v0.26
     int st = doc["st"];      // muState v0.26
 
-    char topicChars[TOPIC_CHAR_SIZE]; // v 0.24 all of this startstop stuff
-    strcpy(topicChars, _commandTopic.c_str());
-    strcat(topicChars, locoID.c_str());
-    strcat(topicChars, "/startstop");
+    // char topicChars[TOPIC_CHAR_SIZE]; // v 0.24 all of this startstop stuff
+    // strcpy(topicChars, _commandTopic.c_str());
+    // strcat(topicChars, locoID.c_str());
+    // strcat(topicChars, "/startstop");
 
     // determine if removing (st==0) or adding (st!=0) a candidate
     if (st == 0) // remove this loco from the json doc, etc.
@@ -1702,6 +1683,8 @@ void Throttle::muSetPerformance(const char *jsonMsg)
         {
             // if no more loco ids in muDoc then reset _muState
             _muState = solo;
+            config["loco"]["mustate"] = _muState;
+            saveConfig();
         }
 
         serializeJson(muDoc, consistString);
@@ -1731,6 +1714,8 @@ void Throttle::muSetPerformance(const char *jsonMsg)
     else
     {
         _muState = lead; // we are the lead
+        config["loco"]["mustate"] = _muState;
+        saveConfig();
 
         // start PM on the mued loco (may already be running, doesn't matter)
         // if lead is not running then don't start
@@ -1786,6 +1771,7 @@ void Throttle::muSetPerformance(const char *jsonMsg)
  */
 void Throttle::muSetSpeed(const char *jsonMsg)
 {
+    // log_i("called");
     static bool lastBrake;
     float lastOdo = 0.; // odometer update
 
@@ -1811,12 +1797,10 @@ void Throttle::muSetSpeed(const char *jsonMsg)
     if ((consistString.indexOf(_locoID) == -1) && (muMPH > 0)) // need to qualify for speed > 0 to avoid disconnecting because of preliminary status msgs
     {
         _muState = solo;
-
-
         config["loco"]["mustate"] = _muState;
         saveConfig();
 
-        muSubscribe(false);
+        // muSubscribe(false);
 
         return;
     }
@@ -1875,25 +1859,25 @@ void Throttle::reportCondition()
 {
     String jsonString = "";
 
-    char topicChars[TOPIC_CHAR_SIZE];
-    char msgChars[200]; // v 0.16
+    // char topicChars[TOPIC_CHAR_SIZE];
+    // char msgChars[200]; // v 0.16
     char charPsi[10];
     char charCc[4];        // car count
     char charCarCount[10]; // v 0.15
     char charTonnage[10];
 
     // build the topic string
-    strcpy(topicChars, _feedbackTopic.c_str());
-    strcat(topicChars, _locoID.c_str());
-    strcat(topicChars, "/condition");
+    // strcpy(topicChars, _feedbackTopic.c_str());
+    // strcpy(topicChars, _locoID.c_str());
+    // strcat(topicChars, "/condition");
 
-    // build the msg json string
-    // PM status, on or off
-    strcpy(msgChars, "{\"pm\":");
+    // // build the msg json string
+    // // PM status, on or off
+    // strcpy(msgChars, "{\"pm\":");
     const char charPm[2] = {char(_running + 48), 0}; // 48 = ascii zero, so sends back "0" or "1"
-    strcat(msgChars, charPm);
+    // strcat(msgChars, charPm);
 
-    strcat(msgChars, ",\"rvrsr\":");
+    // strcat(msgChars, ",\"rvrsr\":");
     uint revPos;
     if (_neutral)
         revPos = 1;
@@ -1902,64 +1886,64 @@ void Throttle::reportCondition()
     else
         revPos = 0;
     const char charDir[2] = {char(revPos + 48), 0}; // 48 = ascii zero
-    strcat(msgChars, charDir);
+    // strcat(msgChars, charDir);
 
-    // headlight status off, dim, bright
-    strcat(msgChars, ",\"hl\":");                      // new 10/29
+    // // headlight status off, dim, bright
+    // strcat(msgChars, ",\"hl\":");                      // new 10/29
     const char charHl[2] = {char(_headlight + 48), 0}; // 48 = ascii zero
-    strcat(msgChars, charHl);
+    // strcat(msgChars, charHl);
 
-    // rearlight status off, dim, bright
-    strcat(msgChars, ",\"rl\":");                      // new 10/29
+    // // rearlight status off, dim, bright
+    // strcat(msgChars, ",\"rl\":");                      // new 10/29
     const char charRl[2] = {char(_rearlight + 48), 0}; // 48 = ascii zero
-    strcat(msgChars, charRl);
+    // strcat(msgChars, charRl);
 
-    // bell
-    strcat(msgChars, ",\"bell\":");               // new 11/7
+    // // bell
+    // strcat(msgChars, ",\"bell\":");               // new 11/7
     const char charBl[2] = {char(_bell + 48), 0}; // 48 = ascii zero
-    strcat(msgChars, charBl);
+    // strcat(msgChars, charBl);
 
-    // car count    TBD this and 'cars' below one is superfluous
-    // strcat(msgChars, ",\"cc\":"); // new 11/8
-    // dtostrf(_carCount, 2, 0, charCc);
-    // strcat(msgChars, charCc);
+    // // car count    TBD this and 'cars' below one is superfluous
+    // // strcat(msgChars, ",\"cc\":"); // new 11/8
+    // // dtostrf(_carCount, 2, 0, charCc);
+    // // strcat(msgChars, charCc);
 
-    // trainline
-    strcat(msgChars, ",\"psi\":"); // new 10/29
-    dtostrf(_trainlinePSI, 2, 0, charPsi);
-    strcat(msgChars, charPsi);
+    // // trainline
+    // strcat(msgChars, ",\"psi\":"); // new 10/29
+    // dtostrf(_trainlinePSI, 2, 0, charPsi);
+    // strcat(msgChars, charPsi);
 
-    // mu status
-    strcat(msgChars, ",\"mu\":");                    // new 10/29
+    // // mu status
+    // strcat(msgChars, ",\"mu\":");                    // new 10/29
     const char charMu[2] = {char(_muState + 48), 0}; // 48 = ascii zero
-    strcat(msgChars, charMu);
+    // strcat(msgChars, charMu);
 
-    // if mued, the lead loco id  TBD this may not be necessary as it is handled elsewhere
-    if ((_muState == mid) || (_muState == trailing))
-    {
-        strcat(msgChars, ",\"muto\":");
-        strcat(msgChars, _muLeadLoco.c_str());
-    }
+    // // if mued, the lead loco id  TBD this may not be necessary as it is handled elsewhere
+    // if ((_muState == mid) || (_muState == trailing))
+    // {
+    //     strcat(msgChars, ",\"muto\":");
+    //     strcat(msgChars, _muLeadLoco.c_str());
+    // }
 
-    // trainline connection status
-    strcat(msgChars, ",\"tl\":");                               // v 0.15
+    // // trainline connection status
+    // strcat(msgChars, ",\"tl\":");                               // v 0.15
     const char charTl[2] = {char(_trainlineConnected + 48), 0}; // 48 = ascii zero
-    strcat(msgChars, charTl);
+    // strcat(msgChars, charTl);
 
-    strcat(msgChars, ",\"cars\":"); // v 0.15
-    dtostrf(_carCount, 3, 0, charCarCount);
-    strcat(msgChars, charCarCount);
+    // strcat(msgChars, ",\"cars\":"); // v 0.15
+    // dtostrf(_carCount, 3, 0, charCarCount);
+    // strcat(msgChars, charCarCount);
 
-    // hauled tonnage
-    strcat(msgChars, ",\"tons\":"); // v 0.15
-    dtostrf(_tonnage, 5, 0, charTonnage);
-    strcat(msgChars, charTonnage);
+    // // hauled tonnage
+    // strcat(msgChars, ",\"tons\":"); // v 0.15
+    // dtostrf(_tonnage, 5, 0, charTonnage);
+    // strcat(msgChars, charTonnage);
 
-    strcat(msgChars, "}");
+    // strcat(msgChars, "}");
 
     JsonDocument doc;
     doc["topic"] = "condition";
-    doc["id"] = "_locoID.c_str()";
+    doc["id"] = _locoID.c_str();
     doc["pm "] = charPm;
     doc["rvrsr"] = charDir;
     doc["hl"] = charHl;
@@ -1988,25 +1972,27 @@ void Throttle::reportCondition()
  */
 void Throttle::reportStatus()
 {
+    log_d("_muState %d", _muState);
+    // this report is only sent by mu leads or non-mu locos
+    if ((_muState != solo) && (_muState != lead)) return;
+
     String jsonString = "";
 
-    // if (callbackGetTLPsi)
-    //     _trainlinePSI = callbackGetTLPsi();
     if (_brakes)
         _trainlinePSI = _brakes->getTrainlinePSI();
 
     int intSpeedoSpeed = _mph * 10;
     float speedoSpeed = intSpeedoSpeed / 10.; // to get tenths of mph
 
-    char topicChars[TOPIC_CHAR_SIZE]; // v 0.25
-    strcpy(topicChars, _feedbackTopic.c_str());
-    strcat(topicChars, _locoID.c_str());
-    strcat(topicChars, "/status");
+    // char topicChars[TOPIC_CHAR_SIZE]; // v 0.25
+    // // strcpy(topicChars, _feedbackTopic.c_str());
+    // strcpy(topicChars, _locoID.c_str());
+    // strcat(topicChars, "/status");
 
-    char msgChars[100];
-    char charSpeed[10];
-    char charOdo[10];
-    char charPsi[10];
+    // char msgChars[100];
+    // char charSpeed[10];
+    // char charOdo[10];
+    // char charPsi[10];
     bool locoBrkOn;
     uint16_t mainPsi;
 
@@ -2045,7 +2031,11 @@ void Throttle::reportStatus()
         // add them to the json string
         JsonObject root = muDoc.as<JsonObject>();
         if (muDoc.isNull())
+        {
             _muState = solo; // failsafe here
+            config["loco"]["mustate"] = _muState;
+            saveConfig();
+        }
         else
         {
             uint8_t counter = 0;
@@ -2096,7 +2086,7 @@ void Throttle::reportStatus()
             udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
             udpCommand.endPacket();
 #ifdef DEBUG_UDP
-            log_d("Sent nicast to trailer: %s to: %s", jsonString.c_str(), muip);
+            log_d("Sent unicast to trailer: %s to: %s", jsonString.c_str(), muip);
 #endif
         }
     }
@@ -2111,11 +2101,11 @@ void Throttle::reportStatus()
  */
 void Throttle::reportFunctionLabels()
 {
-    char topicChars[40];
+    // char topicChars[40];
 
-    strcpy(topicChars, _feedbackTopic.c_str());
-    strcat(topicChars, _locoID.c_str());
-    strcat(topicChars, "/functionLabels");
+    // strcpy(topicChars, _feedbackTopic.c_str());
+    // strcat(topicChars, _locoID.c_str());
+    // strcat(topicChars, "/functionLabels");
 
     char msgChars[1024]; // TBD limit the labels (elsewhere) to 30 characters
     // following from chatGPT 12/07/25

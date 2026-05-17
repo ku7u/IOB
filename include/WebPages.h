@@ -647,6 +647,9 @@ const char apselect_html[] PROGMEM = R"rawliteral(
   </style>
 </head>
 
+)rawliteral" 
+
+/*
 <body>
   <div class="container">
     <h2>Configure Wi-Fi</h2>
@@ -734,6 +737,109 @@ const char apselect_html[] PROGMEM = R"rawliteral(
     });
   </script>
 </body>
+
+*/ 
+R"rawliteral(
+
+<body>
+  <div class="container">
+    <h2>Configure Wi-Fi</h2>
+    <div id="status" class="status">Checking status...</div>
+
+    <div class="card">
+      <label for="ssid">Network Name (SSID)</label>
+      <input id="ssid" type="text" placeholder="Select from list or type here" />
+      <label for="password">Password</label>
+      <input id="password" type="password" placeholder="Enter password" />
+      <button id="saveBtn" class="btn-save">Save & Connect</button>
+    </div>
+
+    <hr>
+
+    <div class="header-row">
+      <h3>Available Networks</h3>
+      <button id="scanBtn" class="btn-scan">Scan for Networks</button>
+    </div>
+    <div id="aplist" class="ap-list">Click "Scan" to find networks...</div>
+
+    <p class="small">Portal active for 3 minutes. <a href="/index.html">Exit to Index</a></p>
+  </div>
+
+  <script>
+    const ssidInput = document.getElementById('ssid');
+    const passInput = document.getElementById('password');
+    const aplistDiv = document.getElementById('aplist');
+    const scanBtn = document.getElementById('scanBtn');
+
+    function updateStatus() {
+      fetch('/status').then(r => r.json()).then(js => {
+        const st = document.getElementById('status');
+        st.innerHTML = js.connected ? 
+          `✅ Connected: <b>${js.ssid}</b>` : 
+          `❌ <b>Not connected</b>`;
+      }).catch(() => {});
+    }
+
+    function doScan() {
+      scanBtn.disabled = true;
+      scanBtn.innerText = "Scanning...";
+      aplistDiv.innerHTML = '<div class="spinner">Scanning channels... please wait.</div>';
+
+      fetch('/aplist')
+        .then(r => r.json())
+        .then(list => {
+          aplistDiv.innerHTML = '';
+          if (list.length === 0) {
+            aplistDiv.innerText = 'No networks found. Try again.';
+          } else {
+            list.sort((a, b) => b.rssi - a.rssi);
+            list.forEach(item => {
+              let div = document.createElement('div');
+              div.className = 'ap-item';
+              div.innerHTML = `<span><b>${item.ssid}</b> (${item.rssi}dBm)</span>`;
+              let btn = document.createElement('button');
+              btn.textContent = 'Select';
+              btn.onclick = () => { ssidInput.value = item.ssid; passInput.focus(); };
+              div.appendChild(btn);
+              aplistDiv.appendChild(div);
+            });
+          }
+        })
+        .finally(() => {
+          scanBtn.disabled = false;
+          scanBtn.innerText = "Scan for Networks";
+        });
+    }
+
+    document.getElementById('saveBtn').onclick = function () {
+      if (!ssidInput.value) return alert('SSID required');
+      
+      this.disabled = true;
+      this.innerText = "Saving...";
+
+      const body = "ssid=" + encodeURIComponent(ssidInput.value) + 
+                   "&password=" + encodeURIComponent(passInput.value);
+
+      fetch('/connect', {
+        method: 'POST',
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body
+      })
+      .then(r => r.json())
+      .then(js => {
+        alert(js.message || "Rebooting...");
+        // Wait 2 seconds then try to redirect to home
+        setTimeout(() => { window.location.href = "/"; }, 2000);
+      })
+      .catch(e => alert("Save request sent. Device is likely rebooting."));
+    };
+
+    scanBtn.onclick = doScan;
+    window.onload = updateStatus;
+  </script>
+</body>
+
+
 
 </html>
     )rawliteral";

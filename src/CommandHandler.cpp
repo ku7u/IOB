@@ -48,6 +48,9 @@ void CommandHandler::loop()
 
     log_d("Receivd %s having %d bytes from %s:%d", buf, len, ip.toString().c_str(), port);
 
+    // ignore my own messages TBD shouldn't have to check this, should not be sending to myself
+    if (ip == WiFi.localIP()) return;
+
     // Parse the JSON
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, buf);
@@ -55,8 +58,7 @@ void CommandHandler::loop()
     if (error)
     {
 #ifdef DEBUG_UDP
-        Serial.print("JSON parse failed: ");
-        Serial.println(error.c_str());
+        log_d("JSON parse failed: %s", error.c_str());
 #endif
         return;
     }

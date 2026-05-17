@@ -263,7 +263,6 @@ using namespace std;
 #endif
 #define RGB_BUILTIN 10
 
-
 // Allocate a "ledger" in memory.
 // For an ESP32-C3, 4KB (4096) is plenty for hundreds of locomotive settings. (per Gemini)
 JsonDocument config;
@@ -475,31 +474,32 @@ void saveConfig()
   File file = LittleFS.open("/config.json", "w");
   if (file)
   {
+    log_d("should be saving");
     serializeJson(config, file);
     file.close();
-    Serial.println(F("[JSON] Config saved to LittleFS."));
+    log_i("Config saved to LittleFS.");
   }
 }
 
 // A tiny macro helper to keep the seeding code incredibly short
 #define SEED_DEFAULT(group, key, value) \
-if (!config[group].containsKey(key))  \
-{                                     \
-  config[group][key] = value;         \
-  needsSave = true;                   \
-}
+  if (!config[group].containsKey(key))  \
+  {                                     \
+    config[group][key] = value;         \
+    needsSave = true;                   \
+  }
 
 void enforceConfigDefaults()
 {
   bool needsSave = false;
-  
+
   // --- 1. General Namespace ---
   SEED_DEFAULT("general", "topicCommandLeftEnd", "loco/1/cmd");
   SEED_DEFAULT("general", "topicFeedbackLeftEnd", "loco/1/telemetry");
   SEED_DEFAULT("general", "commandtopic", "cmd/ols/");
   SEED_DEFAULT("general", "feedbacktopic", "tlm/ols");
   SEED_DEFAULT("general", "erasessid", 0);
-  
+
   // --- 2. Locomotive Namespace ---
   SEED_DEFAULT("loco", "ip", 0);       // TBD
   SEED_DEFAULT("loco", "type", "Unk"); // TBD
@@ -515,7 +515,7 @@ void enforceConfigDefaults()
   SEED_DEFAULT("loco", "mustate", 0);
   SEED_DEFAULT("loco", "muleadloco", "Unk");
   SEED_DEFAULT("loco", "mureversed", 0); // TBD for booleans
-  SEED_DEFAULT("loco", "consist", "{}"); 
+  SEED_DEFAULT("loco", "consist", "{}");
 
   // --- 3. Calibration Namespace ---
   SEED_DEFAULT("calibration", "speed2forward", 1.0f);
@@ -545,7 +545,7 @@ void enforceConfigDefaults()
   SEED_DEFAULT("functions", "notchingenable", 0);
   SEED_DEFAULT("functions", "notchup", 0);
   SEED_DEFAULT("functions", "notchdown", 0);
-  
+
   SEED_DEFAULT("functions", "f0", 0);
   SEED_DEFAULT("functions", "f1", 1);
   SEED_DEFAULT("functions", "f2", 2);
@@ -575,15 +575,15 @@ void enforceConfigDefaults()
   SEED_DEFAULT("functions", "f26", 26);
   SEED_DEFAULT("functions", "f27", 27);
   SEED_DEFAULT("functions", "f28", 28);
-  
+
   // --- 4. Wifi Namespace ---
-  SEED_DEFAULT("wifi", "ssid", "unk");
-  SEED_DEFAULT("wifi", "pass", "unk");
+  SEED_DEFAULT("wifi", "ssid", "");
+  SEED_DEFAULT("wifi", "pass", "");
 
   // TBD TBD TBD
-  
+
   // --- 4. Consist Namespace ---
-  
+
   // If any missing elements were found and fixed, commit the clean schema to flash
   if (needsSave)
   {
@@ -594,11 +594,11 @@ void enforceConfigDefaults()
 
 void loadConfig()
 {
-  if (!LittleFS.begin(true))
-  { // true = format if corrupted
-    Serial.println(F("[JSON] LittleFS Mount Failed"));
-    return;
-  }
+  // if (!LittleFS.begin(true))
+  // { // true = format if corrupted
+  //   Serial.println(F("[JSON] LittleFS Mount Failed"));
+  //   return;
+  // }
   File file = LittleFS.open("/config.json", "r");
   if (file)
   {
@@ -627,19 +627,19 @@ String processorNetwork(const String &var)
 
   if (var == "IP")
     return WiFi.localIP().toString();
-    // returnString = WiFi.localIP().toString();
+  // returnString = WiFi.localIP().toString();
   else if (var == "SSID")
     return WiFi.SSID();
-    // returnString = WiFi.SSID();
+  // returnString = WiFi.SSID();
   else if (var == "RSSI")
     return String(WiFi.RSSI());
-    // returnString = String(WiFi.RSSI());
+  // returnString = String(WiFi.RSSI());
   else if (var == "MAC")
     return WiFi.macAddress();
-    // returnString = WiFi.macAddress();
+  // returnString = WiFi.macAddress();
   else if (var == "MDNS")
     return mdnsURL;
-    // returnString = mdnsURL;
+  // returnString = mdnsURL;
   else if (var == "TOPICCOMMANDLEFTEND")
   {
     topicCommandLeftEnd.replace("%", "");
@@ -654,7 +654,7 @@ String processorNetwork(const String &var)
   // if (returnString != "")
   //   return returnString;
   // else
-    return String(); // in case nothing matched
+  return String(); // in case nothing matched
 }
 
 /*****************************************************************************/
@@ -832,23 +832,23 @@ void setupWeb()
   // Serve /index.html
   server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(200, "text/html", index_html, [](const String &var)
-                              { return processorIndex(var); }); });
+                            { return processorIndex(var); }); });
 
   server.on("/functions.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(200, "text/html", functions_html, [](const String &var)
-                              { return processorFunctions(var); }); });
+                            { return processorFunctions(var); }); });
 
   server.on("/locoparms.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(200, "text/html", locoparms_html, [](const String &var)
-                              { return processorLocoparms(var); }); });
+                            { return processorLocoparms(var); }); });
 
   server.on("/network.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(200, "text/html", network_html, [](const String &var)
-                              { return processorNetwork(var); }); });
+                            { return processorNetwork(var); }); });
 
   server.on("/calibration.html", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(200, "text/html", calibration_html, [](const String &var)
-                              { return processorCalibrationparms(var); }); });
+                            { return processorCalibrationparms(var); }); });
 
   server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -994,7 +994,6 @@ void setupMDNS(String locoid)
   MDNS.addService(serviceType, serviceProto, servicePort);
   log_i("Advertising service: %s.%s on port %d", serviceType, serviceProto, servicePort);
 
-
   String locoId = config["loco"]["locoid"];
   String locoType = config["loco"]["locotype"];
   locoId.trim();
@@ -1112,8 +1111,30 @@ void setup()
 
   // getGeneralPrefs();
 
-  loadConfig();            // 1. Read /config.json if it exists
-  enforceConfigDefaults(); // 2. Fill in ANY blank slots with factory settings
+  // 2. Kill the "Ghost" Settings
+  // This stops the hardware from using old Preferences data
+  WiFi.persistent(false);
+  WiFi.disconnect(true, true);
+  WiFi.mode(WIFI_OFF);
+  delay(1000);
+
+  if (!LittleFS.begin(true))
+  {
+    // MOUNT FAILED!
+    // while(1) {
+    //     digitalWrite(LED_PIN, HIGH);
+    //     delay(100);
+    //     digitalWrite(LED_PIN, LOW);
+    //     delay(100);
+    //     // Rapid strobe = Filesystem is broken
+    // }
+  }
+
+  
+  // 3. Load your JSON config into memory
+  loadConfig();
+  
+  enforceConfigDefaults(); 
 
   // get the road number
   String locoID = config["loco"]["locoid"];

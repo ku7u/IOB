@@ -116,22 +116,50 @@ void WiFiConfigurator::setupWebServerRoutes()
 }
 
 
+// void WiFiConfigurator::handleAPlist(AsyncWebServerRequest *req)
+// {
+//     int n = WiFi.scanNetworks();
+//     String json = "[";
+//     bool first = true;
+//     for (int i = 0; i < n; ++i)
+//     {
+//         String s = WiFi.SSID(i);
+//         if (s.length() == 0)
+//             continue;
+//         if (!first)
+//             json += ",";
+//         json += "{\"ssid\":\"" + jsonEscape(s) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+//         first = false;
+//     }
+//     json += "]";
+//     req->send(200, "application/json", json);
+// }
+
 void WiFiConfigurator::handleAPlist(AsyncWebServerRequest *req)
 {
-    int n = WiFi.scanNetworks();
+    // Check if a scan is already running
+    int n = WiFi.scanComplete();
+    
+    if (n == -2) { // Scan not started
+        WiFi.scanNetworks(true, false, false, 250); // Start an async scan (true = don't block) was just (true)
+        req->send(200, "application/json", "[]"); 
+        return;
+    } 
+    
+    if (n == -1) { // Scan still in progress
+        req->send(200, "application/json", "[]");
+        return;
+    }
+
+    // Scan is done, build the JSON
     String json = "[";
-    bool first = true;
-    for (int i = 0; i < n; ++i)
-    {
-        String s = WiFi.SSID(i);
-        if (s.length() == 0)
-            continue;
-        if (!first)
-            json += ",";
-        json += "{\"ssid\":\"" + jsonEscape(s) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
-        first = false;
+    for (int i = 0; i < n; ++i) {
+        if (i > 0) json += ",";
+        json += "{\"ssid\":\"" + jsonEscape(WiFi.SSID(i)) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
     }
     json += "]";
+    
+    WiFi.scanDelete(); // Clean up memory
     req->send(200, "application/json", json);
 }
 
@@ -205,6 +233,10 @@ void WiFiConfigurator::connectToSavedHouseAP()
     else
     {
         Serial.println("[WiFiConfigurator] No saved credentials in JSON → SoftAP mode");
+        
+        // This wipes the internal WiFi stack memory that Preferences/WiFiManager used
+        WiFi.disconnect(true, true); 
+        delay(100);
     }
 }
 
