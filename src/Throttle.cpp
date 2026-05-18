@@ -21,7 +21,7 @@
 
 extern WiFiUDP udpCommand;
 extern JsonDocument config;
-extern void saveConfig(); 
+extern void saveConfig();
 
 // Constructor
 Throttle::Throttle(void)
@@ -75,6 +75,57 @@ void Throttle::init()
 
 void Throttle::loop()
 {
+    // computeVelocity may be broken up to improve readability
+    static uint8_t startupCounter;
+    static uint16_t lastTrainlinePSI;
+
+    // brake system should be shut down if PM not running
+    if (!_running)
+    {
+        startupCounter = 0;
+        if (_brakes)
+            _brakes->setPMRunning(false);
+    }
+
+    if ((!_running) || ((_muState == mid) || (_muState == trailing)))
+    {
+#ifdef DEBUG_SPEED
+        log_d("returning, _running: %d  _muState: %d", _running, _muState);
+#endif
+        return;
+    }
+
+    // delay compressor startup
+    if (startupCounter < 15)
+        startupCounter++;
+    else if (startupCounter == 15)
+    {
+        if (_brakes)
+            _brakes->setPMRunning(true);
+        startupCounter++;
+    }
+
+    if (_brakes)
+        _compressorRunning = _brakes->cycle(true);
+
+    if (_brakes)
+    {
+        _trainlinePSI = _brakes->getTrainlinePSI();
+        _trainBrake = _brakes->getEffectiveTrainBrake();
+        _independentBrake = _brakes->getEffectiveLocoBrake();
+    }
+
+    if (_trainlinePSI != lastTrainlinePSI)
+    {
+        reportStatus();
+        lastTrainlinePSI = _trainlinePSI;
+    }
+    else if ((_mph == 0) && _compressorRunning)
+        reportStatus();
+
+    if (_neutral == true)
+        return; // if in neutral don't waste time computing velocity
+
     computeVelocity();
     return;
 }
@@ -272,7 +323,7 @@ void Throttle::pmOnOff(bool onOff)
         config["loco"]["odometer"] = _odometer;
         config["loco"]["lastshuttime"] = getTime();
         saveConfig();
-        
+
         _opMode = off;
 
         // do something to the brake system TBD
@@ -990,75 +1041,12 @@ void Throttle::computeVelocity(void)
     uint16_t intCurrentSpeed;
     static bool zeroWasSent = false;
     static uint16_t lastIntCurrentSpeed;
-    static uint16_t lastTrainlinePSI;
-    static uint8_t startupCounter;
 
-    if (!_running)
-    {
-        startupCounter = 0;
-        // if (callbackSetPMRunning)
-        // callbackSetPMRunning(false);
-        if (_brakes)
-            _brakes->setPMRunning(false);
-    }
 
-    if (startupCounter < 15)
-        startupCounter++;
-    else if (startupCounter == 15)
-    {
-        // if (callbackSetPMRunning)
-        // callbackSetPMRunning(true);
-        if (_brakes)
-            _brakes->setPMRunning(true);
-        startupCounter++;
-    }
-
-    // bool compressorRunning = callbackBrakeSystemCycle(true); // v027
-    // if (_brakes) bool compressorRunning = _brakes->cycle(true);
-    if (_brakes)
-        _compressorRunning = _brakes->cycle(true);
-
-    if ((!_running) || ((_muState == mid) || (_muState == trailing)))
-    {
-#ifdef DEBUG_SPEED
-        log_d("returning, _running: %d  _muState: %d", _running, _muState);
-#endif
-        return;
-    }
-
-    if (_brakes)
-    {
-        // if (callbackGetTLPsi)
-        //     _trainlinePSI = callbackGetTLPsi();
-        _trainlinePSI = _brakes->getTrainlinePSI();
-
-        // if (callbackGetEffectiveTrainBrake)
-        //     _trainBrake = callbackGetEffectiveTrainBrake();
-        _trainBrake = _brakes->getEffectiveTrainBrake();
-
-        // if (callbackGetEffectiveLocoBrake)
-        //     _independentBrake = callbackGetEffectiveLocoBrake();
-        _independentBrake = _brakes->getEffectiveLocoBrake();
-    }
-
-    if (_trainlinePSI != lastTrainlinePSI)
-    {
-        reportStatus();
-        lastTrainlinePSI = _trainlinePSI;
-    }
-    // else if ((_mph == 0) && compressorRunning)
-    else if ((_mph == 0) && _compressorRunning)
-        reportStatus();
-
-    consistHorsepower = _horsepower + _muHorsepower; // v0.26 ff  TBD check this...thought we already amalgamated mu hp containing lead
+    consistHorsepower = _horsepower + _muHorsepower; // TBD better if thiese were not calced on every loop
     consistMass = _locoMass + _muLocoMass;
     consistTractiveEffort = _tractiveEffort + _muTractiveEffort;
     _horsepowerAtIdle = consistHorsepower / 100;
-
-    if (_neutral == true)
-    {
-        return; // if in neutral don't waste time in here
-    }
 
     // Table-based lookup for divisors
     static const float divisors[] = {0, 0, 20.0, 17.0, 15.0, 10.0, 9.0, 8.0};
@@ -1069,22 +1057,6 @@ void Throttle::computeVelocity(void)
         effectiveHP = _horsepowerAtIdle;
     else
         effectiveHP = (consistHorsepower * (_notch) / divisors[_notch]) - 50.0f;
-
-    //     effectiveHP = (_horsepower * (_notch - 1) / 7) - 50;
-    // else if (_notch == 2)
-    //     effectiveHP = (consistHorsepower * (_notch) / 20.) - 50;
-    // else if (_notch == 3)
-    //     effectiveHP = (consistHorsepower * (_notch) / 17.) - 50;
-    // else if (_notch == 4)
-    //     effectiveHP = (consistHorsepower * (_notch) / 15.) - 50;
-    // else if (_notch == 5)
-    //     effectiveHP = (consistHorsepower * (_notch) / 10.) - 50;
-    // else if (_notch == 6)
-    //     effectiveHP = (consistHorsepower * (_notch) / 9.) - 50;
-    // else if (_notch == 7)
-    //     effectiveHP = (consistHorsepower * (_notch) / 8.) - 50;
-    // else if (_notch == 8)
-    //     effectiveHP = consistHorsepower - 50;
 
 #ifdef DEBUG_SPEED
     log_d("effectiveHP %.2f", effectiveHP);
@@ -1170,9 +1142,8 @@ void Throttle::computeVelocity(void)
 #endif
 
     // integrate acceleration to get speed, here in fps, ultimately required by decoder
-    // gfh mod for topSpeed 020525
     float lastCurrentSpeed = _currentSpeed;
-    _currentSpeed = _currentSpeed + accel; // accel is feet/sec/sec so if integrated once / sec, accel = vel, _currentSpeed is feet/sec
+    _currentSpeed = _currentSpeed + accel; // accel is feet/sec/sec so if integrated once / sec, vel = accel (v = at), _currentSpeed is feet/sec
 #ifdef DEBUG_SPEED
     log_d("_currentSpeed (raw) %.3f", _currentSpeed);
 #endif
@@ -1183,7 +1154,7 @@ void Throttle::computeVelocity(void)
         _currentSpeed = lastCurrentSpeed;
 
     // integrate speed to obtain distance in feet, converted to miles when sent later
-    _odometer = _odometer + abs(_currentSpeed); // TBD on this (seems to work)
+    _odometer = _odometer + abs(_currentSpeed); // TBD on this (seems to work) d = vt d is fps, t is 1 sec so d = v
 
     // get the appropriate calibrated and interpolated speed compensation value for the decoder
     intCurrentSpeed = interpolateSpeedFactor(_currentSpeed);
@@ -1202,12 +1173,10 @@ void Throttle::computeVelocity(void)
 
     if ((intCurrentSpeed != lastIntCurrentSpeed) || (!zeroWasSent))
     {
-        _mph = _currentSpeed * FPS_TO_MPH_FACTOR; // TBD fix this (why?)
+        _mph = _currentSpeed * FPS_TO_MPH_FACTOR; // TBD fix this (why? seems correct)
 
         lastIntCurrentSpeed = intCurrentSpeed;
 
-        // if (callbackThrottleDCC)
-        //     callbackThrottleDCC(_dccAddress, intCurrentSpeed, _direction);
         if (_dcc)
             _dcc->setThrottle(_dccAddress, intCurrentSpeed, _direction);
     }
@@ -1472,24 +1441,8 @@ void Throttle::muSetState(const char *jsonMsg)
             config["loco"]["mustate"] = _muState;
             config["loco"]["muleadloco"] = _muLeadLoco;
             saveConfig();
-            // send my zero muState to lead now cuz I'm outta here
-            // char topicChars[TOPIC_CHAR_SIZE];
-            // strcpy(topicChars, _commandTopic.c_str());
-            // strcat(topicChars, _muLeadLoco.c_str());
-            // strcat(topicChars, "/muLocoData");
 
-            // char msgChars[100]; // myID, locomass, hp, tractive effort
-            // char buffer[50];
-
-            // strcpy(msgChars, "{\"id\":\"");
-            // strcat(msgChars, _locoID.c_str());
-            // strcat(msgChars, "\"");
-
-            // strcat(msgChars, ",\"st\":"); // mustate  v0.26 ff
-            // itoa(_muState, buffer, 10);   // v0.26
-            // strcat(msgChars, buffer);
-            // strcat(msgChars, "}");
-
+            // send my zero muState to lead now cuz I'm outta her
             JsonDocument doc;
             doc["topic"] = "muLocoData";
             doc["muip"] = WiFi.localIP().toString();
@@ -1498,7 +1451,6 @@ void Throttle::muSetState(const char *jsonMsg)
             serializeJson(doc, jsonString);
 
             // send the parameters to lead loco to affect its performance
-
             udpCommand.beginPacket(leadIpAdr, COMMAND_PORT);
             udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
             udpCommand.endPacket();
@@ -1509,6 +1461,7 @@ void Throttle::muSetState(const char *jsonMsg)
         }
 
         _muState = static_cast<Throttle::MuState>(commandedState);
+
         // store the state
         config["loco"]["mustate"] = _muState;
         saveConfig();
@@ -1565,16 +1518,6 @@ void Throttle::muReport(const char *leadIpAdr) // v0.26
     if ((_muState == mid) || (_muState == trailing))
     {
         String muIP = WiFi.localIP().toString();
-
-        // char topicChars[TOPIC_CHAR_SIZE];
-        // strcpy(topicChars, _commandTopic.c_str());
-        // strcat(topicChars, _muLeadLoco.c_str());
-        // // strcat(topicChars, "/muperformance");
-        // strcat(topicChars, "/muLocoData");
-
-        // char msgChars[256]; // myID, locomass, hp, tractive effort
-        // char buffer[100];
-
         String jsonString = "";
 
         JsonDocument doc;
@@ -1587,33 +1530,6 @@ void Throttle::muReport(const char *leadIpAdr) // v0.26
         doc["te"] = _tractiveEffort;
         doc["st"] = String((int)_muState);
         serializeJson(doc, jsonString);
-
-        // strcpy(msgChars, "{\"id\":\"");
-        // strcat(msgChars, _locoID.c_str());
-
-        // strcat(msgChars, "\",\"topic\":\"");
-        // strcat(msgChars, topicChars);
-
-        // strcat(msgChars, "\",\"muip\":\"");
-        // strcat(msgChars, muIP.c_str());
-
-        // strcat(msgChars, "\",\"mass\":");
-        // itoa(_locoMass, buffer, 10);
-        // strcat(msgChars, buffer);
-
-        // strcat(msgChars, ",\"hp\":");
-        // itoa(_horsepower, buffer, 10);
-        // strcat(msgChars, buffer);
-
-        // strcat(msgChars, ",\"te\":");
-        // itoa(_tractiveEffort, buffer, 10); // v0.26
-        // strcat(msgChars, buffer);
-
-        // strcat(msgChars, ",\"st\":"); // mustate  v0.26 ff
-        // itoa(_muState, buffer, 10);   // v0.26
-        // strcat(msgChars, buffer);
-
-        // strcat(msgChars, "}");
 
         // send the parameters to lead loco to affect its performance
         udpCommand.beginPacket(leadIpAdr, COMMAND_PORT);
@@ -1648,7 +1564,6 @@ void Throttle::muSetPerformance(const char *jsonMsg)
 
     JsonDocument doc;
     String consistString;
-    // StaticJsonDocument<200> doc1;
     JsonDocument doc1;
     String jsonString;
 
@@ -1657,7 +1572,6 @@ void Throttle::muSetPerformance(const char *jsonMsg)
 #endif
 
     // Deserialize the JSON document coming from candidate
-    // DeserializationError error = deserializeJson(doc, jsonMsg);
     deserializeJson(doc, jsonMsg);
 
     String locoID = doc["id"];
@@ -1666,11 +1580,6 @@ void Throttle::muSetPerformance(const char *jsonMsg)
     int hp = doc["hp"];
     uint32_t te = doc["te"]; // tractive effort v0.26
     int st = doc["st"];      // muState v0.26
-
-    // char topicChars[TOPIC_CHAR_SIZE]; // v 0.24 all of this startstop stuff
-    // strcpy(topicChars, _commandTopic.c_str());
-    // strcat(topicChars, locoID.c_str());
-    // strcat(topicChars, "/startstop");
 
     // determine if removing (st==0) or adding (st!=0) a candidate
     if (st == 0) // remove this loco from the json doc, etc.
@@ -1689,11 +1598,9 @@ void Throttle::muSetPerformance(const char *jsonMsg)
 
         serializeJson(muDoc, consistString);
 
-
         config["loco"]["consist"] = consistString;
         config["loco"]["mustate"] = _muState;
         saveConfig();
-
 
         // turn off PM on the mued loco
 
@@ -1752,7 +1659,7 @@ void Throttle::muSetPerformance(const char *jsonMsg)
             candidate["te"] = te;
             candidate["muip"] = muIP;
 
-            // save the serialized and changed muDoc 
+            // save the serialized and changed muDoc
             serializeJson(muDoc, consistString);
             config["loco"]["consist"] = consistString;
             config["loco"]["mustate"] = _muState;
@@ -1820,9 +1727,6 @@ void Throttle::muSetSpeed(const char *jsonMsg)
 
     bool brk = doc["brk"];
     if (brk != lastBrake)
-        // commandFifo.pushCommand(functionIndependentBrake, brk);
-        // if (callbackPushCommand)
-        //     callbackPushCommand(functionIndependentBrake, brk);
         if (_dcc)
             _dcc->pushCommand(functionIndependentBrake, brk);
     lastBrake = brk;
@@ -1844,8 +1748,6 @@ void Throttle::muSetSpeed(const char *jsonMsg)
     if (dccFPS > 126)
         dccFPS = 126;
 
-    // if (callbackThrottleDCC)
-    //     callbackThrottleDCC(_dccAddress, dccFPS, direction);
     if (_dcc)
         _dcc->setThrottle(_dccAddress, dccFPS, direction);
 }
@@ -1867,17 +1769,7 @@ void Throttle::reportCondition()
     char charTonnage[10];
 
     // build the topic string
-    // strcpy(topicChars, _feedbackTopic.c_str());
-    // strcpy(topicChars, _locoID.c_str());
-    // strcat(topicChars, "/condition");
-
-    // // build the msg json string
-    // // PM status, on or off
-    // strcpy(msgChars, "{\"pm\":");
     const char charPm[2] = {char(_running + 48), 0}; // 48 = ascii zero, so sends back "0" or "1"
-    // strcat(msgChars, charPm);
-
-    // strcat(msgChars, ",\"rvrsr\":");
     uint revPos;
     if (_neutral)
         revPos = 1;
@@ -1886,32 +1778,20 @@ void Throttle::reportCondition()
     else
         revPos = 0;
     const char charDir[2] = {char(revPos + 48), 0}; // 48 = ascii zero
-    // strcat(msgChars, charDir);
 
     // // headlight status off, dim, bright
-    // strcat(msgChars, ",\"hl\":");                      // new 10/29
     const char charHl[2] = {char(_headlight + 48), 0}; // 48 = ascii zero
-    // strcat(msgChars, charHl);
 
     // // rearlight status off, dim, bright
-    // strcat(msgChars, ",\"rl\":");                      // new 10/29
     const char charRl[2] = {char(_rearlight + 48), 0}; // 48 = ascii zero
-    // strcat(msgChars, charRl);
 
     // // bell
-    // strcat(msgChars, ",\"bell\":");               // new 11/7
     const char charBl[2] = {char(_bell + 48), 0}; // 48 = ascii zero
     // strcat(msgChars, charBl);
 
     // // car count    TBD this and 'cars' below one is superfluous
-    // // strcat(msgChars, ",\"cc\":"); // new 11/8
-    // // dtostrf(_carCount, 2, 0, charCc);
-    // // strcat(msgChars, charCc);
 
     // // trainline
-    // strcat(msgChars, ",\"psi\":"); // new 10/29
-    // dtostrf(_trainlinePSI, 2, 0, charPsi);
-    // strcat(msgChars, charPsi);
 
     // // mu status
     // strcat(msgChars, ",\"mu\":");                    // new 10/29
@@ -1919,27 +1799,12 @@ void Throttle::reportCondition()
     // strcat(msgChars, charMu);
 
     // // if mued, the lead loco id  TBD this may not be necessary as it is handled elsewhere
-    // if ((_muState == mid) || (_muState == trailing))
-    // {
-    //     strcat(msgChars, ",\"muto\":");
-    //     strcat(msgChars, _muLeadLoco.c_str());
-    // }
-
-    // // trainline connection status
-    // strcat(msgChars, ",\"tl\":");                               // v 0.15
+                             // v 0.15
     const char charTl[2] = {char(_trainlineConnected + 48), 0}; // 48 = ascii zero
-    // strcat(msgChars, charTl);
 
-    // strcat(msgChars, ",\"cars\":"); // v 0.15
-    // dtostrf(_carCount, 3, 0, charCarCount);
-    // strcat(msgChars, charCarCount);
 
     // // hauled tonnage
-    // strcat(msgChars, ",\"tons\":"); // v 0.15
-    // dtostrf(_tonnage, 5, 0, charTonnage);
-    // strcat(msgChars, charTonnage);
 
-    // strcat(msgChars, "}");
 
     JsonDocument doc;
     doc["topic"] = "condition";
@@ -1974,7 +1839,8 @@ void Throttle::reportStatus()
 {
     log_d("_muState %d", _muState);
     // this report is only sent by mu leads or non-mu locos
-    if ((_muState != solo) && (_muState != lead)) return;
+    if ((_muState != solo) && (_muState != lead))
+        return;
 
     String jsonString = "";
 
@@ -1984,15 +1850,6 @@ void Throttle::reportStatus()
     int intSpeedoSpeed = _mph * 10;
     float speedoSpeed = intSpeedoSpeed / 10.; // to get tenths of mph
 
-    // char topicChars[TOPIC_CHAR_SIZE]; // v 0.25
-    // // strcpy(topicChars, _feedbackTopic.c_str());
-    // strcpy(topicChars, _locoID.c_str());
-    // strcat(topicChars, "/status");
-
-    // char msgChars[100];
-    // char charSpeed[10];
-    // char charOdo[10];
-    // char charPsi[10];
     bool locoBrkOn;
     uint16_t mainPsi;
 
@@ -2000,13 +1857,8 @@ void Throttle::reportStatus()
 
     if (_brakes)
     {
-        // bool locoBrkOn = bs.locoBrakeOn();
-        // if (callbackLocoBrakeOn)
-        //     locoBrkOn = callbackLocoBrakeOn();
         locoBrkOn = _brakes->locoBrakeOn();
 
-        // if (callbackGetMainPSI)
-        //     mainPsi = callbackGetMainPSI();
         mainPsi = _brakes->getMainPSI();
     }
 
@@ -2183,8 +2035,6 @@ uint16_t Throttle::interpolateSpeedFactor(float fps)
 
 void Throttle::setCV(int cv, int value)
 {
-    // if (callbackSetCvDCC)
-    //     callbackSetCvDCC(_dccAddress, cv, value);
     if (_dcc)
         _dcc->setCV(_dccAddress, cv, value);
 }
@@ -2201,9 +2051,6 @@ void Throttle::setFunction(char *jsonMsg)
     int function = doc["f"];
     bool state = doc["s"];
 
-    // commandFifo.pushCommand(function, state);
-    // if (callbackPushCommand)
-    //     callbackPushCommand(function, state);
     if (_dcc)
         _dcc->pushCommand(function, state);
 }
@@ -2233,9 +2080,6 @@ void Throttle::brakeSqueal(bool on)
         // turn on the sound
         if (_independentBrake > 40) // for light braking, no sound
         {
-            // commandFifo.pushCommand(functionBrakeSqueal, true);
-            // if (callbackPushCommand)
-            //     callbackPushCommand(functionBrakeSqueal, true);
             if (_dcc)
                 _dcc->pushCommand(functionBrakeSqueal, true);
             squealOn = true;
@@ -2246,9 +2090,6 @@ void Throttle::brakeSqueal(bool on)
     else if (!activate && squealOn)
     {
         // turn off the sound
-        // commandFifo.pushCommand(functionBrakeSqueal, false);
-        // if (callbackPushCommand)
-        // callbackPushCommand(functionBrakeSqueal, false);
         if (_dcc)
             _dcc->pushCommand(functionBrakeSqueal, false);
 
@@ -2349,7 +2190,7 @@ void Throttle::muMemberCheck()
         log_e("No response, terminating");
         config["loco"]["mustate"] = _muState;
         saveConfig();
-        
+
         return;
     }
 

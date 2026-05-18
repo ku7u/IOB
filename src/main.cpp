@@ -263,6 +263,12 @@ using namespace std;
 #endif
 #define RGB_BUILTIN 10
 
+// Global variables for loop timing statistics
+unsigned long lastLoopTime = 0;
+unsigned long maxLoopInterval = 0;
+unsigned long loopSumMicros = 0;
+unsigned long loopCount = 0;
+
 // Allocate a "ledger" in memory.
 // For an ESP32-C3, 4KB (4096) is plenty for hundreds of locomotive settings. (per Gemini)
 JsonDocument config;
@@ -1130,11 +1136,10 @@ void setup()
     // }
   }
 
-  
   // 3. Load your JSON config into memory
   loadConfig();
-  
-  enforceConfigDefaults(); 
+
+  enforceConfigDefaults();
 
   // get the road number
   String locoID = config["loco"]["locoid"];
@@ -1214,6 +1219,9 @@ void setup()
   int currentAddress = config["loco"]["dccaddress"];
   log_i("Locomotive #%d is ready.", currentAddress);
 
+  // loop timing statistics
+  lastLoopTime = micros();
+
 } // end setup
 
 /*****************************************************************************/
@@ -1222,6 +1230,21 @@ void loop()
   timer1sec.tick();
   timer200ms.tick();
   timer60000ms.tick();
+
+  // loop timing statistics
+  #ifdef LOOP_TIMING
+  unsigned long currentMicros = micros();
+  unsigned long delta = currentMicros - lastLoopTime;
+  lastLoopTime = currentMicros;
+
+  // Update statistics
+  loopSumMicros += delta;
+  loopCount++;
+  if (delta > maxLoopInterval)
+  {
+    maxLoopInterval = delta;
+  }
+#endif
 
   ElegantOTA.loop();
 
@@ -1234,11 +1257,34 @@ void loop()
 
   if (timer60000ms.expired)
   {
-    //   // memory testing
-    //   int freeHeap = ESP.getFreeHeap();
-    //   String myFreeHeap = String(freeHeap);
-    //   unsigned long maxAllocHeap = ESP.getMaxAllocHeap();
-    //   String myMaxAllocHeap = String(maxAllocHeap);
+//   // memory testing
+//   int freeHeap = ESP.getFreeHeap();
+//   String myFreeHeap = String(freeHeap);
+//   unsigned long maxAllocHeap = ESP.getMaxAllocHeap();
+//   String myMaxAllocHeap = String(maxAllocHeap);
+
+// loop timing statistics
+#ifdef LOOP_TIMING
+    static unsigned long lastReport = 0;
+    if (millis() - lastReport >= 60000)
+    {
+      if (loopCount > 0)
+      {
+        float avgInterval = (float)loopSumMicros / loopCount;
+
+        // Log results (Ensure Core Debug Level is set to Debug in platformio.ini)
+        log_d("Loop Stats (60s): Avg: %.2f us, Max: %lu us, Total Iterations: %lu",
+              avgInterval, maxLoopInterval, loopCount);
+      }
+
+      // Reset counters for next period
+      loopSumMicros = 0;
+      loopCount = 0;
+      maxLoopInterval = 0;
+      lastReport = millis();
+    }
+#endif
+
     throttle.muMemberCheck();
   }
 
@@ -1259,11 +1305,9 @@ void loop()
   if (timer1sec.expired)
   {
     throttle.loop();
-    // #ifdef SERIAL_ON
+    // test loop duration, this should compute some statistics, like max and avg and report periodically like once a minute
     //     long myDuration = millis() - myStart;
-    //     Serial.print("Duration ");
-    //     Serial.println(myDuration);
-    // #endif
+    //     log_d("Duration %d", myDuration);
   }
 
 } // end loop
