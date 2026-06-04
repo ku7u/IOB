@@ -494,34 +494,23 @@ void Throttle::rearlight(int offDimBright)
         {
             if (offDimBright == 0)
             {
-                // if (callbackPushCommand)
-                //     callbackPushCommand(functionRearlightDim, false);
                 _dcc->pushCommand(functionRearlightDim, false);
-                // if (callbackPushCommand)
-                //     callbackPushCommand(functionRearlightBright, false);
                 _dcc->pushCommand(functionRearlightBright, false);
             }
             else if (offDimBright == 1)
             {
-                // if (callbackPushCommand)
-                //     callbackPushCommand(functionRearlightDim, true);
                 _dcc->pushCommand(functionRearlightDim, true);
 
-                // if (callbackPushCommand)
-                //     callbackPushCommand(functionRearlightBright, false);
                 _dcc->pushCommand(functionRearlightBright, false);
             }
             else if (offDimBright == 2)
             {
-                // if (callbackPushCommand)
-                //     callbackPushCommand(functionRearlightDim, false);
                 _dcc->pushCommand(functionRearlightDim, false);
 
-                // if (callbackPushCommand)
-                //     callbackPushCommand(functionRearlightBright, true);
                 _dcc->pushCommand(functionRearlightBright, true);
             }
         }
+        _rearlight = offDimBright;
         break;
 
     case mid:
@@ -556,7 +545,7 @@ void Throttle::rearlight(int offDimBright)
         Serial.print("[pmOnOff] jsonString: " + jsonString + " to ");
         Serial.println(muip);
 #endif
-
+        _rearlight = offDimBright;
         udpCommand.beginPacket(muip, COMMAND_PORT);
         udpCommand.write((uint8_t *)jsonString.c_str(), strlen(jsonString.c_str()));
         udpCommand.endPacket();
@@ -570,32 +559,20 @@ void Throttle::rearlight(int offDimBright)
             {
                 if (offDimBright == 0)
                 {
-                    // if (callbackPushCommand)
-                    //     callbackPushCommand(functionHeadlightDim, false);
                     _dcc->pushCommand(functionHeadlightDim, false);
 
-                    // if (callbackPushCommand)
-                    //     callbackPushCommand(functionRearlightBright, false);
                     _dcc->pushCommand(functionRearlightBright, false);
                 }
                 else if (offDimBright == 1)
                 {
-                    // if (callbackPushCommand)
-                    //     callbackPushCommand(functionHeadlightDim, true);
                     _dcc->pushCommand(functionHeadlightDim, true);
 
-                    // if (callbackPushCommand)
-                    //     callbackPushCommand(functionRearlightBright, false);
                     _dcc->pushCommand(functionRearlightBright, false);
                 }
                 else if (offDimBright == 2)
                 {
-                    // if (callbackPushCommand)
-                    //     callbackPushCommand(functionHeadlightDim, false);
                     _dcc->pushCommand(functionHeadlightDim, false);
 
-                    // if (callbackPushCommand)
-                    //     callbackPushCommand(functionRearlightBright, true);
                     _dcc->pushCommand(functionRearlightBright, true);
                 }
             }
@@ -606,32 +583,20 @@ void Throttle::rearlight(int offDimBright)
             {
                 if (offDimBright == 0)
                 {
-                    // if (callbackPushCommand)
-                    //     callbackPushCommand(functionRearlightDim, false);
                     _dcc->pushCommand(functionRearlightDim, false);
 
-                    // if (callbackPushCommand)
-                    //     callbackPushCommand(functionRearlightBright, false);
                     _dcc->pushCommand(functionRearlightBright, false);
                 }
                 else if (offDimBright == 1)
                 {
-                    // if (callbackPushCommand)
-                    //     callbackPushCommand(functionRearlightDim, true);
                     _dcc->pushCommand(functionRearlightDim, true);
 
-                    // if (callbackPushCommand)
-                    //     callbackPushCommand(functionRearlightBright, false);
                     _dcc->pushCommand(functionRearlightBright, false);
                 }
                 else if (offDimBright == 2)
                 {
-                    // if (callbackPushCommand)
-                    //     callbackPushCommand(functionRearlightDim, false);
                     _dcc->pushCommand(functionRearlightDim, false);
 
-                    // if (callbackPushCommand)
-                    //     callbackPushCommand(functionRearlightBright, true);
                     _dcc->pushCommand(functionRearlightBright, true);
                 }
             }
@@ -641,8 +606,6 @@ void Throttle::rearlight(int offDimBright)
 
 void Throttle::panicStop()
 {
-    // if (callbackThrottleDCC)
-    //     callbackThrottleDCC(_dccAddress, 0, 1);
     if (_dcc)
         _dcc->setThrottle(_dccAddress, 0, 1);
 #ifdef DEBUG_CALLBACK
@@ -663,9 +626,6 @@ void Throttle::bell(bool onOff)
 {
     if (_running)
     {
-        // commandFifo.pushCommand(functionBell, onOff);
-        // if (callbackPushCommand)
-        //     callbackPushCommand(functionBell, onOff);
         if (_dcc)
             _dcc->pushCommand(functionBell, onOff);
         _bell = onOff;
@@ -677,9 +637,6 @@ void Throttle::horn(bool onOff)
 
     if (_running)
     {
-        // commandFifo.pushCommand(functionHorn, onOff);
-        // if (callbackPushCommand)
-        //     callbackPushCommand(functionHorn, onOff);
         if (_dcc)
             _dcc->pushCommand(functionHorn, onOff);
     }
@@ -710,9 +667,6 @@ void Throttle::setDirection(int direction)
         _neutral = true;
 
     // send a speed command with zero speed just to set the current direction correctly in loco
-
-    // if (callbackThrottleDCC)
-    //     callbackThrottleDCC(_dccAddress, 0, _direction);
     if (_dcc)
         _dcc->setThrottle(_dccAddress, 0, _direction);
 }
@@ -737,10 +691,13 @@ void Throttle::setTrainData(char *traindata)
     // Deserialize the JSON document coming from candidate
     deserializeJson(doc, traindata);
 
+    _carCount = doc["carcount"];
     int length = doc["length"];
-    int tonnage = doc["tonnage"];
+    // int tonnage = doc["tonnage"];
+    _tonnage = doc["tonnage"];
 
-    setTonnage(tonnage);
+    log_d("carcount, length, tonnage %d, %d, %d",_carCount, length, _tonnage);
+    // setTonnage(tonnage);
 }
 
 void Throttle::setLBrake(bool applying)
@@ -750,13 +707,9 @@ void Throttle::setLBrake(bool applying)
     else
         _opMode = idle;
 
-    // if (callbackPushCommand)
-    //     callbackPushCommand(functionIndependentBrake, applying);
     if (_dcc)
         _dcc->pushCommand(functionIndependentBrake, applying);
 
-    // if (callbackApplyLocoBrake)
-    //     _independentBrake = callbackApplyLocoBrake(applying);
     if (_brakes)
         _brakes->applyLocoBrake(applying);
 }
@@ -768,70 +721,80 @@ void Throttle::setABrake(bool applying)
     else
         _opMode = idle;
 
-    // if (callbackApplyTrainBrake)
-    //     _trainBrake = callbackApplyTrainBrake(applying);
     if (_brakes)
         _brakes->applyTrainBrake(applying);
 
-    // if (callbackPushCommand)
-    //     callbackPushCommand(functionTrainBrake, applying);
     if (_dcc)
         _dcc->pushCommand(functionTrainBrake, applying);
 }
 
+
+/**
+ * @brief Set or release the emergency brake
+ * 
+ * @param applying 
+ * @todo how to reset trainline pressure
+ */
 void Throttle::setEBrake(bool applying)
 {
     if (applying)
         _opMode = braking;
     else
         _opMode = idle;
-    // TBD how to reset trainline pressure
 
-    // if (callbackApplyEmergency)
-    // callbackApplyEmergency(applying);
     if (_brakes)
         _brakes->applyEmmergency(applying);
 
-    // if (callbackGetEffectiveTrainBrake)
-    //     _trainBrake = callbackGetEffectiveTrainBrake();
     if (_brakes)
         _trainBrake = _brakes->getEffectiveTrainBrake();
 
-    // if (callbackGetEffectiveTrainBrake)
-    //     _independentBrake = callbackGetEffectiveTrainBrake();
     if (_brakes)
         _independentBrake = _brakes->getEffectiveLocoBrake(); // TBD notice typo on previous line re train brake
 
-    // if (callbackPushCommand)
-    //     callbackPushCommand(functionEmergencyBrake, applying);
     if (_dcc)
         _dcc->pushCommand(functionEmergencyBrake, applying);
 }
 
+
+/**
+ * @brief Does something
+ * 
+ * @param connect 
+ * @todo This has to be linked to tbrake
+ * Should respond to increase in car count rather than total cars if already connected
+ */
 void Throttle::trainline(bool connect)
-// TBD this has to be linked to tbrake
-//  also should respond to increase in car count rather than total cars if already connected
 {
-    if (connect)
-    {
-        // if (callbackConnectAirLine)
-        //     callbackConnectAirLine2(true, _carCount);
+    log_d("connect = %d", connect);
+    // if (connect)
+    // {
+    //     if (_brakes)
+    //         _brakes->connectAirLine(true);
+    //     _trainlineConnected = true;
+    // }
+    // else
+    // {
+    //     if (_brakes)
+    //         _brakes->connectAirLine(false);
 
-        _trainlineConnected = true;
-    }
-    else
+    //     _trainlineConnected = false;
+    // }
+    if (_brakes)
     {
-        // if (callbackConnectAirLine)
-        //     callbackConnectAirLine(false);
-        if (_brakes)
-            _brakes->connectAirLine(false);
-
-        _trainlineConnected = false;
+        _brakes->connectAirLine(connect, _carCount);
+        _trainlineConnected = connect;
     }
 }
 
+
+/**
+ * @brief Sets the notch value to be later processed in computeVelocity
+ * 
+ * @param up 
+ * True if notching up, false otherwise
+ */
 void Throttle::manualNotch(bool up)
-// this routine just sets the notch to be later processed in computeVelocity
+// 
 {
     uint32_t now;
 
@@ -918,15 +881,13 @@ void Throttle::manualNotch(bool up)
     }
 }
 
+
+/**
+ * @brief Force notch report to elicit haptic feedback on throttle indicating idle
+ * 
+ */
 void Throttle::reportNotch()
 {
-    // force notch report to elicit haptic on throttle indicating idle
-
-    // char topicChars[TOPIC_CHAR_SIZE];
-    // // strcpy(topicChars, _feedbackTopic.c_str());
-    // strcpy(topicChars, _locoID.c_str());
-    // strcat(topicChars, "/notch");
-
     char buffer[10];
     itoa(_notch, buffer, 10);
     char msgChars[20];
@@ -942,6 +903,13 @@ void Throttle::reportNotch()
     telemetry.sendTelemetry(_controllingIP, TELEMETRY_PORT, jsonString.c_str());
 }
 
+/**
+ * @brief Perform actions when a longpress event is sent from app
+ * @details 
+ * Actions performed depend on states
+ * 
+ * @param up 
+ */
 void Throttle::longPress(bool up)
 // long press on the volume up or down buttons in Android app
 {
@@ -956,13 +924,10 @@ void Throttle::longPress(bool up)
         // release all brakes
         if (_brakes)
         {
-            // if (callbackEmergencyBrakeOn())
             if (_brakes->emergencyBrakeOn())
                 setEBrake(false);
-            // if (callbackTrainBrakeOn())
             if (_brakes->trainBrakeOn())
                 setABrake(false);
-            // if (callbackLocoBrakeOn())
             if (_brakes->locoBrakeOn())
                 setLBrake(false);
         }
@@ -984,11 +949,6 @@ void Throttle::longPress(bool up)
             _direction = !_direction;
 
         // send back new direction as telemetry
-        // char topicChars[TOPIC_CHAR_SIZE]; // TBD the 30
-        // // strcpy(topicChars, _feedbackTopic.c_str());
-        // strcpy(topicChars, _locoID.c_str());
-        // strcat(topicChars, "/reverser");
-
         char msgChars[10];
         if (_direction)
             strcpy(msgChars, "2");
@@ -1021,6 +981,16 @@ void Throttle::longPress(bool up)
         panicStop();
 }
 
+
+/**
+ * @brief Calculate the instantaneous loco speed considering all the physics
+ * @details
+ * Gathers all forces and masses involved in the simulation.
+ * Computes a = f/m
+ * This routine is called once per second from main
+ * Integrates a to derive instantaneous velocity
+ * Integrates v to derive distance traveled
+ */
 void Throttle::computeVelocity(void)
 {
     uint16_t consistHorsepower = 0; // v0.26 ff
@@ -1196,11 +1166,15 @@ void Throttle::computeVelocity(void)
     }
 }
 
+
+/**
+ * @brief Speed calibration routine
+ * @details this routine sets a factor that is applied to the commanded DCC speed such that
+ * the actual scale speed over the rails is accurate with respect to commanded mph
+ * @param speed 
+ */
 void Throttle::calibrate(int speed)
 {
-    // this routine sets a factor that is applied to the commanded DCC speed such that
-    // the actual scale speed over the rails is accurate with respect to commanded mph
-
     char dummyChars[31];
     long calibrationPeriod;
     int trapLength;
@@ -1391,7 +1365,7 @@ void Throttle::calibrate(int speed)
 
 /**
  * @brief Set mu state either mued or not
- *
+ * @details
  * from MU fragment on app select trailing locos
  *  command is sent only to the selected trailing loco
  *
@@ -1505,23 +1479,28 @@ void Throttle::muSetState(const char *jsonMsg)
     // deal with muSubscribe, what does that mean for udp?
 } // muSetState
 
+/**
+ * @brief Send trailing unit data to lead unit
+ * @details
+ * this routine is run by trailing mued locos and results in a message sent that is received by lead loco to adjust its performance to include trailing units
+ * this technique synchronizes lead and mu units on lead startup
+ * all locos that think they are mued to a lead loco will respond to the muReport message if the locoID in that message equals their lead
+ * the lead will build a roster of all candidates received
+ * all received candidates will be included in loco speed status messages
+ * a candidate will only respond to speed status messages that include its id, and will change its mu status to not mued if missing
+ * Run at startup of lead unit via message to query for any mu trailing locos
+ * Also run from muSetState which is initiated by the app
+ * @param leadIpAdr 
+ */
 void Throttle::muReport(const char *leadIpAdr) // v0.26
 {
-    // this routine is run by trailing mued locos and results in a message sent that is received by lead loco to adjust its performance to include trailing units
-    // this technique synchronizes lead and mu units on lead startup
-    // all locos that think they are mued to a lead loco will respond to the muReport message if the locoID in that message equals their lead
-    // the lead will build a roster of all candidates received
-    // all received candidates will be included in loco speed status messages
-    // a candidate will only respond to speed status messages that include its id, and will change its mu status to not mued if missing
-    // Run at startup of lead unit via message to query for any mu trailing locos
-    // Also run from muSetState which is initiated by the app
+    // only trailers need apply
     if ((_muState == mid) || (_muState == trailing))
     {
         String muIP = WiFi.localIP().toString();
         String jsonString = "";
 
         JsonDocument doc;
-        // doc["topic"] = topicChars;
         doc["topic"] = "muLocoData";
         doc["id"] = _locoID.c_str();
         doc["muip"] = muIP.c_str();
@@ -1541,6 +1520,7 @@ void Throttle::muReport(const char *leadIpAdr) // v0.26
 #endif
     }
 }
+
 
 /**
  * @brief Set the performance characteristics of the lead MU unit.
@@ -1671,8 +1651,9 @@ void Throttle::muSetPerformance(const char *jsonMsg)
     }
 }
 
+
 /**
- * @brief Receive speed messages from lead unit, set this unit's speed to match.
+ * @brief For a trailing unit, receive speed messages from lead unit, set this unit's speed to match.
  *
  * @param jsonMsg
  */
@@ -1752,6 +1733,7 @@ void Throttle::muSetSpeed(const char *jsonMsg)
         _dcc->setThrottle(_dccAddress, dccFPS, direction);
 }
 
+
 /**
  * @brief Sends static condition to app whenever app opens throttle fragment.
  *
@@ -1779,47 +1761,50 @@ void Throttle::reportCondition()
         revPos = 0;
     const char charDir[2] = {char(revPos + 48), 0}; // 48 = ascii zero
 
-    // // headlight status off, dim, bright
+    // headlight status off, dim, bright
     const char charHl[2] = {char(_headlight + 48), 0}; // 48 = ascii zero
 
-    // // rearlight status off, dim, bright
+    // rearlight status off, dim, bright
     const char charRl[2] = {char(_rearlight + 48), 0}; // 48 = ascii zero
 
-    // // bell
+    // bell
     const char charBl[2] = {char(_bell + 48), 0}; // 48 = ascii zero
     // strcat(msgChars, charBl);
+    
+    // charPsi = _trainlinePSI, 0; 
 
-    // // car count    TBD this and 'cars' below one is superfluous
 
-    // // trainline
+    // car count    TBD this and 'cars' below one is superfluous
 
-    // // mu status
-    // strcat(msgChars, ",\"mu\":");                    // new 10/29
+    // trainline
+
+    // mu status
     const char charMu[2] = {char(_muState + 48), 0}; // 48 = ascii zero
-    // strcat(msgChars, charMu);
 
-    // // if mued, the lead loco id  TBD this may not be necessary as it is handled elsewhere
-                             // v 0.15
+    // if mued, the lead loco id  TBD this may not be necessary as it is handled elsewhere
     const char charTl[2] = {char(_trainlineConnected + 48), 0}; // 48 = ascii zero
 
 
-    // // hauled tonnage
+    // hauled tonnage
 
 
     JsonDocument doc;
     doc["topic"] = "condition";
     doc["id"] = _locoID.c_str();
-    doc["pm "] = charPm;
+    doc["pm"] = charPm;
     doc["rvrsr"] = charDir;
     doc["hl"] = charHl;
     doc["rl"] = charRl;
     doc["bell"] = charBl;
-    doc["psi"] = charPsi;
+    // doc["psi"] = charPsi;
+    doc["psi"] = _trainlinePSI, 0;
     doc["mu"] = charMu;
     doc["muto"] = _muLeadLoco.c_str();
     doc["tl"] = charTl;
-    doc["cars"] = charCarCount;
-    doc["tons"] = charTonnage;
+    // doc["cars"] = charCarCount;
+    doc["cars"] = _carCount;
+    // doc["tons"] = charTonnage;
+    doc["tons"] = _tonnage;
     serializeJson(doc, jsonString);
 
     // udp publish via telemetry
@@ -1987,9 +1972,16 @@ void Throttle::reportFunctionLabels()
 #endif
 }
 
+/**
+ * @brief Returns raw feet/sec speed to decoder speed value
+ * @details Incorporates speed calibration values and interpolates between them.
+ * The returned value is sent directly to the decoder as the speed command.
+ * @param fps 
+ * @return uint16_t 
+ */
 uint16_t Throttle::interpolateSpeedFactor(float fps)
 {
-    // provides an interpolated value of calibration factors between stored values
+    // 
 
     float factorF;
     float factorR;
@@ -2059,6 +2051,7 @@ void Throttle::setFunction(char *jsonMsg)
  * @brief Turn on brake squeal sound.
  *
  * @details Squeal on/off must be commanded because builtin decoder functionality is not available here.
+ *  Hardcoded to start squealing at 3 mph.
  *
  * @param on
  */
@@ -2235,6 +2228,7 @@ void Throttle::muMemberResponse(const char *muip)
         strcpy(isMemberChar, "false");
     else
     {
+        // run thru muDoc looking for the trailer's IP, if found he is a member of the club
         for (JsonPair kv : root)
         {
             JsonObject obj = kv.value();

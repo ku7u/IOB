@@ -130,9 +130,9 @@ private:
     bool _muActive;       // false = not MUed
 
     bool _running = false;
-    uint _headlight;
-    uint _rearlight;
-    bool _bell;
+    uint _headlight = 0;
+    uint _rearlight = 0;
+    bool _bell = 0;
     bool _direction; // true = forward
     uint16_t _throttleLever;
     uint16_t _notch;

@@ -18,9 +18,11 @@ int UdpTransport::receive(uint8_t *buffer, size_t maxLen,
 {
     int packetSize = _udp.parsePacket();
     if (!packetSize) return 0;
-
+    
     senderIP   = _udp.remoteIP();
     senderPort = _udp.remotePort();
+
+    log_d("received from %s", senderIP.toString().c_str());
 
     return _udp.read(buffer, maxLen);
 }

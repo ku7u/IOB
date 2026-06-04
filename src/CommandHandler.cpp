@@ -46,10 +46,11 @@ void CommandHandler::loop()
     buf[len] = 0; // <- null terminate
     msg = String((char *)buf).substring(0, len);
 
-    log_d("Receivd %s having %d bytes from %s:%d", buf, len, ip.toString().c_str(), port);
+    log_d("Received %s having %d bytes from %s:%d", buf, len, ip.toString().c_str(), port);
 
     // ignore my own messages TBD shouldn't have to check this, should not be sending to myself
-    if (ip == WiFi.localIP()) return;
+    if (ip == WiFi.localIP())
+        return;
 
     // Parse the JSON
     JsonDocument doc;
@@ -65,11 +66,28 @@ void CommandHandler::loop()
 
     // Extract fields
     // const char *id = doc["id"];  TBD why is this still sent, fix it in the app
-    const char *topic = doc["topic"];
-    const char *value = doc["value"]; // TBD why const or not? required const for arduinoJson 7.x
+    const char* topic;
+    const char* value;
 
-    // enqueue(topic, value, ip);
-    // return;
+    // if (doc.containsKey("topic"))
+    if (doc["topic"].is<const char*>())
+    topic = doc["topic"];
+    else
+    {
+        log_e("missing topic in incoming data");
+        return;
+    }
+    
+    // if (doc.containsKey("value"))
+    if (doc["value"].is<const char*>())
+        value = doc["value"];
+    // else
+    // {
+    //     log_e("missing value in incoming data");
+    //     return;
+    // }
+
+    // const char *value = doc["value"]; // TBD why const or not? required const for arduinoJson 7.x
 
     JsonVariant valueVariant = doc["value"];
 
@@ -123,41 +141,52 @@ void CommandHandler::loop()
         _throttle.setDirection(atoi(value));
 
     // mu processing
-    else if (strcmp(shortTopic, "muSetState") == 0)
+    else if (strcmp(shortTopic, "muSetState") == 0) // from app to trailer
     {
         // a loco is chosen to be mued to a lead, value is a json string that includes lead id,
         static char buffer[256];
         serializeJson(valueVariant, buffer, sizeof(buffer));
         _throttle.muSetState(buffer);
     }
-    else if (strcmp(shortTopic, "muLocoData") == 0)
-    // a loco is chosen to be mued to a lead, value is a json string that includes lead id,
-    // static char buffer[256];
+    else if (strcmp(shortTopic, "muLocoData") == 0) // from trail to lead
+    // a loco is chosen to be mued to a lead, value is a json string that includes lead id, and loco characteristics
     {
         _throttle.muSetPerformance(msg.c_str());
     }
     // else if (strcmp(topic, "muReport") == 0)
-    else if (strcmp(topic, "muQueryTrailers") == 0)
-    // trailing units send their hp, mass, te, mu status to lead
+    else if (strcmp(topic, "muQueryTrailers") == 0) // from lead to trailer
+        // trailing units send their hp, mass, te, mu status to lead
         _throttle.muReport(value);
 
-    else if (strcmp(topic, "muMemberCheck") == 0)
+    else if (strcmp(topic, "muMemberCheck") == 0) // from trailer to lead once in a while
         _throttle.muMemberResponse(value);
 
-    else if (strcmp(topic, "muMemberResponse") == 0){
-        if (strcmp(value, "true") == 0) _throttle.muMemberCheck(1);
-        else _throttle.muMemberCheck(0);
+    else if (strcmp(topic, "muMemberResponse") == 0) // from lead to trailer
+    {
+        if (strcmp(value, "true") == 0)
+            _throttle.muMemberCheck(1);
+        else
+            _throttle.muMemberCheck(0);
     }
 
-    else if (strcmp(topic, "muLeadStatus") == 0)
+    else if (strcmp(topic, "muLeadStatus") == 0) // from lead to trailer
     {
         // speed command, possibly other data
         _throttle.muSetSpeed(msg.c_str());
-    };
+    }
+
+    else if (strcmp(topic, "traindata") == 0)
+    {
+        // traindata from CarServer
+        static char buffer[256];
+        serializeJson(valueVariant, buffer, sizeof(buffer));
+        _throttle.setTrainData(buffer);
+    }
+
     // else if (strcmp(shortTopic, "muLeadHeadlight") == 0); // headclight command to trailing unit\
 
-    // else if (strcmp(shortTopic, "muLeadRearlight") == 0;    // rearlight command to trailing unit
-}
+    // else if (strcmp(shortTopic, "muLeadRearlight") == 0;    // rearlight command to trailing
+};
 
 const char *CommandHandler::getSubstringAfterLastSlash(const char *input)
 {

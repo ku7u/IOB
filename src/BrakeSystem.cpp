@@ -77,12 +77,18 @@ bool BrakeSystem::cycle(bool pmRunning)
     // adjust the trainline pressure
     if ((_trainlineSetPSI > _trainlinePSI))
     {
+        // if (_carCount < 5)
+        //     _trainlinePSI += 20;
+        // else if (_carCount < 10)
+        //     _trainlinePSI += 10;
+        // else
+        //     _trainlinePSI += 5;
         if (_carCount < 5)
-            _trainlinePSI += 20;
-        else if (_carCount < 10)
             _trainlinePSI += 10;
-        else
+        else if (_carCount < 10)
             _trainlinePSI += 5;
+        else
+            _trainlinePSI += 2;
 
         if (_trainlinePSI > TRAINLINE_MAX_PSI)
             _trainlinePSI = TRAINLINE_MAX_PSI;
@@ -215,9 +221,13 @@ void BrakeSystem::connectAirLine(bool connecting, uint16_t carCount)
     _carCount = carCount;
 
     // reduce the trainline pressure proportional to carcount
-    _trainlinePSI -= _carCount * 2;
-    if (_trainlinePSI < 0)
+    if (connecting){
+        // _trainlinePSI -= _carCount * 2;
+        _trainlinePSI -= _carCount * 5;
+        log_d("-trainlinePSI %f", _trainlinePSI);
+        if (_trainlinePSI < 0)
         _trainlinePSI = 0; 
+    }
 }
 
 void BrakeSystem::release(void)

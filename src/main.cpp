@@ -331,7 +331,8 @@ String headlightFunction;
 // timers
 MultiTimer timer1sec(1000);
 MultiTimer timer200ms(200);
-MultiTimer timer60000ms(60000);
+// MultiTimer timer60000ms(60000);
+MultiTimer timerMCL(MU_MEMBER_CHECK_LOOP_PERIOD);
 
 // NEXT DECLARE GLOBAL OBJECTS TO PROCESS AND STORE DCC PACKETS AND MONITOR TRACK CURRENTS.
 // NOTE REGISTER LISTS MUST BE DECLARED WITH "VOLATILE" QUALIFIER TO ENSURE THEY ARE PROPERLY UPDATED BY INTERRUPT ROUTINES
@@ -499,7 +500,7 @@ void enforceConfigDefaults()
 {
   bool needsSave = false;
 
-  // --- 1. General Namespace ---
+  // --- 1. General Namespace (legacy values) ---
   SEED_DEFAULT("general", "topicCommandLeftEnd", "loco/1/cmd");
   SEED_DEFAULT("general", "topicFeedbackLeftEnd", "loco/1/telemetry");
   SEED_DEFAULT("general", "commandtopic", "cmd/ols/");
@@ -1229,7 +1230,8 @@ void loop()
 {
   timer1sec.tick();
   timer200ms.tick();
-  timer60000ms.tick();
+  // timer60000ms.tick();
+  timerMCL.tick();
 
   // loop timing statistics
   #ifdef LOOP_TIMING
@@ -1255,7 +1257,8 @@ void loop()
   commands.loop();
   processPendingCommands();
 
-  if (timer60000ms.expired)
+  // if (timer60000ms.expired)
+  if (timerMCL.expired)
   {
 //   // memory testing
 //   int freeHeap = ESP.getFreeHeap();
